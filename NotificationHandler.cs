@@ -1,8 +1,10 @@
 using HarmonyLib;
 using Il2CppGame;
+using Il2CppSystem.Collections.Generic;
 using MelonLoader;
 using System;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace SO2RAccess
@@ -26,7 +28,15 @@ namespace SO2RAccess
         #region Fields
 
         private bool _patchesApplied = false;
+
+        /// <summary>Extracts the name from sprite tags (e.g. "&lt;sprite name=PS4_Cross&gt;" → "Cross").</summary>
+        private static readonly Regex _spriteNameExtractor = new Regex(
+            @"<sprite\s+name\s*=\s*([^>]+?)>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        /// <summary>Strips any remaining rich text tags from game strings.</summary>
         private static readonly Regex _tagStripper = new Regex("<[^>]+>", RegexOptions.Compiled);
+        /// <summary>Controller-type prefixes stripped from sprite names for readability.</summary>
+        private static readonly string[] _spritePrefixes = new[]
+            { "PS5_", "PS4_", "Xbox_", "Switch_", "PC_", "Gamepad_" };
 
         /// <summary>
         /// Set to true by DialogPresenter_Setup_Postfix so that the immediate
@@ -53,6 +63,13 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(UITutorialInformationPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIDialogPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIDialogWindow).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIOverflowItemPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(OverflowResourceData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIFieldLocationPointPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(GameManager).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(ConstRewardParameter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(ConstItemParameter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(ConstLocationPointParameter).TypeHandle);
 
                 // Fires when a tutorial page is displayed or navigated to.
                 harmony.Patch(
@@ -95,6 +112,41 @@ namespace SO2RAccess
                         nameof(DialogWindow_SetupDescription_Postfix))
                 );
 
+                // Fires when an item acquisition popup is populated (treasure chests,
+                // quest rewards, etc.). CallerCount(3) — hookable.
+                harmony.Patch(
+                    AccessTools.Method(typeof(UIOverflowItemPresenter), "SetItem",
+                        new Type[] { typeof(List<OverflowResourceData>) }),
+                    postfix: new HarmonyMethod(typeof(NotificationHandler),
+                        nameof(OverflowItemPresenter_SetItem_Postfix))
+                );
+
+                // Fires when a location discovery notification popup appears.
+                // CallerCount(1) — hookable.
+                harmony.Patch(
+                    AccessTools.Method(typeof(UIFieldLocationPointPresenter), "Set",
+                        new Type[] { typeof(string), typeof(string) }),
+                    postfix: new HarmonyMethod(typeof(NotificationHandler),
+                        nameof(LocationPointPresenter_Set_Postfix))
+                );
+
+                // Fires when the game gives rewards with a UI window (location points,
+                // missions, etc.). CallerCount(6) — hookable. Announces reward contents.
+                harmony.Patch(
+                    AccessTools.Method(typeof(GameManager), "GiveRewardWithWindow",
+                        new Type[]
+                        {
+                            typeof(Il2CppSystem.Collections.Generic.List<ConstRewardParameter>),
+                            typeof(Il2CppSystem.Action<GameManager.IncreaseItemResult>),
+                            typeof(bool),
+                            typeof(string),
+                            typeof(string),
+                            typeof(GameDefine.Jingle)
+                        }),
+                    postfix: new HarmonyMethod(typeof(NotificationHandler),
+                        nameof(GiveRewardWithWindow_Postfix))
+                );
+
                 _patchesApplied = true;
                 DebugLogger.LogState("NotificationHandler: patches applied.");
             }
@@ -121,16 +173,23 @@ namespace SO2RAccess
 
                 string title = StripTags(data.title ?? "");
                 string description = StripTags(data.description ?? "");
+                string operation = StripTags(data.operation ?? "");
 
                 if (string.IsNullOrEmpty(description) && string.IsNullOrEmpty(title)) return;
 
-                string announcement = string.IsNullOrEmpty(title)
-                    ? Loc.Get("tutorial_page_no_title", description)
-                    : Loc.Get("tutorial_page", title, description);
+                string announcement;
+                if (string.IsNullOrEmpty(title))
+                    announcement = Loc.Get("tutorial_page_no_title", description);
+                else
+                    announcement = Loc.Get("tutorial_page", title, description);
+
+                // Append operation/controls text if present.
+                if (!string.IsNullOrEmpty(operation))
+                    announcement += " " + Loc.Get("tutorial_operation", operation);
 
                 ScreenReader.Say(announcement);
                 DebugLogger.LogGameValue("Tutorial",
-                    $"title='{title}' desc='{description}'");
+                    $"title='{title}' desc='{description}' operation='{operation}'");
             }
             catch (Exception ex)
             {
@@ -232,6 +291,140 @@ namespace SO2RAccess
             }
         }
 
+        /// <summary>
+        /// Postfix for UIOverflowItemPresenter.SetItem(List&lt;OverflowResourceData&gt;).
+        /// Fires when an item acquisition popup is populated (treasure chests, quest
+        /// rewards, etc.). Announces the popup message and all acquired items.
+        /// </summary>
+        private static void OverflowItemPresenter_SetItem_Postfix(
+            UIOverflowItemPresenter __instance, List<OverflowResourceData> itemList)
+        {
+            try
+            {
+                if (itemList == null || itemList.Count == 0) return;
+
+                var sb = new StringBuilder();
+
+                // Read the popup message text (e.g. "Obtained the following items").
+                string msg = StripTags(__instance.message?.text ?? "");
+                if (!string.IsNullOrEmpty(msg))
+                {
+                    sb.Append(msg);
+                    sb.Append(" ");
+                }
+
+                // List each item with its count.
+                for (int i = 0; i < itemList.Count; i++)
+                {
+                    var item = itemList[i];
+                    if (item == null) continue;
+
+                    string itemName = StripTags(item.name ?? "");
+                    if (string.IsNullOrEmpty(itemName)) continue;
+
+                    int count = item.count;
+                    if (count > 1)
+                        sb.Append(Loc.Get("overflow_item_multi", itemName, count));
+                    else
+                        sb.Append(Loc.Get("overflow_item", itemName));
+
+                    if (i < itemList.Count - 1)
+                        sb.Append(", ");
+                }
+
+                string announcement = sb.ToString().Trim();
+                if (!string.IsNullOrEmpty(announcement))
+                {
+                    ScreenReader.Say(announcement);
+                    DebugLogger.LogGameValue("OverflowItem",
+                        $"msg='{msg}' itemCount={itemList.Count}");
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning(
+                    $"OverflowItemPresenter_SetItem_Postfix: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Postfix for UIFieldLocationPointPresenter.Set(string name, string description).
+        /// Fires when a location discovery notification popup appears on the field.
+        /// Announces "Discovered [name]. [description]" to the screen reader.
+        /// </summary>
+        private static void LocationPointPresenter_Set_Postfix(string name, string description)
+        {
+            try
+            {
+                string cleanName = StripTags(name ?? "");
+                string cleanDesc = StripTags(description ?? "");
+
+                if (string.IsNullOrEmpty(cleanName) && string.IsNullOrEmpty(cleanDesc))
+                    return;
+
+                string announcement;
+                if (!string.IsNullOrEmpty(cleanDesc))
+                    announcement = Loc.Get("location_discovered_desc", cleanName, cleanDesc);
+                else
+                    announcement = Loc.Get("location_discovered", cleanName);
+
+                // Resolve rewards from game data (native reward flow bypasses managed hooks).
+                string rewardText = ResolveLocationRewards(cleanName);
+                if (!string.IsNullOrEmpty(rewardText))
+                    announcement += " " + rewardText;
+
+                ScreenReader.Say(announcement);
+                DebugLogger.LogGameValue("LocationDiscovered",
+                    $"name='{cleanName}' desc='{cleanDesc}' rewards='{rewardText ?? "(none)"}'");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"LocationPointPresenter_Set_Postfix: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Postfix for GameManager.GiveRewardWithWindow(List, Action, bool, string, string, Jingle).
+        /// Fires when the game awards rewards with a popup window via managed code
+        /// (missions, etc.). Location point rewards bypass this (native-only flow)
+        /// and are handled by ResolveLocationRewards instead.
+        /// </summary>
+        private static void GiveRewardWithWindow_Postfix(
+            Il2CppSystem.Collections.Generic.List<ConstRewardParameter> rewardParameterList,
+            string message, string description)
+        {
+            try
+            {
+                if (rewardParameterList == null || rewardParameterList.Count == 0) return;
+
+                var sb = new StringBuilder();
+
+                // Include the popup message if present.
+                string cleanMsg = StripTags(message ?? "");
+                if (!string.IsNullOrEmpty(cleanMsg))
+                {
+                    sb.Append(cleanMsg);
+                    sb.Append(" ");
+                }
+
+                string rewardText = FormatRewardList(rewardParameterList);
+                if (!string.IsNullOrEmpty(rewardText))
+                    sb.Append(rewardText);
+
+                string announcement = sb.ToString().Trim();
+                if (!string.IsNullOrEmpty(announcement))
+                {
+                    ScreenReader.Say(announcement);
+                    DebugLogger.LogGameValue("Reward",
+                        $"count={rewardParameterList.Count} msg='{cleanMsg}'");
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"GiveRewardWithWindow_Postfix: {ex.Message}");
+            }
+        }
+
         #endregion
 
         #region Helpers
@@ -254,13 +447,189 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Removes TextMeshPro rich-text markup tags from a string
-        /// so only the plain text is announced.
+        /// Cleans rich text from a game string. Sprite tags have their name
+        /// extracted and controller prefixes stripped (e.g. "&lt;sprite name=PS4_Cross&gt;"
+        /// → "Cross"), then any remaining tags are removed.
         /// </summary>
         private static string StripTags(string text)
         {
             if (string.IsNullOrEmpty(text)) return text;
-            return _tagStripper.Replace(text, "").Trim();
+            text = _spriteNameExtractor.Replace(text, m => StripControllerPrefix(m.Groups[1].Value));
+            text = _tagStripper.Replace(text, "");
+            return text.Trim();
+        }
+
+        /// <summary>
+        /// Removes a controller-type prefix from a sprite name.
+        /// For example "PS4_Cross" becomes "Cross", "Xbox_A" becomes "A".
+        /// </summary>
+        private static string StripControllerPrefix(string spriteName)
+        {
+            foreach (var prefix in _spritePrefixes)
+            {
+                if (spriteName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return spriteName.Substring(prefix.Length);
+            }
+            return spriteName;
+        }
+
+        /// <summary>
+        /// Resolves location point rewards by matching the discovered location name
+        /// against ConstLocationPointParameter data for the current map.
+        /// Returns a formatted string like "50 EXP, Blueberry x2" or null if no match.
+        /// Called from LocationPointPresenter_Set_Postfix because the native reward
+        /// flow bypasses managed Harmony hooks entirely.
+        /// </summary>
+        private static string ResolveLocationRewards(string locationName)
+        {
+            try
+            {
+                var pm = ParameterManager.Instance;
+                var fm = FieldManager.Instance;
+                if (pm == null || fm == null) return null;
+
+                FieldmapID currentMap = fm.currentFieldmapID;
+                var locPoints = pm.GetLocationPointParameterList(currentMap);
+                if (locPoints == null || locPoints.Count == 0) return null;
+
+                // Single location point on this map — use it directly.
+                // TextManager cannot resolve locationNameID keys, so name matching
+                // is not possible. This covers the common case (1 point per area).
+                if (locPoints.Count == 1)
+                {
+                    int rewardID = locPoints[0]?.rewardID ?? 0;
+                    if (rewardID <= 0) return null;
+                    var rewards = pm.GetRewardParameterList(rewardID);
+                    return FormatRewardList(rewards);
+                }
+
+                // Multiple location points — match by proximity to the player.
+                // The player just walked to the point to discover it, so the
+                // nearest FieldLocationPoint on the map is the one being discovered.
+                var locPointList = fm.FieldLocationPointList;
+                if (locPointList == null || locPointList.Count == 0) return null;
+
+                var player = fm.GetControlPlayer();
+                if (player == null) return null;
+
+                var playerPos = player.transform.position;
+                float bestDist = float.MaxValue;
+                int bestRewardID = 0;
+
+                for (int i = 0; i < locPointList.Count; i++)
+                {
+                    var flp = locPointList[i];
+                    if (flp == null) continue;
+
+                    float dist = UnityEngine.Vector3.Distance(playerPos, flp.transform.position);
+                    if (dist < bestDist)
+                    {
+                        bestDist = dist;
+                        bestRewardID = flp.rewardID;
+                    }
+                }
+
+                if (bestRewardID <= 0) return null;
+                var rewardList = pm.GetRewardParameterList(bestRewardID);
+                return FormatRewardList(rewardList);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"ResolveLocationRewards: {ex.Message}");
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Formats a list of ConstRewardParameter into a readable string.
+        /// Used by both ResolveLocationRewards and GiveRewardWithWindow_Postfix.
+        /// </summary>
+        private static string FormatRewardList(
+            Il2CppSystem.Collections.Generic.List<ConstRewardParameter> rewards)
+        {
+            if (rewards == null || rewards.Count == 0) return null;
+
+            var sb = new StringBuilder();
+            for (int i = 0; i < rewards.Count; i++)
+            {
+                var param = rewards[i];
+                if (param == null) continue;
+
+                RewardType type = param.rewardType;
+                int val = param.value;
+                int count = param.count;
+
+                string rewardText = type switch
+                {
+                    RewardType.EXP  => Loc.Get("reward_exp", val),
+                    RewardType.FOL  => Loc.Get("reward_fol", val),
+                    RewardType.SP   => Loc.Get("reward_sp", val),
+                    RewardType.BP   => Loc.Get("reward_bp", val),
+                    RewardType.ITEM => FormatItemReward(val, count),
+                    _               => null
+                };
+
+                if (string.IsNullOrEmpty(rewardText)) continue;
+
+                if (sb.Length > 0)
+                    sb.Append(", ");
+                sb.Append(rewardText);
+            }
+            return sb.Length > 0 ? sb.ToString() : null;
+        }
+
+        /// <summary>
+        /// Resolves an item reward to a readable string. Looks up the item name
+        /// from ParameterManager and TextManager. Falls back to parsing the key
+        /// if TextManager cannot resolve it.
+        /// </summary>
+        private static string FormatItemReward(int itemID, int count)
+        {
+            string name = null;
+            try
+            {
+                var pm = ParameterManager.Instance;
+                if (pm != null)
+                {
+                    var itemParam = pm.GetItemParameter(itemID);
+                    if (itemParam != null)
+                    {
+                        string nameID = itemParam.itemNameID;
+                        if (!string.IsNullOrEmpty(nameID))
+                        {
+                            // Try TextManager to resolve the name ID to a display name.
+                            var tm = TextManager.Instance;
+                            if (tm != null)
+                            {
+                                string resolved = tm.GetMessage(nameID, TextManager.MessageType.Item);
+                                if (!string.IsNullOrEmpty(resolved) && resolved != nameID)
+                                    name = resolved;
+                            }
+
+                            // Fallback: parse the key (strip "ITEM_", title case).
+                            if (string.IsNullOrEmpty(name))
+                            {
+                                name = nameID;
+                                if (name.StartsWith("ITEM_", StringComparison.OrdinalIgnoreCase))
+                                    name = name.Substring(5);
+                                name = System.Globalization.CultureInfo.InvariantCulture
+                                    .TextInfo.ToTitleCase(name.Replace("_", " ").ToLower());
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"FormatItemReward: failed for itemID={itemID}: {ex.Message}");
+            }
+
+            if (string.IsNullOrEmpty(name))
+                name = $"item {itemID}";
+
+            return count > 1
+                ? Loc.Get("reward_item_multi", name, count)
+                : Loc.Get("reward_item", name);
         }
 
         #endregion

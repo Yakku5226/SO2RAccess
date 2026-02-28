@@ -3,6 +3,7 @@ using MelonLoader;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using System.Collections;
+using System.IO;
 using Il2CppGame;
 
 // IMPORTANT: Do NOT access game singletons (GameManager.Instance, etc.)
@@ -47,7 +48,10 @@ namespace SO2RAccess
         private NavigationHandler _navigationHandler;
         private CampMenuHandler _campMenuHandler;
         private BattleResultHandler _battleResultHandler;
+        private BattleCounterHandler _battleCounterHandler;
         private ShopHandler _shopHandler;
+        private EnemyProximityHandler _enemyProximityHandler;
+        private GameOverHandler _gameOverHandler;
 
         // Gamepad nav overlay — L1 hold-to-open state.
         private bool _gamepadL1Held;
@@ -70,6 +74,14 @@ namespace SO2RAccess
         public override void OnInitializeMelon()
         {
             ScreenReader.Initialize();
+            AudioCuePlayer.Initialize();
+
+            // Load spatial audio for enemy proximity cue.
+            string soundsDir = Path.Combine(Directory.GetCurrentDirectory(),
+                "UserData", "SO2RAccess", "Sounds");
+            string proximityWavPath = Path.Combine(soundsDir, "Enemy_proximity.wav");
+            SpatialAudioPlayer.Initialize(proximityWavPath);
+
             Loc.Initialize();
             InitializeHandlers();
             MelonCoroutines.Start(AnnounceStartupDelayed());
@@ -90,7 +102,10 @@ namespace SO2RAccess
             _navigationHandler = new NavigationHandler();
             _campMenuHandler = new CampMenuHandler();
             _battleResultHandler = new BattleResultHandler();
+            _battleCounterHandler = new BattleCounterHandler();
             _shopHandler = new ShopHandler();
+            _enemyProximityHandler = new EnemyProximityHandler();
+            _gameOverHandler = new GameOverHandler();
         }
 
         private IEnumerator AnnounceStartupDelayed()
@@ -148,6 +163,8 @@ namespace SO2RAccess
             _gameReady = false;
             _navigationHandler?.CancelAutoWalk(announce: false);
             _shopHandler?.OnSceneChanged();
+            _enemyProximityHandler?.OnSceneChanged();
+            _gameOverHandler?.OnSceneChanged();
 
             // Apply patches once — safe to call on every scene load, handlers guard against duplicates.
             _titleHandler.ApplyPatches(_harmony);
@@ -162,7 +179,10 @@ namespace SO2RAccess
             _navigationHandler.ApplyPatches(_harmony);
             _campMenuHandler.ApplyPatches(_harmony);
             _battleResultHandler.ApplyPatches(_harmony);
+            _battleCounterHandler.ApplyPatches(_harmony);
             _shopHandler.ApplyPatches(_harmony);
+            _enemyProximityHandler.ApplyPatches(_harmony);
+            _gameOverHandler.ApplyPatches(_harmony);
         }
 
         /// <summary>
@@ -170,7 +190,9 @@ namespace SO2RAccess
         /// </summary>
         public override void OnApplicationQuit()
         {
+            SpatialAudioPlayer.Shutdown();
             ScreenReader.Shutdown();
+            AudioCuePlayer.Shutdown();
         }
 
         #endregion
@@ -324,9 +346,14 @@ namespace SO2RAccess
             bool l1Held    = gp.leftShoulder.isPressed;
             bool l1Released = gp.leftShoulder.wasReleasedThisFrame;
 
-            // L1 just pressed — open nav overlay.
+            // L1 just pressed — open nav overlay (only when field is free).
             if (l1Pressed)
             {
+                // If camp menu (or other overlay) is open, let L1 pass through
+                // to the game without activating the nav overlay.
+                if (CampMenuHandler.IsCampOpen)
+                    return;
+
                 _gamepadL1Held = true;
                 _dpadRepeatDir = 0;
                 _dpadRepeatTimer = 0f;
@@ -427,8 +454,8 @@ namespace SO2RAccess
             _navigationHandler.Update();
             _campMenuHandler.Update();
             _shopHandler.Update();
-            // _titleHandler.Update();
-            // _battleHandler.Update();
+            _enemyProximityHandler.Update();
+            _gameOverHandler.Update();
         }
 
         #endregion

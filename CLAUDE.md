@@ -37,7 +37,6 @@ Update `project_status.md` on significant progress and before session end.
 - **Playability** — play as sighted do; cheats only if unavoidable
 - **Modular** — separate input, UI, announcements, game state
 - **Maintainable** — consistent patterns, extensible
-- **Efficient** — cache objects, skip unnecessary work
 - **Robust** — utility classes, edge cases, announce state changes
 - **Respect game controls** — never override game keys, handle rapid presses
 - **Submission-quality** — clean enough for dev integration, consistent formatting, meaningful names, no undocumented hacks
@@ -63,7 +62,6 @@ Patterns: `docs/ACCESSIBILITY_MODDING_GUIDE.md`
 - Feature done → suggest new conversation to save tokens. Update `project_status.md`.
 - ~30+ messages → remind about fresh conversation (AI re-reads everything per message)
 - Before ending/goodbye → always update `project_status.md`
-- Never re-read decompiled code already documented in `docs/game-api.md`
 - After new code analysis → document in `docs/game-api.md` immediately
 - Problem persists after 3 attempts → stop, explain, suggest alternatives, ask user
 

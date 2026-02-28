@@ -36,7 +36,7 @@
 ## Current Phase
 
 **Phase:** Phase 3 — Feature Implementation
-**Currently working on:** Phase 3 — stale announcement bugs fixed (shop + camp)
+**Currently working on:** Phase 3 features
 **Blocked by:** Nothing — framework fully working in-game
 
 ## Codebase Analysis Progress
@@ -107,8 +107,10 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Hooks: UIConversationPresenter.SetMessage(message, talkerName, voiceID, isWait, ref Rect)
   - TMP markup tags stripped before announcing
 
-- **Tutorial boxes** (`NotificationHandler.cs`)
-  - "Tutorial. [title]. [description]" on each tutorial page
+- **Tutorial boxes** (`NotificationHandler.cs`) ✓ TESTED
+  - "Tutorial. [title]. [description]. Controls: [operation]" on each tutorial page
+  - Button sprite tags converted to readable names (e.g. `<sprite name=PS4_Cross>` → "Cross")
+  - Operation/controls text from data.operation field appended when present
   - Hooks: UITutorialInformationPresenter.SetInformation(UITutorialInformationData)
 
 - **Dialog popups** (`NotificationHandler.cs`)
@@ -147,6 +149,9 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Some stat-change popups may not read — user to test further
 
 - **Camp equip sub-screen announcements** (`CampMenuHandler.cs`) ✓ TESTED
+  - Slot list reads category before item name: "Weapon: Swift sword, 1 of 7."
+  - Empty slots read "Greaves: None, 5 of 7." instead of being silent
+  - Fixed: item list detection now uses currentState instead of activeInHierarchy
 
 - **Camp skills sub-screen announcements** (`CampMenuHandler.cs`) ✓ TESTED
 
@@ -156,6 +161,65 @@ Without this list, mod keys WILL conflict with game controls. -->
   - "Shop." when shop opens, root menu reads Buy/Sell/Cancel with position
   - Item browsing reads name + Fol price + position (buy and sell modes)
   - Quantity selection reads count + total Fol on change
+
+- **Item acquisition popups** (`NotificationHandler.cs`) ✓ TESTED
+  - Treasure chest and quest reward popups now read aloud
+  - Announces the game's message text plus each item name and count
+  - Hook: UIOverflowItemPresenter.SetItem (CallerCount 3, fires when popup is populated)
+
+- **Battle dodge warning audio cue** (`BattleCounterHandler.cs`, `AudioCuePlayer.cs`) ✓ TESTED
+  - Plays a 600 Hz beep when an enemy is about to hit the player (dodge warning)
+  - Hook: BattleCharacter.DoAttackNotify postfix — the game's own visual flash trigger
+  - Only fires when target.IsControlPlayer() — ignores attacks on party members
+  - Audio: Windows native winmm.dll PlaySound with in-memory WAV (bypasses IL2CPP GC issues)
+  - Unity AudioClip.Create does NOT work in IL2CPP (object gets garbage collected immediately)
+
+- **Enemy proximity audio cue** (`EnemyProximityHandler.cs`, `SpatialAudioPlayer.cs`) — PENDING TEST
+  - Looping spatial WAV cue warns of nearby field enemies
+  - Volume scales with distance: full at 3 units, silent at 25 units
+  - Stereo panning based on enemy direction relative to player's facing
+  - Tracks closest enemy only; scans every ~60 frames via FindObjectsOfType<FieldEnemy>()
+  - Audio engine: waveOut API (winmm.dll) with double-buffered stereo output
+  - Separate from AudioCuePlayer (no conflict with dodge warning)
+  - WAV file loaded from disk (UserData/SO2RAccess/Sounds/Enemy_proximity.wav) — swappable
+  - UserVolume property ready for future mod settings menu
+  - Deadlock bug fixed: Stop() sets _playing=false before waveOutReset to prevent callback deadlock
+  - WAVEHDR_FLAGS offset corrected (24, not 16 on x64)
+  - Stops on: battle, camp, shop, scene change. Resumes automatically on field.
+
+- **Game over (battle loss) menu** (`GameOverHandler.cs`) ✓ TESTED
+  - "Game over." announced when the battle loss screen appears
+  - "Retry, 1 of 2." / "Title, 2 of 2." as player navigates up/down
+  - Polling-based (native navigation, same pattern as shop/camp)
+  - FindObjectOfType<UIGameOverWindow> with IsOpened polling
+
+- **Camp status talents sub-screen** (`CampMenuHandler.cs`) ✓ TESTED
+  - Hook: UITalentPresenter.Set(List<UITalentData>) — CallerCount(1)
+  - Announces "Talents." heading + comma-separated talent names
+  - Hook fires on status open (page 0), data CACHED; announced when pageIndex changes to 1
+  - If character changes while on talent page, hook fires and announces immediately
+  - Stats announcement gated to page 0 (prevents stats reading on talent page)
+
+- **Location discovery notifications** (`NotificationHandler.cs`) ✓ TESTED
+  - Hook: UIFieldLocationPointPresenter.Set(string name, string description) — CallerCount(1)
+  - Announces "Discovered [name]. [description]" when a location marker popup appears
+  - Reward resolution: reads ConstLocationPointParameter for current map, gets rewardID,
+    calls GetRewardParameterList to format EXP/Fol/items and appends to announcement
+  - LIMITATION: Rewards announced before reward screen appears (native flow bypasses hooks).
+    Only announces rewards from the location point's rewardID — skills learned and items
+    given by separate game systems (e.g. level-up skills) are not included.
+  - TextManager cannot resolve locationNameID keys; matching by proximity when multiple points
+
+- **Map name announcement on area change** (`NavigationHandler.cs`) ✓ TESTED
+  - Polls FieldManager.Instance.currentFieldmapID each frame
+  - When fieldmap changes, resolves name via ParameterManager/TextManager and announces
+  - Skips first detection (game load) to avoid announcing on initial scene
+  - Reuses existing ResolveMapName logic (overrides, game data, fallback)
+
+- **Reward announcements for managed-code rewards** (`NotificationHandler.cs`)
+  - Hook: GameManager.GiveRewardWithWindow — CallerCount(6)
+  - Announces EXP/Fol/SP/BP/items when rewards given via managed code (missions, etc.)
+  - Does NOT fire for location point rewards (native-only flow)
 
 ## In-Progress / Pending Test
 
@@ -179,6 +243,17 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Numbered by type in distance order (e.g. "Story event 1", "Private action 2")
   - NavMesh reachability filter applied; static transforms (LiveTransform = null)
 
+- **Navigation Enemies category** (`NavigationHandler.cs`) — TESTED, WORKING
+  - New "Enemies" category added to nav list (7th category)
+  - Uses FindObjectsOfType<FieldEnemy>() to scan field enemy symbols
+  - Enemies excluded from NPC category via TryCast<FieldEnemy>() filter
+  - Name resolution: EncountID → encounter params → partyID → enemy params → charaNameID
+  - TextManager doesn't resolve enemy names on field (not loaded); falls back to parsed charaNameID
+  - e.g. CHARA_LIZARDAXE → "Lizardaxe", shown as "Lizardaxe, medium 1"
+  - Difficulty from EnemySymbolType: weak, medium, strong, raid
+  - Sorted by distance, NavMesh reachability filtered, duplicate labels numbered
+  - Live transform tracking for auto-walk to enemies
+
 - **Navigation Save Points category** (`NavigationHandler.cs`) ✓ TESTED
   - New "Save Points" category added to nav list (6th category)
   - Uses FieldManager.Instance.FieldSavePointList (game-managed list)
@@ -186,19 +261,21 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Numbered when multiples of the same type exist (e.g. "Save point 1", "Recovery save point 2")
   - NavMesh reachability filter applied; live transform tracking for auto-walk
 
-- **Camp formation sub-screen announcements** (`CampMenuHandler.cs`) — NOT TESTED (area inaccessible in current game progress)
+- **Camp formation sub-screen announcements** (`CampMenuHandler.cs`) — NOT TESTED (needs more party members)
 
-- **Camp operations sub-screen** (`CampMenuHandler.cs`) — NOT YET BUILT
-  - Operations menu opens and reads its sub-menu items (e.g. "Formation", "Tactics")
-  - But the child screens (Party Formation, Tactics) do NOT read when opened
-  - Needs implementation for Operations → Party Formation and Operations → Tactics
+- **Camp operations child screens** (`CampMenuHandler.cs`)
+  - Operations root menu reads its items (Formation, Party Formation, Assist Formation, Tactics) ✓
+  - Formation: existing handler (gated on root item name "Formation") — NOT TESTED (needs more party members)
+  - Party Formation: polls UICampSelectCharacterSelector.GetCurrentIndex(), data from SetStatus hook — NOT TESTED (needs more party members)
+  - Assist Formation: polls UICampAssistSettingSelector (Equip slots + character picker) — NOT TESTED (needs more party members)
+  - Tactics: polls UICampOperationSelector (character + operation states), hook for operation info ✓ TESTED
 
 ## In-Progress Features
 
 - **Field Navigation — Phase 2 (audio list + auto-run)** (`NavigationHandler.cs`) ✓ COMPLETE AND TESTED
   - F5: open/close navigation list; also cancels auto-run if active
   - NumPad 8/2: navigate up/down within category
-  - NumPad 4/6: switch category (NPCs, Chests, Exits, Markers, Events, Save Points)
+  - NumPad 4/6: switch category (NPCs, Chests, Exits, Markers, Events, Save Points, Enemies)
   - NumPad 5: auto-run to selected item; press again to stop following
   - Items sorted by distance (closest first) within each category
   - Party members filtered (dist < 2 units)
@@ -280,11 +357,14 @@ Without this list, mod keys WILL conflict with game controls. -->
 
 - [ ] Not yet testable — area inaccessible in current game progress
 
-## Known Bug: Operations Child Screens
+## Pending Tests (Operations Child Screens — need more party members)
 
-- Operations root menu reads its items (Formation, Tactics) ✓
-- Operations → Party Formation: silent (not yet built)
-- Operations → Tactics: silent (not yet built)
+- [ ] Operations → Formation: announces formation name + effect on navigation
+- [ ] Operations → Party Formation: announces character name, level, position on navigation
+- [ ] Operations → Assist Formation (Equip): announces button slot + assigned character/skill
+- [ ] Operations → Assist Formation (Character picker): announces character names
+- [x] Operations → Tactics (character list): announces character + current tactic ✓
+- [ ] Operations → Tactics (operation picker): announces operation name + description
 
 ## Known Issues / Future Work
 
@@ -293,10 +373,11 @@ Without this list, mod keys WILL conflict with game controls. -->
   the root menu cursor moves away, preventing stale re-activation announcements.
   Same fix also resolved stale item announcements on shop open and camp menu scrolling.
 
-- **Bug: Equip screen missing category name when slot is empty** —
-  On the equipment screen, when nothing is equipped in a slot, the equipment category
-  (e.g. "Weapon", "Armor", "Boots") does not read. Should announce e.g. "Weapon. None."
-  instead of being silent or only saying "None".
+- **Bug: Equip screen missing category name when slot is empty** — FIXED:
+  Slot list now reads category before item name (e.g. "Weapon: Swift sword").
+  Empty slots read "Category: None". Root cause was _equipItemListActive using
+  activeInHierarchy (always true) — slot polling never ran. Fixed by using
+  UICampEquipSelector.currentState (State.EquipType vs State.Item) instead.
 
 - **Camp status detection** — FIXED: Both activeInHierarchy and root-menu-hidden detection
   failed (root menu selector also stays activeInHierarchy=true in sub-screens). Now fully
@@ -305,6 +386,12 @@ Without this list, mod keys WILL conflict with game controls. -->
 - **Bug: L1 nav blocked after camp menu** — FIXED: Camp closure detection used
   gameObject.activeInHierarchy which stays true after camp closes. Changed to
   WindowComponent.IsOpened property which properly reflects open/closed state.
+
+- **Bug: Nav menu opened during camp menu via L1** — FIXED: IsOpened returns false
+  during the camp window's opening animation (~36ms), causing IsCampOpen to be
+  cleared immediately. Added 1-second grace period after Open postfix fires.
+  Also added IsCampOpen gate in Main.ProcessGamepad (L1 press) and
+  IsFieldFree check in NavigationHandler.ToggleNavList (keyboard NumPad 5).
 
 - **NPC functional role + name combining** — shop/inn/guild NPCs now shown as e.g.
   "Equipment shop (Hahn)". Needs more in-game testing as more NPCs are encountered.
@@ -354,23 +441,33 @@ Without this list, mod keys WILL conflict with game controls. -->
 
 ## Notes for Next Session
 
-### Current work
-Navigation menu — fixed counter NPC filtering bug. Tested and working.
-Still pending: Doors, Stairs, Gimmicks, Flavor chat triggers (see next feature candidates).
+### Audio clip ready for integration
+- **File:** `E:\StarOcean\audio_cue.wav` — 10-second clip (PCM WAV, 44100 Hz, 16-bit mono, ~861 KB)
+- **Source:** YouTube clip trimmed from 5s to 15s
+- **User has a specific use in mind** — to be implemented in a future session
 
-### Test results (2026-02-27)
-- Nav key remap: ✓ NumPad 5 open/close, NumPad 1 auto-walk/cancel
-- Gamepad L1 nav: ✓ open/close, D-pad navigation, LStick auto-walk
-- Gamepad D-pad suppression: ✓ Quick Heal and other shortcuts blocked while L1 held
-- Battle results: ✓ working (some stat popups may not read — re-test later)
-- Skills: ✓ working
-- Equip: ✓ working
-- Save detection: ✓ working
-- Status: ✓ working (fixed: hook-driven detection via UpdatePresenter)
-- Formation: not testable (area inaccessible)
-- Operations child screens (Party Formation, Tactics): not yet built
-- Events category in nav list: NOT YET TESTED
-- Counter NPC fix (Hahn/shops): ✓ working — functional NPCs behind counters now appear in nav list
+### Current work
+Enemy proximity audio cue built and deadlock fix applied.
+- SpatialAudioPlayer.cs: new waveOut-based audio engine with looping, volume, stereo panning
+- EnemyProximityHandler.cs: polls field enemies, drives audio based on distance/direction
+- Initial build caused game freeze on battle entry — deadlock in Stop() (waveOutReset triggered
+  callbacks that tried to acquire the same lock). Fixed by setting _playing=false before locking.
+- Also fixed WAVEHDR_FLAGS offset (was 16, should be 24 on x64)
+- WAV file placed at: {game root}\UserData\SO2RAccess\Sounds\Enemy_proximity.wav
+
+### Test results (2026-02-28)
+- Enemy proximity cue: game no longer freezes on battle entry (deadlock fixed)
+- Full audio test still needed: volume scaling, panning, start/stop transitions
+- Operations → Tactics: ✓ character list reads name + current tactic
+- Party Formation, Assist Formation, Formation: NOT TESTED (need more party members)
+- Battle dodge warning: ✓ plays beep when enemy is about to hit player
+- Game over menu: ✓ reads "Retry, 1 of 2" / "Title, 2 of 2"
+- Camp status talents: ✓ reads talent list when switching to talent page
+- Location discovery: ✓ reads "Discovered [name]. [description]" + EXP reward
+- Location reward limitation: only EXP from rewardID announced; items/skills from other systems not included
+- Map name change: ✓ announces area name when moving between maps
+- Tutorials: ✓ all fire correctly (previously interrupted by nav arrival announcement)
+- Previous test results still valid (nav, battle results, skills, save, status, shop, etc.)
 
 ### Key lesson learned
 - Camp menu root selector activeInHierarchy stays true even when sub-screens are open.
@@ -407,15 +504,16 @@ Still pending: Doors, Stairs, Gimmicks, Flavor chat triggers (see next feature c
 
 ### Next feature candidates
 - In-game test: Navigation Events category (does FieldEventCollision show active triggers?)
+- Navigation: Enemies — DONE ✓ (parsed names, TextManager doesn't resolve on field)
 - Navigation: Save points (FieldSavePoint via FieldManager.FieldSavePointList) — DONE ✓
 - Navigation: Doors (FieldDoor via FieldManager.FieldDoorList) — dungeon doors, open/close state
 - Navigation: Stairs (FieldStairs via FieldManager.FieldStairsList) — vertical transitions
 - Navigation: Gimmicks (FieldGimmick01-18) — dungeon puzzle objects (warp gates, switches, etc.)
 - Navigation: Flavor chat triggers (FieldFlavorChatCollision) — party banter spots
-- Operations child screens: Party Formation + Tactics (not yet built)
+- Operations child screens: Party Formation, Assist Formation, Formation — pending test (need more party members)
 - Camp sub-screen: skill learning (UICampSkillLearningSelector — complex, deferred)
 - Battle status announcements
-- Known bugs to fix: battle skill stale announcement on camp reopen, equip empty slot missing category name
+- Known bugs to fix: battle skill stale announcement on camp reopen
 
 ### Notes
 - Build command: `dotnet build SO2RAccess.csproj` (auto-copies to Mods folder)

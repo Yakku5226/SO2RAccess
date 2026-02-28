@@ -68,10 +68,11 @@ namespace SO2RAccess
         private const int CAT_MARKER = 3;
         private const int CAT_EVENT  = 4;
         private const int CAT_SAVE   = 5;
-        private const int CAT_COUNT  = 6;
+        private const int CAT_ENEMY  = 6;
+        private const int CAT_COUNT  = 7;
 
         private static readonly string[] _categoryNames =
-            { "NPCs", "Chests", "Exits", "Markers", "Events", "Save Points" };
+            { "NPCs", "Chests", "Exits", "Markers", "Events", "Save Points", "Enemies" };
 
         /// <summary>
         /// Manual overrides for FieldmapID destination names.
@@ -168,6 +169,10 @@ namespace SO2RAccess
         /// can read it to suppress game input (D-pad, FieldCameraLeft).
         /// </summary>
         private static bool _gamepadNavActive;
+
+        // Map name announcement: track current fieldmap to detect area changes.
+        private FieldmapID _lastFieldmapID = FieldmapID.INVALID;
+        private bool _fieldmapInitialized;
 
         /// <summary>Whether the navigation list is currently open.</summary>
         public bool IsListOpen => _isOpen;
@@ -289,6 +294,9 @@ namespace SO2RAccess
                 CloseList();
                 return;
             }
+
+            if (!IsFieldFree())
+                return;
 
             ScanAndOpenList();
         }
@@ -513,6 +521,8 @@ namespace SO2RAccess
         /// </summary>
         public void Update()
         {
+            CheckFieldmapChange();
+
             if (!_isAutoWalking) return;
 
             try
@@ -732,6 +742,9 @@ namespace SO2RAccess
             foreach (var npc in found)
             {
                 if (npc == null) continue;
+
+                // Skip enemies — they have their own category
+                if (npc.TryCast<FieldEnemy>() != null) continue;
 
                 Vector3 pos  = npc.transform.position;
                 float   dist = Vector3.Distance(playerPos, pos);
@@ -1242,6 +1255,206 @@ namespace SO2RAccess
             _categories[CAT_SAVE].AddRange(items);
         }
 
+        /// <summary>
+        /// Scans for FieldEnemy objects and builds the Enemies category.
+        /// Resolves enemy names from party data via ParameterManager + TextManager.
+        /// </summary>
+        private void BuildEnemies(Vector3 playerPos)
+        {
+            _categories[CAT_ENEMY].Clear();
+
+            var found = UnityEngine.Object.FindObjectsOfType<FieldEnemy>();
+            if (found == null || found.Length == 0) return;
+
+            var pm = ParameterManager.Instance;
+            var tm = TextManager.Instance;
+            var items = new List<NavItem>();
+
+            for (int i = 0; i < found.Length; i++)
+            {
+                var enemy = found[i];
+                if (enemy == null) continue;
+
+                Vector3 pos  = enemy.transform.position;
+                float   dist = Vector3.Distance(playerPos, pos);
+
+                // Get symbol type for difficulty label
+                string typeName = "";
+                try
+                {
+                    var symbolType = enemy.EnemySymbolType;
+                    typeName = GetEnemyTypeName(symbolType);
+                }
+                catch { }
+
+                // Resolve enemy name via encounter chain:
+                // FieldEnemy.EncountID → encounter params → partyID → enemy params → name
+                string enemyName = "";
+                try
+                {
+                    if (pm != null && tm != null)
+                    {
+                        int encountID = enemy.encountID;
+
+                        if (encountID != 0)
+                        {
+                            // Step 1: encounter ID → encounter params (has enemy party ID)
+                            var encParams = pm.GetFieldmapEncountParameter(encountID);
+
+                            if (encParams != null && encParams.Count > 0)
+                            {
+                                int partyID = encParams[0].enemyPartyID;
+
+                                if (partyID != 0)
+                                {
+                                    // Step 2: party ID → enemy parameters (has name key)
+                                    var partyMembers =
+                                        pm.GetEnemyParameterListByPartyID(partyID);
+
+                                    if (partyMembers != null && partyMembers.Count > 0)
+                                    {
+                                        string nameKey = partyMembers[0].charaNameID;
+
+                                        if (!string.IsNullOrEmpty(nameKey))
+                                        {
+                                            // Try all known MessageTypes
+                                            enemyName = tm.GetMessage(
+                                                nameKey, TextManager.MessageType.System);
+                                            if (string.IsNullOrEmpty(enemyName))
+                                                enemyName = tm.GetMessage(
+                                                    nameKey, TextManager.MessageType.Skill);
+                                            if (string.IsNullOrEmpty(enemyName))
+                                                enemyName = tm.GetMessage(
+                                                    nameKey, TextManager.MessageType.Item);
+
+                                            // Fallback: parse the key into a readable name
+                                            // e.g. "CHARA_LIZARDAXE" → "Lizardaxe"
+                                            if (string.IsNullOrEmpty(enemyName))
+                                                enemyName = ParseCharaNameID(nameKey);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogState(
+                        $"NAV:ENEMY name resolve failed: {ex.Message}");
+                }
+
+                // Build label: "Name, type" or "Type enemy" fallback
+                string label;
+                if (!string.IsNullOrEmpty(enemyName))
+                {
+                    label = string.IsNullOrEmpty(typeName)
+                        ? enemyName
+                        : Loc.Get("nav_enemy_named", enemyName, typeName);
+                }
+                else
+                {
+                    label = string.IsNullOrEmpty(typeName)
+                        ? Loc.Get("nav_enemy_unknown")
+                        : Loc.Get("nav_enemy_typed", typeName);
+                }
+
+                items.Add(new NavItem
+                {
+                    Label         = label,
+                    Distance      = dist,
+                    Position      = pos,
+                    LiveTransform = enemy.transform,
+                });
+
+                DebugLogger.LogGameValue("NAV:ENEMY",
+                    $"label='{label}' type={typeName} " +
+                    $"partyID={enemy.EnemyPartyID} dist={dist:F1}");
+            }
+
+            // Sort by distance
+            items.Sort((a, b) => a.Distance.CompareTo(b.Distance));
+
+            // Filter unreachable
+            for (int i = items.Count - 1; i >= 0; i--)
+            {
+                if (!IsReachable(playerPos, items[i].Position))
+                {
+                    DebugLogger.LogState(
+                        $"NAV: filtered unreachable enemy at dist={items[i].Distance:F1}");
+                    items.RemoveAt(i);
+                }
+            }
+
+            // Number duplicates of the same base label
+            var labelCounts = new Dictionary<string, int>();
+            foreach (var item in items)
+            {
+                if (!labelCounts.ContainsKey(item.Label))
+                    labelCounts[item.Label] = 0;
+                labelCounts[item.Label]++;
+            }
+
+            var labelNums = new Dictionary<string, int>();
+            for (int i = 0; i < items.Count; i++)
+            {
+                string baseLabel = items[i].Label;
+                if (labelCounts[baseLabel] > 1)
+                {
+                    if (!labelNums.ContainsKey(baseLabel))
+                        labelNums[baseLabel] = 1;
+                    var item = items[i];
+                    item.Label = $"{baseLabel} {labelNums[baseLabel]++}";
+                    items[i] = item;
+                }
+            }
+
+            _categories[CAT_ENEMY].AddRange(items);
+        }
+
+        /// <summary>
+        /// Parses a charaNameID key into a readable enemy name.
+        /// e.g. "CHARA_LIZARDAXE" → "Lizardaxe", "CHARA_VOPALBUNNY" → "Vopalbunny"
+        /// Strips the "CHARA_" prefix and converts to title case.
+        /// </summary>
+        private static string ParseCharaNameID(string key)
+        {
+            if (string.IsNullOrEmpty(key)) return "";
+
+            // Strip common prefixes
+            string name = key;
+            if (name.StartsWith("CHARA_", StringComparison.OrdinalIgnoreCase))
+                name = name.Substring(6);
+            else if (name.StartsWith("MON_", StringComparison.OrdinalIgnoreCase))
+                name = name.Substring(4);
+
+            if (string.IsNullOrEmpty(name)) return key;
+
+            // Convert: "LIZARDAXE" → "Lizardaxe", "KILLERRABI" → "Killerrabi"
+            return char.ToUpper(name[0]) + name.Substring(1).ToLower();
+        }
+
+        /// <summary>Returns a friendly name for the enemy symbol type.</summary>
+        private static string GetEnemyTypeName(FieldEnemySymbolType type)
+        {
+            switch (type)
+            {
+                case FieldEnemySymbolType.Weak:
+                case FieldEnemySymbolType.SubspecificWeak:
+                    return Loc.Get("nav_enemy_weak");
+                case FieldEnemySymbolType.Medium:
+                case FieldEnemySymbolType.SubspecificMedium:
+                    return Loc.Get("nav_enemy_medium");
+                case FieldEnemySymbolType.Strong:
+                case FieldEnemySymbolType.SubspecificStrong:
+                    return Loc.Get("nav_enemy_strong");
+                case FieldEnemySymbolType.Raid:
+                    return Loc.Get("nav_enemy_raid");
+                default:
+                    return "";
+            }
+        }
+
         #endregion
 
         #region Private — Announce
@@ -1319,6 +1532,7 @@ namespace SO2RAccess
                 BuildMarkers(fm.FieldLocationPointList, playerPos);
                 BuildEvents(playerPos);
                 BuildSavePoints(fm.FieldSavePointList, playerPos);
+                BuildEnemies(playerPos);
 
                 int totalItems = 0;
                 for (int i = 0; i < CAT_COUNT; i++) totalItems += _categories[i].Count;
@@ -1329,7 +1543,8 @@ namespace SO2RAccess
                     $"exits={_categories[CAT_EXIT].Count} " +
                     $"markers={_categories[CAT_MARKER].Count} " +
                     $"events={_categories[CAT_EVENT].Count} " +
-                    $"saves={_categories[CAT_SAVE].Count}");
+                    $"saves={_categories[CAT_SAVE].Count} " +
+                    $"enemies={_categories[CAT_ENEMY].Count}");
 
                 if (totalItems == 0)
                 {
@@ -1482,6 +1697,56 @@ namespace SO2RAccess
             DebugLogger.LogState(
                 $"NAV path: {_pathCorners.Length} waypoints, status={_navPath.status}");
             return true;
+        }
+
+        /// <summary>
+        /// Checks if the current fieldmap has changed and announces the new map name.
+        /// Called every frame from Update(). Skips the first detection to avoid
+        /// announcing on game load.
+        /// </summary>
+        private void CheckFieldmapChange()
+        {
+            try
+            {
+                var fm = FieldManager.Instance;
+                if (fm == null)
+                {
+                    // Not on a field — reset so next field entry announces.
+                    if (_fieldmapInitialized)
+                    {
+                        _fieldmapInitialized = false;
+                        _lastFieldmapID = FieldmapID.INVALID;
+                    }
+                    return;
+                }
+
+                FieldmapID current = fm.currentFieldmapID;
+                if (current == _lastFieldmapID) return;
+
+                FieldmapID previous = _lastFieldmapID;
+                _lastFieldmapID = current;
+
+                // Skip the very first detection (game load / initial scene).
+                if (!_fieldmapInitialized)
+                {
+                    _fieldmapInitialized = true;
+                    return;
+                }
+
+                // Skip INVALID transitions.
+                if (current == FieldmapID.INVALID) return;
+
+                string name = ResolveMapName(current);
+                if (!string.IsNullOrEmpty(name))
+                {
+                    ScreenReader.Say(name);
+                    DebugLogger.LogState($"MapChange: {previous} → {current} = '{name}'");
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"CheckFieldmapChange error: {ex.Message}");
+            }
         }
 
         /// <summary>

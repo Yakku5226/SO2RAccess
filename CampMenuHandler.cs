@@ -4,6 +4,7 @@ using MelonLoader;
 using System;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace SO2RAccess
 {
@@ -64,6 +65,13 @@ namespace SO2RAccess
 
         private bool _patchesApplied = false;
 
+        /// <summary>Extracts the name from sprite tags (e.g. "&lt;sprite name=R1&gt;" → "R1").</summary>
+        private static readonly Regex _spriteNameExtractor = new Regex(
+            @"<sprite\s+name\s*=\s*([^>]+?)>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        /// <summary>Strips any remaining rich text tags from game strings.</summary>
+        private static readonly Regex _tagStripper = new Regex("<[^>]+>", RegexOptions.Compiled);
+
+
         // Static so the Harmony postfix (static method) can write and Update() can read.
 
         // Root menu
@@ -76,6 +84,13 @@ namespace SO2RAccess
         /// to prevent gamepad nav overlay from activating during camp.
         /// </summary>
         public static bool IsCampOpen { get; private set; }
+
+        /// <summary>
+        /// Timestamp when IsCampOpen was set to true. Used to prevent the
+        /// IsOpened closure check from falsely clearing the flag during the
+        /// window's opening animation (IsOpened returns false briefly after Open).
+        /// </summary>
+        private static float _campOpenTime;
 
         /// <summary>Cached UICampWindow instance for detecting camp closure.</summary>
         private static UICampWindow _campWindow = null;
@@ -107,6 +122,9 @@ namespace SO2RAccess
         private static int _equipSlotLastIndex = -1;
         private static bool _equipSlotWasActive = false;
 
+        // Equip slot category names (index → friendly name), populated from EquipPositionList.
+        private static string[] _equipSlotCategoryNames = null;
+
         // Equip item list — used by the hook to read currentIndex and total count.
         private static UIListSelectorBase _equipItemListBase = null;
         private static bool _equipItemListActive = false;
@@ -137,6 +155,13 @@ namespace SO2RAccess
         private static UICampStatusParameterData _statusParamData = null;
         private static UICampStatusLevelData _statusLevelData = null;
         private static string _statusPlayerName = "";
+        private static int _statusLastPageIndex = -1;
+        /// <summary>
+        /// Cached talent announcement string built by UITalentPresenter.Set hook.
+        /// The hook fires on status screen open (page 0) — not on page switch.
+        /// We cache the string and announce it when pageIndex changes to 1 (talent page).
+        /// </summary>
+        private static string _cachedTalentAnnouncement = "";
         // Tracks which root menu item is highlighted (for sub-screen detection).
         private static string _lastRootMenuItemName = "";
 
@@ -174,6 +199,41 @@ namespace SO2RAccess
         private static UICampSkillSelector _skillSelector = null;
         private static bool _skillWasActive = false;
         private static bool _skillSuppressHeading = false;
+
+        // Party formation sub-screen (selectCharacterSelector on UICampWindow)
+        // UICampSelectCharacterSelector extends UISelectorBase (NOT UIListSelectorBase).
+        // Uses GetCurrentIndex() method instead of currentIndex property.
+        // Character data cached from UICampCharacterStatusPresenter.SetStatus hook.
+        private static UICampSelectCharacterSelector _selectCharSelector = null;
+        private static int _selectCharLastIndex = -1;
+        private static bool _selectCharWasActive = false;
+        private static bool _selectCharSuppressHeading = false;
+        private static Il2CppSystem.Collections.Generic.List<CampCharacterStatusParameterData> _selectCharDataList = null;
+
+        // Assist formation sub-screen (assistSettingSelector on UICampWindow)
+        // UICampAssistSettingSelector with two states: Equip (slot browsing),
+        // SelectAssistCharacter (character picker).
+        private static UICampAssistSettingSelector _assistSelector = null;
+        private static bool _assistWasActive = false;
+        private static bool _assistSuppressHeading = false;
+        private static UIListSelectorBase _assistEquipListBase = null;
+        private static int _assistEquipLastIndex = -1;
+        private static UIListSelectorBase _assistCharListBase = null;
+        private static int _assistCharLastIndex = -1;
+        private static int _assistLastState = -1; // tracks Equip(0) vs SelectAssistCharacter(1)
+
+        // Tactics sub-screen (operationSelector on UICampWindow)
+        // UICampOperationSelector extends UIListSelectorBase.
+        // Two states: SelectCharacter (pick party member), SelectOperation (pick tactic).
+        // Character data: UICampOperationCharacterListItemData (characterName, operation).
+        // Operation info: UICampOperationInformationPresenter.Set hook.
+        private static UICampOperationSelector _operationSelector = null;
+        private static bool _operationWasActive = false;
+        private static bool _operationSuppressHeading = false;
+        private static int _operationCharLastIndex = -1;
+        private static UIListSelectorBase _operationSelectListBase = null;
+        private static int _operationSelectLastIndex = -1;
+        private static int _operationLastState = -1; // tracks SelectCharacter(0) vs SelectOperation(1)
 
         #endregion
 
@@ -227,6 +287,23 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(UICampSkillListItemData).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UISkillInformationPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UISkillInformationData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampSelectCharacterSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampPartyMemberPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampPartyMemberSelectItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(CampCharacterStatusParameterData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampCharacterStatusPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampAssistSettingSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampAssistSettingEquipListSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampAssistEquipListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampAssistSettingCharacterListSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampAssistSettingCharacterListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampOperationSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampOperationSelectListSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampOperationCharacterListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampOperationInformationPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIOperationListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UITalentPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UITalentData).TypeHandle);
 
                 harmony.Patch(
                     AccessTools.Method(typeof(UICampWindow),
@@ -298,6 +375,15 @@ namespace SO2RAccess
                         nameof(Diag_StatusLevelPresenter_Setup))
                 );
 
+                // UITalentPresenter.Set fires when the status screen initializes
+                // (CallerCount 1 — hookable). Caches talent data; announced on page switch.
+                harmony.Patch(
+                    AccessTools.Method(typeof(UITalentPresenter), "Set",
+                        new Type[] { typeof(Il2CppSystem.Collections.Generic.List<UITalentData>) }),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(TalentPresenter_Set_Postfix))
+                );
+
                 // UICampFormationInformationPresenter.Set fires when the formation info
                 // panel updates (CallerCount 1 — hookable from managed code).
                 harmony.Patch(
@@ -313,6 +399,24 @@ namespace SO2RAccess
                         new Type[] { typeof(UISkillInformationData) }),
                     postfix: new HarmonyMethod(typeof(CampMenuHandler),
                         nameof(SkillInfoPresenter_Set_Postfix))
+                );
+
+                // UICampCharacterStatusPresenter.SetStatus fires when the party formation
+                // screen populates/updates the character data list (CallerCount 1).
+                harmony.Patch(
+                    AccessTools.Method(typeof(UICampCharacterStatusPresenter), "SetStatus",
+                        new Type[] { typeof(Il2CppSystem.Collections.Generic.List<CampCharacterStatusParameterData>) }),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(CharacterStatusPresenter_SetStatus_Postfix))
+                );
+
+                // UICampOperationInformationPresenter.Set fires when the tactics operation
+                // info panel updates (CallerCount 1). Announces operation name + description.
+                harmony.Patch(
+                    AccessTools.Method(typeof(UICampOperationInformationPresenter), "Set",
+                        new Type[] { typeof(string), typeof(string), typeof(string) }),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(OperationInfoPresenter_Set_Postfix))
                 );
 
                 _patchesApplied = true;
@@ -341,7 +445,9 @@ namespace SO2RAccess
             {
                 try
                 {
-                    if (!_campWindow.IsOpened)
+                    // Grace period: IsOpened returns false during the opening animation,
+                    // so ignore it for the first second after the Open postfix fires.
+                    if (!_campWindow.IsOpened && (UnityEngine.Time.time - _campOpenTime) > 1.0f)
                     {
                         IsCampOpen = false;
                         _campWindow = null;
@@ -363,6 +469,9 @@ namespace SO2RAccess
             UpdateBattleSkillSettingSelector();
             UpdateFormationSelector();
             UpdateSkillSelector();
+            UpdatePartyFormationSelector();
+            UpdateAssistSettingSelector();
+            UpdateTacticsSelector();
         }
 
         /// <summary>
@@ -405,9 +514,11 @@ namespace SO2RAccess
                 {
                     _statusScreenOpen = false;
                     _statusLastIndex = -1;
+                    _statusLastPageIndex = -1;
                     _statusParamData = null;
                     _statusLevelData = null;
                     _statusPlayerName = "";
+                    _cachedTalentAnnouncement = "";
                     DebugLogger.LogState("CampStatus: closed (root menu index changed).");
                 }
 
@@ -568,8 +679,38 @@ namespace SO2RAccess
         /// </summary>
         private void UpdateStatusSelector()
         {
-            // Nothing to poll — status announcements are fully hook-driven.
-            // Reset is handled by CampWindow_Open_Postfix and root menu index changes.
+            // Poll pageIndex to detect page switches (L1/R1 on status screen).
+            // Page navigation is native-only; no hooks fire for page change itself.
+            if (!_statusScreenOpen || _statusSelector == null) return;
+
+            try
+            {
+                int pageIdx = _statusSelector.pageIndex;
+                if (pageIdx == _statusLastPageIndex) return;
+
+                int oldPage = _statusLastPageIndex;
+                _statusLastPageIndex = pageIdx;
+
+                // Skip initial page set (handled by UpdatePresenter heading).
+                if (oldPage < 0) return;
+
+                // Reset character index so switching characters on a new page
+                // will re-trigger the UpdatePresenter announcement.
+                _statusLastIndex = -1;
+
+                DebugLogger.LogState($"CampStatus: page changed {oldPage} → {pageIdx}.");
+
+                // Page 0 = stats (UpdatePresenter hooks will fire and announce).
+                // Page 1 = talents (announce cached data from UITalentPresenter.Set hook).
+                if (pageIdx == 1 && !string.IsNullOrEmpty(_cachedTalentAnnouncement))
+                {
+                    ScreenReader.Say(_cachedTalentAnnouncement);
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"CampMenuHandler.UpdateStatusSelector: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -636,6 +777,21 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// Populates _equipSlotCategoryNames with the friendly names for each equipment slot.
+        /// EquipType enum order: Weapon=0, Armor=1, Shield=2, Helmet=3, Greeve=4,
+        /// Accessory1=5, Accessory2=6 — matches the slot list display order.
+        /// </summary>
+        private static void CacheEquipSlotCategories()
+        {
+            _equipSlotCategoryNames = new[]
+            {
+                "Weapon", "Armor", "Shield", "Helmet",
+                "Greaves", "Accessory 1", "Accessory 2"
+            };
+            DebugLogger.LogState("CampEquip: slot categories initialized.");
+        }
+
+        /// <summary>
         /// Polls the UICampEquipSelector and its sub-selectors.
         /// Announces "Equipment." when the screen opens.
         /// The slot list (what is currently equipped) is polled here.
@@ -677,6 +833,10 @@ namespace SO2RAccess
                 {
                     _equipWasActive = true;
 
+                    // Cache slot category names (Weapon, Armor, etc.) from game data.
+                    if (_equipSlotCategoryNames == null)
+                        CacheEquipSlotCategories();
+
                     // Cache sub-selectors.
                     var slotSel = _equipSelector.equipListSelector;
                     _equipSlotListBase = slotSel?.TryCast<UIListSelectorBase>();
@@ -697,9 +857,10 @@ namespace SO2RAccess
                     }
                 }
 
-                // Keep item-list active flag updated every frame for hook gating.
-                var itemListSel = _equipSelector.itemListSelector;
-                _equipItemListActive = itemListSel != null && itemListSel.gameObject.activeInHierarchy;
+                // Use currentState to determine which sub-list is active.
+                // State.EquipType = browsing slot list, State.Item = browsing item list.
+                // (activeInHierarchy is always true for sub-selectors — unreliable.)
+                _equipItemListActive = _equipSelector.currentState == UICampEquipSelector.State.Item;
 
                 // When the item list is open, item announcements are handled by the hook.
                 // Only poll the slot list while the item list is not shown.
@@ -717,6 +878,7 @@ namespace SO2RAccess
                 _equipSlotWasActive = false;
                 _equipItemListBase = null;
                 _equipItemListActive = false;
+                _equipSlotCategoryNames = null;
             }
         }
 
@@ -770,15 +932,20 @@ namespace SO2RAccess
                 string name = item.itemName ?? "";
                 bool available = item.canDecision;
 
+                // Look up the category name (e.g., "Weapon", "Armor") for this slot index.
+                string category = (_equipSlotCategoryNames != null && idx < _equipSlotCategoryNames.Length)
+                    ? _equipSlotCategoryNames[idx]
+                    : $"Slot {idx + 1}";
+
                 DebugLogger.LogGameValue("CampEquip.slot",
-                    $"name='{name}' available={available} ({idx + 1}/{total})");
+                    $"category='{category}' name='{name}' available={available} ({idx + 1}/{total})");
 
                 if (string.IsNullOrEmpty(name))
-                    ScreenReader.Say(Loc.Get("camp_equip_slot_empty", idx + 1, total));
+                    ScreenReader.Say(Loc.Get("camp_equip_slot_empty", category, idx + 1, total));
                 else if (available)
-                    ScreenReader.Say(Loc.Get("camp_equip_slot", name, idx + 1, total));
+                    ScreenReader.Say(Loc.Get("camp_equip_slot", category, name, idx + 1, total));
                 else
-                    ScreenReader.Say(Loc.Get("camp_equip_slot_unavailable", name, idx + 1, total));
+                    ScreenReader.Say(Loc.Get("camp_equip_slot_unavailable", category, name, idx + 1, total));
             }
             catch (Exception ex)
             {
@@ -963,7 +1130,7 @@ namespace SO2RAccess
                 var item = _battleSkillEquipListSel?.GetCurrentData();
                 if (item == null) return;
 
-                string button    = item.categoryName    ?? "";
+                string button    = StripTags(item.categoryName    ?? "");
                 string skillName = item.battleSkillName ?? "";
 
                 DebugLogger.LogGameValue("CampBattleSkillSetting.slot",
@@ -1096,6 +1263,365 @@ namespace SO2RAccess
             }
         }
 
+        /// <summary>
+        /// Polls the UICampSelectCharacterSelector for the party formation screen.
+        /// Announces "Party formation." when the screen opens.
+        /// Announces character name, level, position on navigation.
+        /// Character data is cached from UICampCharacterStatusPresenter.SetStatus hook.
+        /// </summary>
+        private void UpdatePartyFormationSelector()
+        {
+            if (_selectCharSelector == null) return;
+
+            if (_lastRootMenuItemName != "PartyFormation")
+            {
+                return;
+            }
+
+            try
+            {
+                bool isActive = _selectCharSelector.gameObject.activeInHierarchy;
+
+                if (!isActive)
+                {
+                    if (_selectCharWasActive)
+                    {
+                        _selectCharWasActive = false;
+                        DebugLogger.LogState("CampPartyFormation: selector hidden.");
+                    }
+                    return;
+                }
+
+                if (!_selectCharWasActive)
+                {
+                    _selectCharWasActive = true;
+                    _selectCharLastIndex = -1;
+
+                    if (!_selectCharSuppressHeading)
+                    {
+                        ScreenReader.Say(Loc.Get("camp_party_formation_screen"));
+                        DebugLogger.LogState("CampPartyFormation: selector visible.");
+                    }
+                    else
+                    {
+                        _selectCharSuppressHeading = false;
+                        DebugLogger.LogState("CampPartyFormation: stale open — heading suppressed.");
+                    }
+                }
+
+                // Poll GetCurrentIndex() — not a UIListSelectorBase, so method call needed.
+                int idx = _selectCharSelector.GetCurrentIndex();
+                if (idx == _selectCharLastIndex) return;
+                _selectCharLastIndex = idx;
+
+                if (_selectCharDataList == null || idx < 0 || idx >= _selectCharDataList.Count)
+                    return;
+
+                var charData = _selectCharDataList[idx];
+                if (charData == null) return;
+
+                string name = charData.characterName ?? "";
+                int level = charData.level;
+                string position = charData.positionText ?? "";
+                int total = _selectCharDataList.Count;
+
+                DebugLogger.LogGameValue("CampPartyFormation.char",
+                    $"name='{name}' lv={level} pos='{position}' ({idx + 1}/{total})");
+
+                ScreenReader.Say(Loc.Get("camp_party_formation_char",
+                    name, level, position, idx + 1, total));
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"CampMenuHandler.UpdatePartyFormationSelector: {ex.Message}");
+                _selectCharSelector = null;
+                _selectCharWasActive = false;
+                _selectCharLastIndex = -1;
+                _selectCharDataList = null;
+            }
+        }
+
+        /// <summary>
+        /// Polls the UICampAssistSettingSelector for the assist formation screen.
+        /// Announces "Assist formation." when the screen opens.
+        /// Has two states: Equip (browsing button slots) and SelectAssistCharacter (picking a character).
+        /// </summary>
+        private void UpdateAssistSettingSelector()
+        {
+            if (_assistSelector == null) return;
+
+            if (_lastRootMenuItemName != "AssistFormation")
+            {
+                return;
+            }
+
+            try
+            {
+                bool isActive = _assistSelector.gameObject.activeInHierarchy;
+
+                if (!isActive)
+                {
+                    if (_assistWasActive)
+                    {
+                        _assistWasActive = false;
+                        _assistEquipListBase = null;
+                        _assistCharListBase = null;
+                        _assistLastState = -1;
+                        DebugLogger.LogState("CampAssist: selector hidden.");
+                    }
+                    return;
+                }
+
+                if (!_assistWasActive)
+                {
+                    _assistWasActive = true;
+                    _assistEquipLastIndex = -1;
+                    _assistCharLastIndex = -1;
+                    _assistLastState = -1;
+
+                    if (!_assistSuppressHeading)
+                    {
+                        ScreenReader.Say(Loc.Get("camp_assist_screen"));
+                        DebugLogger.LogState("CampAssist: selector visible.");
+                    }
+                    else
+                    {
+                        _assistSuppressHeading = false;
+                        DebugLogger.LogState("CampAssist: stale open — heading suppressed.");
+                    }
+                }
+
+                int state = (int)_assistSelector.currentState;
+
+                // State changed — reset sub-selector tracking.
+                if (state != _assistLastState)
+                {
+                    _assistLastState = state;
+                    if (state == 0) // Equip
+                    {
+                        _assistEquipLastIndex = -1;
+                        DebugLogger.LogState("CampAssist: state → Equip.");
+                    }
+                    else // SelectAssistCharacter
+                    {
+                        _assistCharLastIndex = -1;
+                        DebugLogger.LogState("CampAssist: state → SelectAssistCharacter.");
+                    }
+                }
+
+                if (state == 0) // Equip — browsing button slots
+                {
+                    if (_assistEquipListBase == null)
+                    {
+                        _assistEquipListBase = _assistSelector.equipListSelector?.TryCast<UIListSelectorBase>();
+                        if (_assistEquipListBase == null) return;
+                    }
+
+                    int idx = _assistEquipListBase.currentIndex;
+                    if (idx == _assistEquipLastIndex) return;
+                    _assistEquipLastIndex = idx;
+
+                    var list = _assistEquipListBase.currentDataList;
+                    if (list == null) return;
+                    int total = list.Count;
+                    if (total == 0 || idx < 0 || idx >= total) return;
+
+                    var item = list[idx]?.TryCast<UICampAssistEquipListItemData>();
+                    if (item == null) return;
+
+                    string button = item.buttonText ?? "";
+                    string charName = item.characterName ?? "";
+                    string assistName = item.assistName ?? "";
+
+                    DebugLogger.LogGameValue("CampAssist.slot",
+                        $"btn='{button}' char='{charName}' assist='{assistName}' ({idx + 1}/{total})");
+
+                    if (string.IsNullOrEmpty(charName))
+                    {
+                        ScreenReader.Say(Loc.Get("camp_assist_slot_empty",
+                            button, idx + 1, total));
+                    }
+                    else
+                    {
+                        ScreenReader.Say(Loc.Get("camp_assist_slot",
+                            button, charName, assistName, idx + 1, total));
+                    }
+                }
+                else // SelectAssistCharacter — picking a character
+                {
+                    if (_assistCharListBase == null)
+                    {
+                        _assistCharListBase = _assistSelector.characterListSelector?.TryCast<UIListSelectorBase>();
+                        if (_assistCharListBase == null) return;
+                    }
+
+                    int idx = _assistCharListBase.currentIndex;
+                    if (idx == _assistCharLastIndex) return;
+                    _assistCharLastIndex = idx;
+
+                    var list = _assistCharListBase.currentDataList;
+                    if (list == null) return;
+                    int total = list.Count;
+                    if (total == 0 || idx < 0 || idx >= total) return;
+
+                    var item = list[idx]?.TryCast<UICampAssistSettingCharacterListItemData>();
+                    if (item == null) return;
+
+                    string charName = item.characterName ?? "";
+                    string settingNow = item.settingNow ?? "";
+
+                    DebugLogger.LogGameValue("CampAssist.char",
+                        $"name='{charName}' settingNow='{settingNow}' ({idx + 1}/{total})");
+
+                    if (!string.IsNullOrEmpty(settingNow))
+                    {
+                        ScreenReader.Say(Loc.Get("camp_assist_char_current",
+                            charName, idx + 1, total));
+                    }
+                    else
+                    {
+                        ScreenReader.Say(Loc.Get("camp_assist_char",
+                            charName, idx + 1, total));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"CampMenuHandler.UpdateAssistSettingSelector: {ex.Message}");
+                _assistSelector = null;
+                _assistWasActive = false;
+                _assistEquipListBase = null;
+                _assistCharListBase = null;
+                _assistLastState = -1;
+            }
+        }
+
+        /// <summary>
+        /// Polls the UICampOperationSelector for the tactics screen.
+        /// Announces "Tactics." when the screen opens.
+        /// Has two states: SelectCharacter (pick party member) and SelectOperation (pick tactic).
+        /// Character state: polled — "[Name]: [Current tactic]. [X] of [Y]."
+        /// Operation state: polled position + hook-driven details from
+        /// UICampOperationInformationPresenter.Set.
+        /// </summary>
+        private void UpdateTacticsSelector()
+        {
+            if (_operationSelector == null) return;
+
+            if (_lastRootMenuItemName != "Tactics")
+            {
+                return;
+            }
+
+            try
+            {
+                bool isActive = _operationSelector.gameObject.activeInHierarchy;
+
+                if (!isActive)
+                {
+                    if (_operationWasActive)
+                    {
+                        _operationWasActive = false;
+                        _operationSelectListBase = null;
+                        _operationLastState = -1;
+                        DebugLogger.LogState("CampTactics: selector hidden.");
+                    }
+                    return;
+                }
+
+                if (!_operationWasActive)
+                {
+                    _operationWasActive = true;
+                    _operationCharLastIndex = -1;
+                    _operationSelectLastIndex = -1;
+                    _operationLastState = -1;
+
+                    if (!_operationSuppressHeading)
+                    {
+                        ScreenReader.Say(Loc.Get("camp_tactics_screen"));
+                        DebugLogger.LogState("CampTactics: selector visible.");
+                    }
+                    else
+                    {
+                        _operationSuppressHeading = false;
+                        DebugLogger.LogState("CampTactics: stale open — heading suppressed.");
+                    }
+                }
+
+                int state = (int)_operationSelector.currentState;
+
+                // State changed — reset sub-selector tracking.
+                if (state != _operationLastState)
+                {
+                    _operationLastState = state;
+                    if (state == 0) // SelectCharacter
+                    {
+                        _operationCharLastIndex = -1;
+                        DebugLogger.LogState("CampTactics: state → SelectCharacter.");
+                    }
+                    else // SelectOperation
+                    {
+                        _operationSelectLastIndex = -1;
+                        DebugLogger.LogState("CampTactics: state → SelectOperation.");
+                    }
+                }
+
+                if (state == 0) // SelectCharacter — browsing party members
+                {
+                    // UICampOperationSelector extends UIListSelectorBase,
+                    // so we can use currentIndex directly.
+                    var baseSel = _operationSelector.TryCast<UIListSelectorBase>();
+                    if (baseSel == null) return;
+
+                    int idx = baseSel.currentIndex;
+                    if (idx == _operationCharLastIndex) return;
+                    _operationCharLastIndex = idx;
+
+                    var list = baseSel.currentDataList;
+                    if (list == null) return;
+                    int total = list.Count;
+                    if (total == 0 || idx < 0 || idx >= total) return;
+
+                    var item = list[idx]?.TryCast<UICampOperationCharacterListItemData>();
+                    if (item == null) return;
+
+                    string charName = item.characterName ?? "";
+                    string operation = item.operation ?? "";
+
+                    DebugLogger.LogGameValue("CampTactics.char",
+                        $"name='{charName}' op='{operation}' ({idx + 1}/{total})");
+
+                    ScreenReader.Say(Loc.Get("camp_tactics_char",
+                        charName, operation, idx + 1, total));
+                }
+                else // SelectOperation — picking a tactic
+                {
+                    if (_operationSelectListBase == null)
+                    {
+                        _operationSelectListBase = _operationSelector.selectListSelector?.TryCast<UIListSelectorBase>();
+                        if (_operationSelectListBase == null) return;
+                    }
+
+                    int idx = _operationSelectListBase.currentIndex;
+                    if (idx == _operationSelectLastIndex) return;
+                    _operationSelectLastIndex = idx;
+
+                    // Position tracking only — the actual operation name + description
+                    // are announced by the OperationInfoPresenter_Set_Postfix hook.
+                    DebugLogger.LogGameValue("CampTactics.selectOp",
+                        $"index={idx + 1}");
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"CampMenuHandler.UpdateTacticsSelector: {ex.Message}");
+                _operationSelector = null;
+                _operationWasActive = false;
+                _operationSelectListBase = null;
+                _operationLastState = -1;
+            }
+        }
+
         #endregion
 
         #region Harmony Patch Methods
@@ -1107,6 +1633,7 @@ namespace SO2RAccess
         private static void CampWindow_Open_Postfix(UICampWindow __instance)
         {
             IsCampOpen = true;
+            _campOpenTime = UnityEngine.Time.time;
             _campWindow = __instance;
 
             ScreenReader.Say(Loc.Get("camp_menu_screen"));
@@ -1174,9 +1701,11 @@ namespace SO2RAccess
             _statusSelector = __instance.statusSelector;
             _statusScreenOpen = false;
             _statusLastIndex = -1;
+            _statusLastPageIndex = -1;
             _statusParamData = null;
             _statusLevelData = null;
             _statusPlayerName = "";
+            _cachedTalentAnnouncement = "";
             _lastRootMenuItemName = "";
 
             if (_statusSelector != null)
@@ -1317,6 +1846,98 @@ namespace SO2RAccess
             else
             {
                 MelonLogger.Warning("[CAMP] campWindow.skillSelector is null.");
+            }
+
+            // --- Party Formation ---
+            _selectCharSelector = __instance.selectCharacterSelector;
+            _selectCharLastIndex = -1;
+            _selectCharWasActive = false;
+            _selectCharSuppressHeading = false;
+            _selectCharDataList = null;
+
+            if (_selectCharSelector != null)
+            {
+                DebugLogger.LogState("CampMenu: select character selector cached.");
+
+                try
+                {
+                    if (_selectCharSelector.gameObject.activeInHierarchy)
+                    {
+                        _selectCharSuppressHeading = true;
+                        DebugLogger.LogState("CampPartyFormation: stale on open — heading will be suppressed.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MelonLogger.Warning($"CampPartyFormation stale-check failed: {ex.Message}");
+                }
+            }
+            else
+            {
+                MelonLogger.Warning("[CAMP] campWindow.selectCharacterSelector is null.");
+            }
+
+            // --- Assist Formation ---
+            _assistSelector = __instance.assistSettingSelector;
+            _assistWasActive = false;
+            _assistSuppressHeading = false;
+            _assistEquipListBase = null;
+            _assistEquipLastIndex = -1;
+            _assistCharListBase = null;
+            _assistCharLastIndex = -1;
+            _assistLastState = -1;
+
+            if (_assistSelector != null)
+            {
+                DebugLogger.LogState("CampMenu: assist setting selector cached.");
+
+                try
+                {
+                    if (_assistSelector.gameObject.activeInHierarchy)
+                    {
+                        _assistSuppressHeading = true;
+                        DebugLogger.LogState("CampAssist: stale on open — heading will be suppressed.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MelonLogger.Warning($"CampAssist stale-check failed: {ex.Message}");
+                }
+            }
+            else
+            {
+                MelonLogger.Warning("[CAMP] campWindow.assistSettingSelector is null.");
+            }
+
+            // --- Tactics ---
+            _operationSelector = __instance.operationSelector;
+            _operationWasActive = false;
+            _operationSuppressHeading = false;
+            _operationCharLastIndex = -1;
+            _operationSelectListBase = null;
+            _operationSelectLastIndex = -1;
+            _operationLastState = -1;
+
+            if (_operationSelector != null)
+            {
+                DebugLogger.LogState("CampMenu: operation selector cached.");
+
+                try
+                {
+                    if (_operationSelector.gameObject.activeInHierarchy)
+                    {
+                        _operationSuppressHeading = true;
+                        DebugLogger.LogState("CampTactics: stale on open — heading will be suppressed.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MelonLogger.Warning($"CampTactics stale-check failed: {ex.Message}");
+                }
+            }
+            else
+            {
+                MelonLogger.Warning("[CAMP] campWindow.operationSelector is null.");
             }
         }
 
@@ -1478,7 +2099,7 @@ namespace SO2RAccess
                 string buttonName = "";
                 var slotData = _battleSkillEquipListSel?.GetCurrentData();
                 if (slotData != null)
-                    buttonName = slotData.categoryName ?? "";
+                    buttonName = StripTags(slotData.categoryName ?? "");
 
                 DebugLogger.LogGameValue("CampBattleSkillSetting.picker",
                     $"button='{buttonName}' name='{name}' lv={level}/{levelMax} mp={consumeMP} " +
@@ -1624,6 +2245,84 @@ namespace SO2RAccess
             }
         }
 
+        /// <summary>
+        /// Postfix for UICampCharacterStatusPresenter.SetStatus(List&lt;CampCharacterStatusParameterData&gt;).
+        /// Fires when the party formation screen populates the character status list.
+        /// Caches the data list so UpdatePartyFormationSelector can read character info by index.
+        /// </summary>
+        private static void CharacterStatusPresenter_SetStatus_Postfix(
+            Il2CppSystem.Collections.Generic.List<CampCharacterStatusParameterData> dataList)
+        {
+            if (dataList == null) return;
+            if (_lastRootMenuItemName != "PartyFormation") return;
+
+            try
+            {
+                _selectCharDataList = dataList;
+                DebugLogger.LogState($"CampPartyFormation: cached {dataList.Count} character(s) from SetStatus.");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"CampMenuHandler.CharacterStatusPresenter_SetStatus_Postfix: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Postfix for UICampOperationInformationPresenter.Set(string, string, string).
+        /// Fires when the tactics operation info panel updates — on each navigation
+        /// in the operation list. Announces operation name and description.
+        /// Gated: only announces when the tactics screen is in SelectOperation state.
+        /// </summary>
+        private static void OperationInfoPresenter_Set_Postfix(
+            string name, string description, string prefabPath)
+        {
+            if (!_operationWasActive) return;
+            if (_operationSelector == null) return;
+            if (_lastRootMenuItemName != "Tactics") return;
+
+            try
+            {
+                // Only announce in SelectOperation state (state == 1).
+                int state = (int)_operationSelector.currentState;
+                if (state != 1) return;
+
+                DebugLogger.LogGameValue("CampTactics.opInfo",
+                    $"name='{name}' desc='{description}'");
+
+                var sb = new StringBuilder();
+
+                if (!string.IsNullOrEmpty(name))
+                    sb.Append(name).Append(". ");
+                if (!string.IsNullOrEmpty(description))
+                    sb.Append(description).Append(". ");
+
+                // Read position and "currently set" flag from the selectListSelector.
+                if (_operationSelectListBase != null)
+                {
+                    int idx = _operationSelectListBase.currentIndex;
+                    var list = _operationSelectListBase.currentDataList;
+                    int total = list?.Count ?? 0;
+                    if (total > 0 && idx >= 0)
+                    {
+                        var item = list[idx]?.TryCast<UIOperationListItemData>();
+                        bool isCurrent = item?.isSetting ?? false;
+
+                        if (isCurrent)
+                            sb.Append("Currently set. ");
+                        sb.Append($"{idx + 1} of {total}.");
+                    }
+                }
+
+                string result = sb.ToString().Trim();
+                if (!string.IsNullOrEmpty(result))
+                    ScreenReader.Say(result);
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"CampMenuHandler.OperationInfoPresenter_Set_Postfix: {ex.Message}");
+            }
+        }
+
         #endregion
 
         #region Status Screen Hooks (hook-driven detection)
@@ -1643,6 +2342,7 @@ namespace SO2RAccess
                 {
                     _statusScreenOpen = true;
                     _statusLastIndex = -1;
+                    _statusLastPageIndex = _statusSelector?.pageIndex ?? 0;
                     ScreenReader.Say(Loc.Get("camp_status_screen"));
                     DebugLogger.LogState("CampStatus: screen opened (hook-driven).");
                 }
@@ -1661,7 +2361,17 @@ namespace SO2RAccess
                 if (index == _statusLastIndex) return;
                 _statusLastIndex = index;
 
-                AnnounceStatusCharacter(index, total);
+                // Only announce stats on the stats page (page 0). Other pages
+                // have their own hooks (e.g. UITalentPresenter.Set for talents).
+                int currentPage = _statusSelector?.pageIndex ?? 0;
+                if (currentPage == 0)
+                {
+                    AnnounceStatusCharacter(index, total);
+                }
+                else
+                {
+                    DebugLogger.LogState($"CampStatus: UpdatePresenter on page {currentPage}, skipping stats announcement.");
+                }
             }
             catch (Exception ex)
             {
@@ -1706,6 +2416,74 @@ namespace SO2RAccess
             _statusLevelData = data;
             DebugLogger.LogGameValue("CampStatus.levelHook",
                 data != null ? $"lv={data.level} hp={data.hp}/{data.maxHp} mp={data.mp}/{data.maxMp}" : "null");
+        }
+
+        /// <summary>
+        /// Postfix for UITalentPresenter.Set(List&lt;UITalentData&gt;).
+        /// Fires when the status screen initializes (page 0), NOT on page switch.
+        /// Caches the talent announcement string. If already on the talent page (page 1),
+        /// announces immediately (handles character tab change while viewing talents).
+        /// </summary>
+        private static void TalentPresenter_Set_Postfix(
+            Il2CppSystem.Collections.Generic.List<UITalentData> dataList)
+        {
+            try
+            {
+                var sb = new StringBuilder();
+                sb.Append(Loc.Get("camp_status_talents_screen"));
+
+                if (dataList != null && dataList.Count > 0)
+                {
+                    for (int i = 0; i < dataList.Count; i++)
+                    {
+                        var talent = dataList[i];
+                        if (talent == null) continue;
+                        string name = talent.talentName ?? "";
+                        if (string.IsNullOrEmpty(name)) continue;
+                        sb.Append(" ");
+                        sb.Append(name);
+                        if (i < dataList.Count - 1) sb.Append(",");
+                    }
+                }
+                else
+                {
+                    sb.Append(" ");
+                    sb.Append(Loc.Get("camp_status_talents_none"));
+                }
+
+                _cachedTalentAnnouncement = sb.ToString();
+                DebugLogger.LogGameValue("CampStatus.talents",
+                    $"count={dataList?.Count ?? 0} cached='{_cachedTalentAnnouncement}'");
+
+                // If already on the talent page, announce immediately.
+                // This handles character tab changes while viewing talents.
+                int pageIdx = _statusSelector?.pageIndex ?? 0;
+                if (_statusScreenOpen && pageIdx == 1)
+                {
+                    ScreenReader.Say(_cachedTalentAnnouncement);
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"CampMenuHandler.TalentPresenter_Set_Postfix: {ex.Message}");
+            }
+        }
+
+        #endregion
+
+        #region Helpers
+
+        /// <summary>
+        /// Cleans rich text from a game string. Sprite tags have their name
+        /// extracted (e.g. "&lt;sprite name=R1&gt;" → "R1"), then any remaining
+        /// tags are stripped.
+        /// </summary>
+        private static string StripTags(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            text = _spriteNameExtractor.Replace(text, "$1");
+            text = _tagStripper.Replace(text, "");
+            return text.Trim();
         }
 
         #endregion

@@ -131,6 +131,7 @@ namespace SO2RAccess
             // Tutorial boxes
             Add("tutorial_page",          "Tutorial. {0}. {1}");
             Add("tutorial_page_no_title", "Tutorial. {0}");
+            Add("tutorial_operation",     "Controls: {0}");
 
             // Dialog and description popups
             Add("dialog_message",              "{0}");
@@ -177,6 +178,15 @@ namespace SO2RAccess
             Add("nav_save_recovery",   "Recovery save point");
             Add("nav_save_recovery_n", "Recovery save point {0}");
 
+            // Navigation — enemies
+            Add("nav_enemy_named",   "{0}, {1}");
+            Add("nav_enemy_typed",   "{0} enemy");
+            Add("nav_enemy_unknown", "Enemy");
+            Add("nav_enemy_weak",    "weak");
+            Add("nav_enemy_medium",  "medium");
+            Add("nav_enemy_strong",  "strong");
+            Add("nav_enemy_raid",    "raid");
+
             // Camp menu — root
             Add("camp_menu_screen",           "Camp menu.");
             Add("camp_menu_item",             "{0}, {1} of {2}.");
@@ -196,13 +206,15 @@ namespace SO2RAccess
             Add("camp_status_attributes",    "Strength: {0}. Constitution: {1}. Dexterity: {2}. Agility: {3}. Intelligence: {4}. Luck: {5}.");
             Add("camp_status_stamina_guts",  "Stamina: {0}. Guts: {1}.");
             Add("camp_status_position",      "{0} of {1}.");
+            Add("camp_status_talents_screen","Talents.");
+            Add("camp_status_talents_none",  "No talents.");
 
             // Camp menu — equip sub-screen
             // Slot list: each entry shows the item currently equipped in that slot.
             Add("camp_equip_screen",             "Equipment.");
-            Add("camp_equip_slot",               "{0}, {1} of {2}.");
-            Add("camp_equip_slot_empty",         "Nothing equipped, {0} of {1}.");
-            Add("camp_equip_slot_unavailable",   "{0}, unavailable, {1} of {2}.");
+            Add("camp_equip_slot",               "{0}: {1}, {2} of {3}.");
+            Add("camp_equip_slot_empty",         "{0}: None, {1} of {2}.");
+            Add("camp_equip_slot_unavailable",   "{0}: {1}, unavailable, {2} of {3}.");
             // Item list: announced by UIItemInformationPresenter.Set hook.
             Add("camp_equip_stat_attack",    "Attack: {0}");
             Add("camp_equip_stat_defence",   "Defence: {0}");
@@ -238,6 +250,23 @@ namespace SO2RAccess
             Add("camp_skill_level",         "Level {0}");
             Add("camp_skill_position",      "{0} of {1}.");
 
+            // Camp menu — party formation sub-screen (character selection grid)
+            Add("camp_party_formation_screen", "Party formation.");
+            Add("camp_party_formation_char",   "{0}, Level {1}. {2}. {3} of {4}.");
+
+            // Camp menu — assist formation sub-screen (assign assist characters to buttons)
+            Add("camp_assist_screen",          "Assist formation.");
+            Add("camp_assist_slot",            "{0}: {1}, {2}. {3} of {4}.");
+            Add("camp_assist_slot_empty",      "{0}: None. {1} of {2}.");
+            Add("camp_assist_char",            "{0}. {1} of {2}.");
+            Add("camp_assist_char_current",    "{0}, currently set. {1} of {2}.");
+
+            // Camp menu — tactics sub-screen (assign tactics to party members)
+            Add("camp_tactics_screen",             "Tactics.");
+            Add("camp_tactics_char",               "{0}: {1}. {2} of {3}.");
+            Add("camp_tactics_operation",          "{0}. {1} of {2}.");
+            Add("camp_tactics_operation_current",  "{0}, currently set. {1} of {2}.");
+
             // Save game (same UI as load, differentiated by SaveLoadState)
             Add("save_game_screen",         "Save game.");
 
@@ -250,6 +279,10 @@ namespace SO2RAccess
             Add("shop_item_sell",       "{0}. Sell: {1} Fol. Own: {2}. {3} of {4}.");
             Add("shop_item_quantity",   "Quantity: {0}. Total: {1} Fol.");
 
+            // Item acquisition popups (treasure chests, quest rewards, etc.)
+            Add("overflow_item",            "{0}");
+            Add("overflow_item_multi",      "{0} x{1}");
+
             // Battle results
             Add("battle_result_heading",    "Battle complete.");
             Add("battle_result_exp",        "{0} EXP.");
@@ -257,6 +290,28 @@ namespace SO2RAccess
             Add("battle_result_levelup",    "{0} leveled up to {1}.");
             Add("battle_result_item",       "Obtained {0}.");
             Add("battle_result_item_multi", "Obtained {0}, {1}.");
+
+            // Battle counter cue
+            Add("battle_counter_ready",     "Counter!");
+
+            // Enemy proximity audio
+            Add("proximity_wav_missing",    "Enemy proximity sound file not found: {0}");
+
+            // Location discovery notifications
+            Add("location_discovered",      "Discovered {0}.");
+            Add("location_discovered_desc", "Discovered {0}. {1}");
+
+            // Reward notifications (location points, missions, etc.)
+            Add("reward_exp",               "{0} EXP");
+            Add("reward_fol",               "{0} Fol");
+            Add("reward_sp",                "{0} SP");
+            Add("reward_bp",                "{0} BP");
+            Add("reward_item",              "{0}");
+            Add("reward_item_multi",        "{0} x{1}");
+
+            // Game over (battle loss) menu
+            Add("gameover_screen",      "Game over.");
+            Add("gameover_menu_item",   "{0}, {1} of {2}.");
 
             // Placeholders — add handler-specific strings here as features are built:
             // Add("hp",           "HP: {0} of {1}");
