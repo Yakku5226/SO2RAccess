@@ -1,0 +1,76 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>SO2RAccess</AssemblyName>
+    <RootNamespace>SO2RAccess</RootNamespace>
+  </PropertyGroup>
+
+  <!-- Exclude decompiled and template files from build -->
+  <ItemGroup>
+    <Compile Remove="decompiled\**" />
+    <Compile Remove="templates\**" />
+  </ItemGroup>
+
+  <!-- MelonLoader (net6 runtime) -->
+  <ItemGroup>
+    <Reference Include="MelonLoader">
+      <HintPath>E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\MelonLoader\net6\MelonLoader.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\MelonLoader\net6\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\MelonLoader\net6\Il2CppInterop.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- IL2CPP mscorlib (required for IL2CPP core types) -->
+  <ItemGroup>
+    <Reference Include="Il2Cppmscorlib">
+      <HintPath>E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\MelonLoader\Il2CppAssemblies\Il2Cppmscorlib.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Unity and game assemblies (IL2CPP stubs) -->
+  <ItemGroup>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\MelonLoader\Il2CppAssemblies\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.InputSystem">
+      <HintPath>E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\MelonLoader\Il2CppAssemblies\Unity.InputSystem.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\MelonLoader\Il2CppAssemblies\Unity.TextMeshPro.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\MelonLoader\Il2CppAssemblies\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\MelonLoader\Il2CppAssemblies\UnityEngine.UI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AIModule">
+      <HintPath>E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\MelonLoader\Il2CppAssemblies\UnityEngine.AIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- After build: copy DLL to game Mods folder -->
+  <Target Name="CopyToMods" AfterTargets="Build">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\Mods\" />
+    <Message Text="Copied $(TargetFileName) to Mods folder" Importance="High" />
+  </Target>
+
+</Project>
