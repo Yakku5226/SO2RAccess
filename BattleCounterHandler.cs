@@ -54,6 +54,7 @@ namespace SO2RAccess
             {
                 if (target == null) return;
                 if (!target.IsControlPlayer()) return;
+                if (!ModSettings.DodgeSoundEnabled) return;
 
                 AudioCuePlayer.PlayDodgeWarningCue();
                 DebugLogger.LogState("BattleCounter: incoming attack — dodge warning played.");

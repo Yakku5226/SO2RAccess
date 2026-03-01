@@ -123,6 +123,8 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(UICampBattleSkillSelector).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UISelectBattleSkillSelector).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UICampBattleSkillListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampCombatSkillSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampCombatSkillListItemData).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIBattleSkillInformationPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIBattleSkillInformationData).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UICampBattleSkillSettingSelector).TypeHandle);
@@ -520,6 +522,8 @@ namespace SO2RAccess
             _battleSkillOuterSelector = __instance.battleSkillSelector;
             _battleSkillInnerSelector = null;
             _battleSkillListBase = null;
+            _combatSkillInnerSelector = null;
+            _combatSkillListBase = null;
             _battleSkillWasActive = false;
             _battleSkillSuppressHeading = false;
 

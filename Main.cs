@@ -52,6 +52,8 @@ namespace SO2RAccess
         private ShopHandler _shopHandler;
         private EnemyProximityHandler _enemyProximityHandler;
         private GameOverHandler _gameOverHandler;
+        private SaveNotificationHandler _saveNotificationHandler;
+        private BattleTargetHandler _battleTargetHandler;
 
         // Gamepad nav overlay — L1 hold-to-open state.
         private bool _gamepadL1Held;
@@ -75,13 +77,20 @@ namespace SO2RAccess
         public override void OnInitializeMelon()
         {
             ScreenReader.Initialize();
+            ModSettings.Load();
             AudioCuePlayer.Initialize();
 
-            // Load spatial audio for enemy proximity cue.
+            // Load audio files from the mod sounds folder.
             string soundsDir = Path.Combine(Directory.GetCurrentDirectory(),
                 "UserData", "SO2RAccess", "Sounds");
             string proximityWavPath = Path.Combine(soundsDir, "Enemy_proximity.wav");
             SpatialAudioPlayer.Initialize(proximityWavPath);
+
+            string dodgeWavPath = Path.Combine(soundsDir, "Dodge.wav");
+            AudioCuePlayer.LoadDodgeSound(dodgeWavPath);
+
+            string saveWavPath = Path.Combine(soundsDir, "Save_sound.wav");
+            AudioCuePlayer.LoadSaveSound(saveWavPath);
 
             Loc.Initialize();
             InitializeHandlers();
@@ -107,6 +116,8 @@ namespace SO2RAccess
             _shopHandler = new ShopHandler();
             _enemyProximityHandler = new EnemyProximityHandler();
             _gameOverHandler = new GameOverHandler();
+            _saveNotificationHandler = new SaveNotificationHandler();
+            _battleTargetHandler = new BattleTargetHandler();
         }
 
         private IEnumerator AnnounceStartupDelayed()
@@ -167,6 +178,8 @@ namespace SO2RAccess
             _shopHandler?.OnSceneChanged();
             _enemyProximityHandler?.OnSceneChanged();
             _gameOverHandler?.OnSceneChanged();
+            _saveNotificationHandler?.OnSceneChanged();
+            _battleTargetHandler?.OnSceneChanged();
 
             // Apply patches once — safe to call on every scene load, handlers guard against duplicates.
             _titleHandler.ApplyPatches(_harmony);
@@ -185,6 +198,8 @@ namespace SO2RAccess
             _shopHandler.ApplyPatches(_harmony);
             _enemyProximityHandler.ApplyPatches(_harmony);
             _gameOverHandler.ApplyPatches(_harmony);
+            _saveNotificationHandler.ApplyPatches(_harmony);
+            _battleTargetHandler.ApplyPatches(_harmony);
         }
 
         /// <summary>
@@ -446,6 +461,8 @@ namespace SO2RAccess
             _enemyProximityHandler.Update();
             _gameOverHandler.Update();
             _notificationHandler.Update();
+            _saveNotificationHandler.Update();
+            _battleTargetHandler.Update();
         }
 
         #endregion

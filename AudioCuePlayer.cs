@@ -8,61 +8,223 @@ namespace SO2RAccess
     /// <summary>
     /// Plays short audio cues for time-critical gameplay feedback.
     /// Uses Windows native audio (winmm.dll) to bypass Unity IL2CPP GC issues.
-    /// Generates WAV data in memory at startup — no external files needed.
+    /// Supports both synthesized cues (dodge warning) and file-based cues (save sound).
     /// </summary>
     public static class AudioCuePlayer
     {
         [DllImport("winmm.dll", SetLastError = true)]
         private static extern bool PlaySound(byte[] pszSound, IntPtr hmod, uint fdwSound);
 
+        // Overload that takes IntPtr — used for unmanaged memory buffers
+        // that won't be moved by the GC during async playback.
+        [DllImport("winmm.dll", SetLastError = true, EntryPoint = "PlaySound")]
+        private static extern bool PlaySoundPtr(IntPtr pszSound, IntPtr hmod, uint fdwSound);
+
         private const uint SND_MEMORY = 0x0004;
         private const uint SND_ASYNC = 0x0001;
         private const uint SND_NODEFAULT = 0x0002;
 
-        private static byte[] _dodgeWarningWav;
         private static bool _initialized;
 
-        private const int SampleRate = 44100;
-        private const float DodgeWarningFrequency = 600f;
-        private const float DodgeWarningDuration = 0.15f;
-        private const float DodgeWarningVolume = 0.8f;
+        // File-based dodge warning sound — same pattern as save sound.
+        private static byte[] _dodgeSoundRawWav;
+        private static int _dodgeSoundDataOffset;
+        private static int _dodgeSoundDataLength;
+        private static short _dodgeSoundBitsPerSample;
+        private static IntPtr _dodgeSoundPtr = IntPtr.Zero;
+        private static int _dodgeSoundPtrSize;
+        private static float _dodgeSoundCachedVolume = -1f;
+        private static bool _dodgeSoundLoaded;
+
+        // File-based save sound — stores the raw WAV file bytes and the
+        // byte offset of the PCM data region within it. Volume adjustment
+        // creates a copy with scaled samples rather than rebuilding the
+        // entire WAV from scratch. The final WAV is stored in unmanaged
+        // memory (Marshal.AllocHGlobal) so the GC cannot move it during
+        // async PlaySound playback.
+        private static byte[] _saveSoundRawWav;
+        private static int _saveSoundDataOffset;
+        private static int _saveSoundDataLength;
+        private static short _saveSoundBitsPerSample;
+        private static IntPtr _saveSoundPtr = IntPtr.Zero;
+        private static int _saveSoundPtrSize;
+        private static float _saveSoundCachedVolume = -1f;
+        private static bool _saveSoundLoaded;
 
         /// <summary>
-        /// Generates audio data. Call once at mod startup.
+        /// Marks the player as initialized. Call once at mod startup.
         /// </summary>
         public static void Initialize()
         {
             if (_initialized) return;
+            _initialized = true;
+            MelonLogger.Msg("AudioCuePlayer: initialized.");
+        }
 
+        /// <summary>
+        /// Loads a WAV file from disk for the dodge warning cue.
+        /// </summary>
+        public static void LoadDodgeSound(string path)
+        {
             try
             {
-                _dodgeWarningWav = GenerateWav(DodgeWarningFrequency, DodgeWarningDuration, DodgeWarningVolume);
-                _initialized = true;
-                MelonLogger.Msg("AudioCuePlayer: initialized.");
+                if (!File.Exists(path))
+                {
+                    MelonLogger.Warning($"AudioCuePlayer: dodge sound not found: {path}");
+                    return;
+                }
+
+                if (!TryParseWav(path, out byte[] fileBytes, out int dataOffset,
+                        out int dataLength, out short bitsPerSample))
+                    return;
+
+                _dodgeSoundRawWav = fileBytes;
+                _dodgeSoundDataOffset = dataOffset;
+                _dodgeSoundDataLength = dataLength;
+                _dodgeSoundBitsPerSample = bitsPerSample;
+                _dodgeSoundCachedVolume = -1f;
+                _dodgeSoundLoaded = true;
+
+                int sampleCount = dataLength / (bitsPerSample / 8);
+                MelonLogger.Msg($"AudioCuePlayer: dodge sound loaded ({fileBytes.Length} bytes, {sampleCount} samples, {bitsPerSample}-bit).");
             }
             catch (Exception ex)
             {
-                MelonLogger.Error($"AudioCuePlayer.Initialize failed: {ex.Message}");
+                MelonLogger.Error($"AudioCuePlayer.LoadDodgeSound failed: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// Plays the dodge warning cue (incoming attack — press X to dodge).
+        /// Returns true if the dodge sound WAV was loaded successfully.
+        /// </summary>
+        public static bool IsDodgeSoundLoaded => _dodgeSoundLoaded;
+
+        /// <summary>
+        /// Plays the dodge warning cue (incoming attack — press X to dodge)
+        /// at the current ModSettings volume.
         /// </summary>
         public static void PlayDodgeWarningCue()
         {
-            if (!_initialized || _dodgeWarningWav == null)
+            if (!_dodgeSoundLoaded || _dodgeSoundRawWav == null)
                 return;
 
             try
             {
-                PlaySound(_dodgeWarningWav, IntPtr.Zero, SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+                float volume = ModSettings.DodgeSoundVolume;
+
+                if (Math.Abs(volume - _dodgeSoundCachedVolume) > 0.001f)
+                {
+                    byte[] adjusted = (byte[])_dodgeSoundRawWav.Clone();
+                    ScalePcmSamples(adjusted, _dodgeSoundDataOffset,
+                        _dodgeSoundDataLength, _dodgeSoundBitsPerSample, volume);
+
+                    if (_dodgeSoundPtr != IntPtr.Zero)
+                        Marshal.FreeHGlobal(_dodgeSoundPtr);
+
+                    _dodgeSoundPtrSize = adjusted.Length;
+                    _dodgeSoundPtr = Marshal.AllocHGlobal(_dodgeSoundPtrSize);
+                    Marshal.Copy(adjusted, 0, _dodgeSoundPtr, _dodgeSoundPtrSize);
+                    _dodgeSoundCachedVolume = volume;
+
+                    DebugLogger.LogState($"Dodge WAV built: {_dodgeSoundPtrSize} bytes at volume {volume:F2}");
+                }
+
+                if (_dodgeSoundPtr != IntPtr.Zero)
+                {
+                    PlaySoundPtr(_dodgeSoundPtr, IntPtr.Zero,
+                        SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+                }
             }
             catch (Exception ex)
             {
                 DebugLogger.LogState($"AudioCuePlayer.PlayDodgeWarningCue failed: {ex.Message}");
             }
         }
+
+        /// <summary>
+        /// Loads a WAV file from disk for the save sound cue.
+        /// </summary>
+        public static void LoadSaveSound(string path)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    MelonLogger.Warning($"AudioCuePlayer: save sound not found: {path}");
+                    return;
+                }
+
+                if (!TryParseWav(path, out byte[] fileBytes, out int dataOffset,
+                        out int dataLength, out short bitsPerSample))
+                    return;
+
+                _saveSoundRawWav = fileBytes;
+                _saveSoundDataOffset = dataOffset;
+                _saveSoundDataLength = dataLength;
+                _saveSoundBitsPerSample = bitsPerSample;
+                _saveSoundCachedVolume = -1f;
+                _saveSoundLoaded = true;
+
+                int sampleCount = dataLength / (bitsPerSample / 8);
+                MelonLogger.Msg($"AudioCuePlayer: save sound loaded ({fileBytes.Length} bytes, {sampleCount} samples, {bitsPerSample}-bit).");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"AudioCuePlayer.LoadSaveSound failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Plays the save sound cue at the current ModSettings volume.
+        /// Creates a volume-adjusted copy of the WAV in unmanaged memory
+        /// only when the volume setting changes.
+        /// </summary>
+        public static void PlaySaveCue()
+        {
+            if (!_saveSoundLoaded || _saveSoundRawWav == null)
+            {
+                DebugLogger.LogState($"PlaySaveCue skipped: loaded={_saveSoundLoaded}");
+                return;
+            }
+
+            try
+            {
+                float volume = ModSettings.SaveSoundVolume;
+
+                if (Math.Abs(volume - _saveSoundCachedVolume) > 0.001f)
+                {
+                    byte[] adjusted = (byte[])_saveSoundRawWav.Clone();
+                    ScalePcmSamples(adjusted, _saveSoundDataOffset,
+                        _saveSoundDataLength, _saveSoundBitsPerSample, volume);
+
+                    if (_saveSoundPtr != IntPtr.Zero)
+                        Marshal.FreeHGlobal(_saveSoundPtr);
+
+                    _saveSoundPtrSize = adjusted.Length;
+                    _saveSoundPtr = Marshal.AllocHGlobal(_saveSoundPtrSize);
+                    Marshal.Copy(adjusted, 0, _saveSoundPtr, _saveSoundPtrSize);
+                    _saveSoundCachedVolume = volume;
+
+                    DebugLogger.LogState($"Save WAV built: {_saveSoundPtrSize} bytes at volume {volume:F2}");
+                }
+
+                if (_saveSoundPtr != IntPtr.Zero)
+                {
+                    bool result = PlaySoundPtr(_saveSoundPtr, IntPtr.Zero,
+                        SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+                    DebugLogger.LogState($"Save PlaySound returned: {result}");
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"AudioCuePlayer.PlaySaveCue failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Returns true if the save sound WAV was loaded successfully.
+        /// </summary>
+        public static bool IsSaveSoundLoaded => _saveSoundLoaded;
 
         /// <summary>
         /// Cleans up audio data.
@@ -73,54 +235,117 @@ namespace SO2RAccess
             try { PlaySound(null, IntPtr.Zero, SND_ASYNC); }
             catch { /* Best-effort cleanup on shutdown */ }
 
-            _dodgeWarningWav = null;
+            _dodgeSoundRawWav = null;
+            if (_dodgeSoundPtr != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(_dodgeSoundPtr);
+                _dodgeSoundPtr = IntPtr.Zero;
+            }
+            _dodgeSoundLoaded = false;
+
+            _saveSoundRawWav = null;
+            if (_saveSoundPtr != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(_saveSoundPtr);
+                _saveSoundPtr = IntPtr.Zero;
+            }
+            _saveSoundLoaded = false;
+
             _initialized = false;
         }
 
+        #region WAV Helpers
+
         /// <summary>
-        /// Generates a PCM WAV byte array with a sine wave at the given frequency.
+        /// Reads and validates a PCM WAV file, returning the raw bytes and
+        /// the location/size of the PCM data region within it.
         /// </summary>
-        private static byte[] GenerateWav(float frequency, float duration, float volume)
+        private static bool TryParseWav(string path, out byte[] fileBytes,
+            out int dataOffset, out int dataLength, out short bitsPerSample)
         {
-            int sampleCount = (int)(SampleRate * duration);
-            int dataSize = sampleCount * 2; // 16-bit mono = 2 bytes per sample
+            fileBytes = null;
+            dataOffset = -1;
+            dataLength = 0;
+            bitsPerSample = 0;
 
-            using var ms = new MemoryStream();
-            using var bw = new BinaryWriter(ms);
+            byte[] raw = File.ReadAllBytes(path);
 
-            // RIFF header
-            bw.Write((byte)'R'); bw.Write((byte)'I'); bw.Write((byte)'F'); bw.Write((byte)'F');
-            bw.Write(36 + dataSize);
-            bw.Write((byte)'W'); bw.Write((byte)'A'); bw.Write((byte)'V'); bw.Write((byte)'E');
-
-            // fmt chunk
-            bw.Write((byte)'f'); bw.Write((byte)'m'); bw.Write((byte)'t'); bw.Write((byte)' ');
-            bw.Write(16);            // chunk size
-            bw.Write((short)1);      // PCM format
-            bw.Write((short)1);      // mono
-            bw.Write(SampleRate);    // sample rate
-            bw.Write(SampleRate * 2); // byte rate
-            bw.Write((short)2);      // block align
-            bw.Write((short)16);     // bits per sample
-
-            // data chunk
-            bw.Write((byte)'d'); bw.Write((byte)'a'); bw.Write((byte)'t'); bw.Write((byte)'a');
-            bw.Write(dataSize);
-
-            // Sine wave samples
-            float fadeStart = sampleCount * 0.8f; // Fade out last 20% to avoid click at end
-            for (int i = 0; i < sampleCount; i++)
+            if (raw.Length < 44 ||
+                raw[0] != 'R' || raw[1] != 'I' ||
+                raw[2] != 'F' || raw[3] != 'F' ||
+                raw[8] != 'W' || raw[9] != 'A' ||
+                raw[10] != 'V' || raw[11] != 'E')
             {
-                float t = (float)i / SampleRate;
-                float sample = (float)Math.Sin(2.0 * Math.PI * frequency * t) * volume;
-
-                if (i > fadeStart)
-                    sample *= 1f - (i - fadeStart) / (sampleCount - fadeStart);
-
-                bw.Write((short)(sample * short.MaxValue));
+                MelonLogger.Warning($"AudioCuePlayer: {Path.GetFileName(path)} is not a valid WAV file.");
+                return false;
             }
 
-            return ms.ToArray();
+            int pos = 12;
+            while (pos < raw.Length - 8)
+            {
+                string chunkId = System.Text.Encoding.ASCII.GetString(raw, pos, 4);
+                int chunkSize = BitConverter.ToInt32(raw, pos + 4);
+
+                if (chunkId == "fmt ")
+                {
+                    short format = BitConverter.ToInt16(raw, pos + 8);
+                    if (format != 1)
+                    {
+                        MelonLogger.Warning($"AudioCuePlayer: {Path.GetFileName(path)} must be PCM format.");
+                        return false;
+                    }
+                    bitsPerSample = BitConverter.ToInt16(raw, pos + 22);
+                }
+                else if (chunkId == "data")
+                {
+                    dataOffset = pos + 8;
+                    dataLength = chunkSize;
+                }
+
+                pos += 8 + chunkSize;
+                if (chunkSize % 2 != 0) pos++;
+            }
+
+            if (dataOffset < 0 || bitsPerSample == 0)
+            {
+                MelonLogger.Warning($"AudioCuePlayer: could not parse {Path.GetFileName(path)} WAV data.");
+                return false;
+            }
+
+            fileBytes = raw;
+            return true;
         }
+
+        /// <summary>
+        /// Scales PCM samples in-place within the given byte array.
+        /// Supports 16-bit and 8-bit PCM WAV data.
+        /// </summary>
+        private static void ScalePcmSamples(byte[] wav, int dataOffset,
+            int dataLength, short bitsPerSample, float volume)
+        {
+            int end = dataOffset + dataLength;
+
+            if (bitsPerSample == 16)
+            {
+                for (int i = dataOffset; i + 1 < end; i += 2)
+                {
+                    short sample = BitConverter.ToInt16(wav, i);
+                    int scaled = Math.Clamp((int)(sample * volume), short.MinValue, short.MaxValue);
+                    wav[i] = (byte)(scaled & 0xFF);
+                    wav[i + 1] = (byte)((scaled >> 8) & 0xFF);
+                }
+            }
+            else if (bitsPerSample == 8)
+            {
+                for (int i = dataOffset; i < end; i++)
+                {
+                    int sample = wav[i] - 128;
+                    int scaled = Math.Clamp((int)(sample * volume) + 128, 0, 255);
+                    wav[i] = (byte)scaled;
+                }
+            }
+        }
+
+        #endregion
     }
 }

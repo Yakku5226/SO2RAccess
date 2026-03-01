@@ -226,9 +226,10 @@ namespace SO2RAccess
             Add("camp_equip_factor",         "Factor: {0}");
             Add("camp_equip_position",       "{0} of {1}.");
 
-            // Camp menu — battle skill leveling sub-screen
+            // Camp menu — battle skill leveling sub-screen (also via Enhance → BattleSkillPoint)
             // Hook-driven: UIBattleSkillInformationPresenter.Set fires on every navigation.
             Add("camp_battleskill_screen",   "Battle skills.");
+            Add("camp_combatskill_screen",   "Combat skills.");
             Add("camp_battleskill_level",    "Level {0} of {1}");
             Add("camp_battleskill_mp",       "MP: {0}");
             Add("camp_battleskill_position", "{0} of {1}.");
@@ -291,7 +292,12 @@ namespace SO2RAccess
             Add("battle_result_heading",    "Battle complete.");
             Add("battle_result_exp",        "{0} EXP.");
             Add("battle_result_fol",        "{0} Fol.");
+            Add("battle_result_sp",         "{0} SP.");
+            Add("battle_result_bsp",        "{0} Battle Skill Points.");
             Add("battle_result_levelup",    "{0} leveled up to {1}.");
+            Add("battle_result_levelup_sp", "Gained {0} SP.");
+            Add("battle_result_levelup_bsp","Gained {0} Battle Skill Points.");
+            Add("battle_result_learned_skills", "Learned: {0}.");
             Add("battle_result_item",       "Obtained {0}.");
             Add("battle_result_item_multi", "Obtained {0}, {1}.");
 
@@ -310,14 +316,24 @@ namespace SO2RAccess
             Add("reward_item",              "{0}");
             Add("reward_item_multi",        "{0} x{1}");
 
+            // Save notifications
+            Add("save_saving",                      "Saving.");
+            Add("save_autosave_announce_fallback",  "When the game is saving, a save icon will appear on screen.");
+
             // Game over (battle loss) menu
             Add("gameover_screen",      "Game over.");
             Add("gameover_menu_item",   "{0}, {1} of {2}.");
             Add("gameover_retry",       "Retry");
             Add("gameover_title",       "Title");
 
-            // Placeholders — add handler-specific strings here as features are built:
-            // Add("hp",           "HP: {0} of {1}");
+            // Battle target (L2 target change mode)
+            Add("battle_target_hp_pct",         "HP {0}%.");
+            Add("battle_target_hp_exact",       "HP {0} of {1}.");
+            Add("battle_target_shield_pct",     "Shield {0}%.");
+            Add("battle_target_shield_broken",  "Shield broken.");
+            Add("battle_target_defeated",       "Defeated.");
+            Add("battle_target_leader",         "Leader: {0}.");
+            Add("battle_target_status",         "{0}.");
         }
 
         #endregion

@@ -38,6 +38,7 @@
 **Phase:** Phase 3 — Feature Implementation
 **Currently working on:** Phase 3 features
 **Blocked by:** Nothing — framework fully working in-game
+**Last completed:** Battle target handler, save notifications, mod settings, audio cue refactor (2026-03-01)
 
 ## Codebase Analysis Progress
 
@@ -145,8 +146,21 @@ Without this list, mod keys WILL conflict with game controls. -->
 
 - **Camp item sub-screen announcements** (`CampMenuHandler.cs`) ✓ TESTED
 
-- **Post-battle result announcements** (`BattleResultHandler.cs`) ✓ TESTED
-  - Some stat-change popups may not read — user to test further
+- **Post-battle result announcements** (`BattleResultHandler.cs`) — PENDING RETEST
+  - Now announces SP and BSP totals after EXP/Fol
+  - Level-ups include per-character BSP gained and learned battle skill names
+  - Skill names resolved via ParameterManager → TextManager chain (may need fallback if TextManager doesn't resolve)
+
+- **Battle target announcements** (`BattleTargetHandler.cs`) ✓ TESTED
+  - Hold L2 to enter target change mode; announces current enemy info
+  - Cycles targets with directional input; each new target announced
+  - Single-enemy battles: L2 re-reads current target's info (TargetChangeMode state detection)
+  - Announces: name, HP %, shield %, leader type, active buffs/debuffs
+  - HP shown as exact values if Spectacles item used on that enemy (IsSeeThroughEnemy check)
+  - Enemy names resolved via ConstEnemyParameter.charaNameID → ParseCharaNameID fallback
+  - Duplicate enemy names numbered (e.g. "Lizardaxe 1", "Lizardaxe 2")
+  - Detection: SetControlPlayerTarget hook (CallerCount 7) + polling as backup
+  - Spectacles is the ONLY see-through mechanism (no Analyze spell in this game)
 
 - **Camp equip sub-screen announcements** (`CampMenuHandler.cs`) ✓ TESTED
   - Slot list reads category before item name: "Weapon: Swift sword, 1 of 7."
@@ -167,12 +181,14 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Announces the game's message text plus each item name and count
   - Hook: UIOverflowItemPresenter.SetItem (CallerCount 3, fires when popup is populated)
 
-- **Battle dodge warning audio cue** (`BattleCounterHandler.cs`, `AudioCuePlayer.cs`) ✓ TESTED
-  - Plays a 600 Hz beep when an enemy is about to hit the player (dodge warning)
+- **Battle dodge warning audio cue** (`BattleCounterHandler.cs`, `AudioCuePlayer.cs`) — PENDING TEST (updated to file-based WAV)
+  - Plays Dodge.wav when an enemy is about to hit the player (dodge warning)
   - Hook: BattleCharacter.DoAttackNotify postfix — the game's own visual flash trigger
   - Only fires when target.IsControlPlayer() — ignores attacks on party members
-  - Audio: Windows native winmm.dll PlaySound with in-memory WAV (bypasses IL2CPP GC issues)
-  - Unity AudioClip.Create does NOT work in IL2CPP (object gets garbage collected immediately)
+  - Audio: WAV loaded from UserData/SO2RAccess/Sounds/Dodge.wav via winmm.dll (unmanaged memory)
+  - Settings: ModSettings.DodgeSoundEnabled (on/off) and DodgeSoundVolume (0.0-1.0, default 0.8)
+  - Volume-adjusted WAV cached in unmanaged memory, rebuilt only when volume setting changes
+  - Refactored: shared TryParseWav() and ScalePcmSamples() helpers (dodge + save sound use same code)
 
 - **Enemy proximity audio cue** (`EnemyProximityHandler.cs`, `SpatialAudioPlayer.cs`) — PENDING TEST
   - Looping spatial WAV cue warns of nearby field enemies
@@ -222,6 +238,16 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Announces EXP/Fol/SP/BP/items when rewards given via managed code (missions, etc.)
   - Does NOT fire for location point rewards (native-only flow)
 
+- **Save notification and audio cue** (`SaveNotificationHandler.cs`, `AudioCuePlayer.cs`, `ModSettings.cs`) ✓ TESTED
+  - Hook: UIDialogWindow.SetupAutoSaveAnnounce (CallerCount 2) — reads new game save notification dialog
+  - Hook: GameSaveManager.Save prefix (CallerCount 3) — detects manual save start
+  - Hook: GameSaveManager.OnSaveSuccess postfix (CallerCount 1) — detects save completion
+  - Polling: GameSaveManager.IsSaving() as backup (auto-saves)
+  - Audio: plays Save_sound.wav from UserData/SO2RAccess/Sounds/ via winmm.dll (unmanaged memory)
+  - Settings: ModSettings.SaveSoundEnabled (on/off) and SaveSoundVolume (0.0-1.0, default 0.5)
+  - Settings persisted to UserData/SO2RAccess/settings.json (created automatically)
+  - Ready for future mod settings menu integration
+
 ## In-Progress / Pending Test
 
 - **Camp status sub-screen announcements** (`CampMenuHandler.cs`) ✓ TESTED
@@ -261,6 +287,15 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Labels: "Save point" or "Recovery save point" based on IsRecovery property
   - Numbered when multiples of the same type exist (e.g. "Save point 1", "Recovery save point 2")
   - NavMesh reachability filter applied; live transform tracking for auto-walk
+
+- **Enhance menu sub-screen announcements** (`CampMenuHandler.BattleSkill.cs`) — PENDING TEST
+  - Camp → Enhance shows 3 sub-items: Skill, CombatPoint, BattleSkillPoint
+  - Fix: gate checks expanded from "BattleSkill" to also accept "BattleSkillPoint" and "CombatPoint"
+  - Combat skill support: UICampCombatSkillSelector cached when State.SelectCombatSkill
+  - Skill (via Enhance): should work via existing skill handler (gate already matches "Skill")
+  - CombatPoint: announces "Combat skills." + skill details via shared hook
+  - BattleSkillPoint: announces "Battle skills." + skill details via shared hook
+  - Test: all 3 Enhance sub-screens + verify main BattleSkill still works
 
 - **Camp formation sub-screen announcements** (`CampMenuHandler.cs`) — NOT TESTED (needs more party members)
 
@@ -415,6 +450,22 @@ Without this list, mod keys WILL conflict with game controls. -->
 - **Gamepad nav menu** — IMPLEMENTED AND TESTED. L1 hold-to-open with D-pad navigation.
   See Key Bindings (Mod) section above for full control scheme.
 
+## Code Cleanup (2026-03-01)
+
+Cleanup branch `claude-mod-cleanup` merged to master. Key changes:
+
+- **File splitting:** CampMenuHandler split into 7 partial files (core, BattleSkill, Equip, Formation, Items, Party, Status). NavigationHandler split into 4 (core, AutoWalk, Build, Patches).
+- **New shared utilities:** `TextUtil.cs` (StripTags consolidation), `FieldState.cs` (IsFieldFree consolidation)
+- **Config slider bug fixed:** gauges now read `currentIndex` instead of animated `value.text` — values are correct immediately
+- **Silent catches fixed:** 6 bare `catch {}` blocks replaced with proper logging
+- **Dead code removed:** unused hook registration, dead localization key, commented-out hotkey code
+- **Helpers extracted:** `SortAndFilterUnreachable()` (replaced 8 copies), `SuppressNavInput()`, `AppendSkillInfo()`
+- **Hardcoded strings moved to Loc.Get():** GameOverHandler retry/title, CampMenuHandler.Party position/status
+- **OnSceneChanged added to CampMenuHandler:** prevents stale IsCampOpen if scene changes while camp is open
+- **IsFieldFree now checks ShopHandler.IsShopOpen** in NavigationHandler (was missing before)
+- **DIAG logs removed:** ~30 unconditional MelonLogger.Msg("DIAG:...") lines removed from ConfigMenuHandler
+- **Deferred (low priority):** stale-open check helper consolidation, UpdateXxx polling pattern helper, StripControllerPrefix consolidation across NotificationHandler/GamepadMenuHandler
+
 ## Architecture Decisions
 
 - (none yet)
@@ -452,28 +503,26 @@ Without this list, mod keys WILL conflict with game controls. -->
 - **Source:** YouTube clip trimmed from 5s to 15s
 - **User has a specific use in mind** — to be implemented in a future session
 
-### Current work
-Enemy proximity audio cue built and deadlock fix applied.
-- SpatialAudioPlayer.cs: new waveOut-based audio engine with looping, volume, stereo panning
-- EnemyProximityHandler.cs: polls field enemies, drives audio based on distance/direction
-- Initial build caused game freeze on battle entry — deadlock in Stop() (waveOutReset triggered
-  callbacks that tried to acquire the same lock). Fixed by setting _playing=false before locking.
-- Also fixed WAVEHDR_FLAGS offset (was 16, should be 24 on x64)
-- WAV file placed at: {game root}\UserData\SO2RAccess\Sounds\Enemy_proximity.wav
+### Current work (2026-03-01)
+New this session:
+- BattleTargetHandler: L2 target cycling announces enemy name, HP%, shield%, leader, buffs/debuffs ✓ TESTED
+- BattleResultHandler enhanced: SP, BSP totals + per-character BSP + learned skill names (PENDING RETEST)
+- CampMenuHandler.BattleSkill: Enhance sub-menu gates expanded for CombatPoint/BattleSkillPoint (PENDING TEST)
+- SaveNotificationHandler: save sound cue on manual/auto save ✓ TESTED
+- ModSettings: JSON persistence for sound toggle/volume settings
+- AudioCuePlayer: refactored to file-based WAV (dodge + save sounds from disk)
+- TextUtil: shared ParseCharaNameID (was duplicated in NavigationHandler)
 
-### Test results (2026-02-28)
-- Enemy proximity cue: game no longer freezes on battle entry (deadlock fixed)
-- Full audio test still needed: volume scaling, panning, start/stop transitions
-- Operations → Tactics: ✓ character list reads name + current tactic
-- Party Formation, Assist Formation, Formation: NOT TESTED (need more party members)
-- Battle dodge warning: ✓ plays beep when enemy is about to hit player
-- Game over menu: ✓ reads "Retry, 1 of 2" / "Title, 2 of 2"
-- Camp status talents: ✓ reads talent list when switching to talent page
-- Location discovery: ✓ reads "Discovered [name]. [description]" + EXP reward
-- Location reward limitation: only EXP from rewardID announced; items/skills from other systems not included
-- Map name change: ✓ announces area name when moving between maps
-- Tutorials: ✓ all fire correctly (previously interrupted by nav arrival announcement)
-- Previous test results still valid (nav, battle results, skills, save, status, shop, etc.)
+### Battle target lessons learned
+- ShowSelectedTargetEnemy (CallerCount 3) does NOT fire for L2 target switching — likely for skill targeting
+- SetControlPlayerTarget (CallerCount 7) is the correct hook for L2 target changes
+- CharacterParameter.CharacterName is empty for battle enemies — use ConstEnemyParameter.charaNameID fallback
+- BattleManager.stateMachine.currentState == 5 detects TargetChangeMode (for single-enemy re-reads)
+- Spectacles is the ONLY see-through mechanism; no Analyze spell exists
+- Elemental resistances only shown in pause menu (not during active combat)
+
+### Previous test results (still valid)
+- All nav, camp, shop, battle result, skills, save, status features working as documented above
 
 ### Key lesson learned
 - Camp menu root selector activeInHierarchy stays true even when sub-screens are open.
@@ -518,8 +567,9 @@ Enemy proximity audio cue built and deadlock fix applied.
 - Navigation: Flavor chat triggers (FieldFlavorChatCollision) — party banter spots
 - Operations child screens: Party Formation, Assist Formation, Formation — pending test (need more party members)
 - Camp sub-screen: skill learning (UICampSkillLearningSelector — complex, deferred)
-- Battle status announcements
-- Known bugs to fix: battle skill stale announcement on camp reopen
+- Battle pause menu handler (detailed enemy info: element resistances, buffs, HP when spectacled)
+- Battle status announcements (player HP/MP during combat)
+- Known bug: battle skill leveling inner menus (spending points) don't announce — fix later
 
 ### Notes
 - Build command: `dotnet build SO2RAccess.csproj` (auto-copies to Mods folder)

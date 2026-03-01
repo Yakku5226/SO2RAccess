@@ -13,14 +13,15 @@ namespace SO2RAccess
     ///
     /// Patches applied:
     ///   UIBattleResultSelector.Set(BattleResultInfo) — fires once when the battle result
-    ///   screen is populated. Announces EXP, FOL, items obtained, and level-ups.
+    ///   screen is populated. Announces EXP, FOL, SP, BSP, items obtained, and level-ups.
     ///
     /// Data sources:
-    ///   BattleResultInfo.Exp — total experience earned (PascalCase property).
-    ///   BattleResultInfo.Money — total fol earned.
-    ///   BattleResultInfo.characterDataList — per-character data with levelUpCount and playerID.
-    ///   BattleResultInfo.itemIDList — item IDs dropped; resolved to names via OverflowResourceData.
+    ///   BattleResultInfo.Exp / Money / SkillPoint / CombatSkillPoint — totals.
+    ///   BattleResultInfo.characterDataList — per-character level-up, BSP, learned skills.
+    ///   BattleResultInfo.itemIDList — item IDs dropped; resolved via OverflowResourceData.
     ///   Character names: ParameterManager.GetCharacterFirstName(playerID).
+    ///   Skill names: ParameterManager.GetBattleSkillParameter → battleSkillNameID →
+    ///                TextManager.GetMessage(key, Skill).
     /// </summary>
     public class BattleResultHandler
     {
@@ -60,7 +61,8 @@ namespace SO2RAccess
         /// <summary>
         /// Postfix for UIBattleResultSelector.Set(BattleResultInfo).
         /// Fires once when the battle result screen receives its data.
-        /// Announces total EXP, FOL, items obtained, and any level-ups.
+        /// Announces total EXP, FOL, SP, BSP, items obtained, and any level-ups
+        /// with per-character BSP changes and learned battle skills.
         /// </summary>
         private static void BattleResultSelector_Set_Postfix(BattleResultInfo resultInfo)
         {
@@ -83,8 +85,23 @@ namespace SO2RAccess
                 sb.Append(Loc.Get("battle_result_fol", totalMoney));
                 sb.Append(" ");
 
+                // SP and BSP totals.
+                int totalSp = resultInfo.SkillPoint;
+                int totalBsp = resultInfo.CombatSkillPoint;
+
+                if (totalSp > 0)
+                {
+                    sb.Append(Loc.Get("battle_result_sp", totalSp));
+                    sb.Append(" ");
+                }
+                if (totalBsp > 0)
+                {
+                    sb.Append(Loc.Get("battle_result_bsp", totalBsp));
+                    sb.Append(" ");
+                }
+
                 DebugLogger.LogGameValue("BattleResult",
-                    $"exp={totalExp} money={totalMoney}");
+                    $"exp={totalExp} money={totalMoney} sp={totalSp} bsp={totalBsp}");
 
                 // Level-ups — iterate character data.
                 var charList = resultInfo.characterDataList;
@@ -101,13 +118,34 @@ namespace SO2RAccess
                             name = pm.GetCharacterFirstName(cd.playerID) ?? "";
 
                         int newLevel = cd.preLevel + cd.levelUpCount;
+                        int bspGained = cd.increaseCombatSkillPoint;
 
                         sb.Append(Loc.Get("battle_result_levelup", name, newLevel));
                         sb.Append(" ");
 
+                        if (bspGained > 0)
+                        {
+                            sb.Append(Loc.Get("battle_result_levelup_bsp", bspGained));
+                            sb.Append(" ");
+                        }
+
+                        // Learned battle skills — resolve names from BattleSkillID.
+                        var skillIds = cd.learningBattleSkillList;
+                        if (skillIds != null && skillIds.Count > 0)
+                        {
+                            var skillNames = ResolveBattleSkillNames(skillIds);
+                            if (skillNames.Count > 0)
+                            {
+                                sb.Append(Loc.Get("battle_result_learned_skills",
+                                    string.Join(", ", skillNames)));
+                                sb.Append(" ");
+                            }
+                        }
+
                         DebugLogger.LogGameValue("BattleResult.levelup",
                             $"name='{name}' preLevel={cd.preLevel} " +
-                            $"levelUpCount={cd.levelUpCount} newLevel={newLevel}");
+                            $"levelUpCount={cd.levelUpCount} newLevel={newLevel} " +
+                            $"bsp+={bspGained} skills={skillIds?.Count ?? 0}");
                     }
                 }
 
@@ -164,6 +202,45 @@ namespace SO2RAccess
             {
                 MelonLogger.Warning($"BattleResultHandler.Set postfix: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Resolves a list of BattleSkillID values to human-readable names.
+        /// Chain: ParameterManager.GetBattleSkillParameter → battleSkillNameID →
+        ///        TextManager.GetMessage(key, MessageType.Skill).
+        /// </summary>
+        private static List<string> ResolveBattleSkillNames(
+            Il2CppSystem.Collections.Generic.List<BattleSkillID> skillIds)
+        {
+            var names = new List<string>();
+            var pm = ParameterManager.Instance;
+            var tm = TextManager.Instance;
+            if (pm == null || tm == null) return names;
+
+            for (int i = 0; i < skillIds.Count; i++)
+            {
+                try
+                {
+                    var param = pm.GetBattleSkillParameter(skillIds[i]);
+                    if (param == null) continue;
+
+                    string nameId = param.battleSkillNameID;
+                    if (string.IsNullOrEmpty(nameId)) continue;
+
+                    string resolved = tm.GetMessage(nameId, TextManager.MessageType.Skill);
+                    if (!string.IsNullOrEmpty(resolved))
+                        names.Add(resolved);
+                    else
+                        DebugLogger.LogState($"BattleResult: skill name unresolved for '{nameId}'");
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogState(
+                        $"BattleResult: skill name resolve failed for id={skillIds[i]}: {ex.Message}");
+                }
+            }
+
+            return names;
         }
     }
 }

@@ -11,14 +11,21 @@ namespace SO2RAccess
     public partial class CampMenuHandler
     {
         // Battle skill LEVELING sub-screen (battleSkillSelector on UICampWindow)
-        // UICampBattleSkillSelector wraps UISelectBattleSkillSelector (battleSkillSelector field).
-        // UISelectBattleSkillSelector → UICharacterTabListSelectorBase → UIHelpListSelectorBase
-        //   → UIListSelectorBase (cast needed for currentIndex).
-        // itemDataList (List<UICampBattleSkillListItemData>) gives the typed skill list and count.
-        // Navigation announcements driven by UIBattleSkillInformationPresenter.Set hook.
+        // UICampBattleSkillSelector wraps two inner selectors:
+        //   - UISelectBattleSkillSelector (battleSkillSelector) for battle skills (SP)
+        //   - UICampCombatSkillSelector (combatSkillSelector) for combat skills (BP)
+        // State.SelectBattleSkill → battle skills, State.SelectCombatSkill → combat skills.
+        // Both share UIBattleSkillInformationPresenter.Set hook for navigation announcements.
+        //
+        // Accessed via:
+        //   Camp → BattleSkill (main menu)
+        //   Camp → Enhance → BattleSkillPoint (battle skill leveling with SP)
+        //   Camp → Enhance → CombatPoint (combat skill leveling with BP)
         private static UICampBattleSkillSelector _battleSkillOuterSelector = null;
         private static UISelectBattleSkillSelector _battleSkillInnerSelector = null;
         private static UIListSelectorBase _battleSkillListBase = null;
+        private static UICampCombatSkillSelector _combatSkillInnerSelector = null;
+        private static UIListSelectorBase _combatSkillListBase = null;
         private static bool _battleSkillWasActive = false;
         private static bool _battleSkillSuppressHeading = false;
 
@@ -41,26 +48,39 @@ namespace SO2RAccess
         private static bool _battleSkillSettingSuppressHeading = false;
 
         /// <summary>
+        /// Checks if the current root menu item is one that opens a battle/combat skill screen.
+        /// "BattleSkill" = main camp menu item.
+        /// "BattleSkillPoint" = Enhance sub-menu (battle skill leveling with SP).
+        /// "CombatPoint" = Enhance sub-menu (combat skill leveling with BP).
+        /// </summary>
+        private static bool IsBattleSkillRelatedMenu()
+        {
+            return _lastRootMenuItemName == "BattleSkill"
+                || _lastRootMenuItemName == "BattleSkillPoint"
+                || _lastRootMenuItemName == "CombatPoint";
+        }
+
+        /// <summary>
         /// Polls the UICampBattleSkillSelector (outer container) for active state changes.
-        /// Announces "Battle skills." when the screen opens.
+        /// Announces "Battle skills." or "Combat skills." when the screen opens.
         /// Skill-level navigation announcements are handled entirely by the
         /// UIBattleSkillInformationPresenter.Set hook — this method only tracks
         /// open/close state and caches the inner selector references.
         ///
-        /// Inner selector: UISelectBattleSkillSelector (battleSkillSelector field on outer).
-        /// Cast to UIListSelectorBase gives currentIndex for position-in-list.
-        /// itemDataList.Count gives total skills for the current character tab.
+        /// The outer selector has two states:
+        ///   SelectBattleSkill → caches UISelectBattleSkillSelector (battle skill SP leveling)
+        ///   SelectCombatSkill → caches UICampCombatSkillSelector (combat skill BP leveling)
         /// </summary>
         private void UpdateBattleSkillSelector()
         {
             if (_battleSkillOuterSelector == null) return;
 
-            // Only poll when the root menu highlights "BattleSkill".
-            if (_lastRootMenuItemName != "BattleSkill")
+            // Only poll when the root menu highlights a battle/combat skill item.
+            if (!IsBattleSkillRelatedMenu())
             {
                 // Don't reset _battleSkillWasActive here.
                 // Resetting causes stale announcements when root menu cursor
-                // returns to "BattleSkill" during normal navigation.
+                // returns to the item during normal navigation.
                 return;
             }
 
@@ -75,6 +95,8 @@ namespace SO2RAccess
                         _battleSkillWasActive = false;
                         _battleSkillListBase = null;
                         _battleSkillInnerSelector = null;
+                        _combatSkillListBase = null;
+                        _combatSkillInnerSelector = null;
                         DebugLogger.LogState("CampBattleSkill: selector hidden.");
                     }
                     return;
@@ -84,22 +106,52 @@ namespace SO2RAccess
                 {
                     _battleSkillWasActive = true;
 
-                    // Cache the inner selector and its UIListSelectorBase cast.
-                    _battleSkillInnerSelector = _battleSkillOuterSelector.battleSkillSelector;
-                    _battleSkillListBase = _battleSkillInnerSelector?.TryCast<UIListSelectorBase>();
+                    // Check which inner selector to cache based on the outer's state.
+                    var outerState = _battleSkillOuterSelector.currentState;
 
-                    if (_battleSkillListBase == null)
-                        MelonLogger.Warning("[CAMP] battleSkill inner selector cast to UIListSelectorBase failed.");
-
-                    if (!_battleSkillSuppressHeading)
+                    if (outerState == UICampBattleSkillSelector.State.SelectCombatSkill)
                     {
-                        ScreenReader.Say(Loc.Get("camp_battleskill_screen"));
-                        DebugLogger.LogState("CampBattleSkill: selector visible.");
+                        // Combat skill leveling (via Enhance → CombatPoint)
+                        _combatSkillInnerSelector = _battleSkillOuterSelector.combatSkillSelector;
+                        _combatSkillListBase = _combatSkillInnerSelector?.TryCast<UIListSelectorBase>();
+                        _battleSkillInnerSelector = null;
+                        _battleSkillListBase = null;
+
+                        if (_combatSkillListBase == null)
+                            MelonLogger.Warning("[CAMP] combatSkill inner selector cast to UIListSelectorBase failed.");
+
+                        if (!_battleSkillSuppressHeading)
+                        {
+                            ScreenReader.Say(Loc.Get("camp_combatskill_screen"));
+                            DebugLogger.LogState("CampCombatSkill: selector visible (combat skills).");
+                        }
+                        else
+                        {
+                            _battleSkillSuppressHeading = false;
+                            DebugLogger.LogState("CampCombatSkill: stale open — heading suppressed.");
+                        }
                     }
                     else
                     {
-                        _battleSkillSuppressHeading = false;
-                        DebugLogger.LogState("CampBattleSkill: stale open — heading suppressed.");
+                        // Battle skill leveling (via BattleSkill or Enhance → BattleSkillPoint)
+                        _battleSkillInnerSelector = _battleSkillOuterSelector.battleSkillSelector;
+                        _battleSkillListBase = _battleSkillInnerSelector?.TryCast<UIListSelectorBase>();
+                        _combatSkillInnerSelector = null;
+                        _combatSkillListBase = null;
+
+                        if (_battleSkillListBase == null)
+                            MelonLogger.Warning("[CAMP] battleSkill inner selector cast to UIListSelectorBase failed.");
+
+                        if (!_battleSkillSuppressHeading)
+                        {
+                            ScreenReader.Say(Loc.Get("camp_battleskill_screen"));
+                            DebugLogger.LogState("CampBattleSkill: selector visible (battle skills).");
+                        }
+                        else
+                        {
+                            _battleSkillSuppressHeading = false;
+                            DebugLogger.LogState("CampBattleSkill: stale open — heading suppressed.");
+                        }
                     }
                 }
             }
@@ -109,6 +161,8 @@ namespace SO2RAccess
                 _battleSkillOuterSelector = null;
                 _battleSkillInnerSelector = null;
                 _battleSkillListBase = null;
+                _combatSkillInnerSelector = null;
+                _combatSkillListBase = null;
                 _battleSkillWasActive = false;
                 _battleSkillSuppressHeading = false;
             }
@@ -126,12 +180,12 @@ namespace SO2RAccess
         {
             if (_battleSkillSettingSelector == null) return;
 
-            // Only poll when the root menu highlights "BattleSkill" (same parent screen).
-            if (_lastRootMenuItemName != "BattleSkill")
+            // Only poll when the root menu highlights a battle skill item.
+            if (!IsBattleSkillRelatedMenu())
             {
                 // Don't reset _battleSkillSettingWasActive or equip state here.
                 // Resetting causes stale announcements when root menu cursor
-                // returns to "BattleSkill" during normal navigation.
+                // returns to the item during normal navigation.
                 return;
             }
 
@@ -236,11 +290,13 @@ namespace SO2RAccess
 
         /// <summary>
         /// Postfix for UIBattleSkillInformationPresenter.Set(UIBattleSkillInformationData).
-        /// Fires whenever any skill information panel updates — both the leveling screen and
-        /// the setting screen's skill picker share this hook via the same presenter type.
+        /// Fires whenever any skill information panel updates — the leveling screen (both
+        /// battle skills and combat skills via Enhance) and the setting screen's skill picker
+        /// share this hook via the same presenter type.
         ///
         /// Leveling screen (UICampBattleSkillSelector active):
         ///   Announces skill name, level, MP cost, description, effect, position.
+        ///   Works for both battle skills (SelectBattleSkill) and combat skills (SelectCombatSkill).
         ///
         /// Setting screen (UICampBattleSkillSettingSelector active, SelectBattleSkill state):
         ///   Announces "Assigning to [button]: [name]. [level]. [MP]. [desc]. [position]."
@@ -250,8 +306,8 @@ namespace SO2RAccess
         {
             if (data == null) return;
 
-            // Only process when the root menu is on "BattleSkill".
-            if (_lastRootMenuItemName != "BattleSkill") return;
+            // Only process when the root menu is on a battle/combat skill item.
+            if (!IsBattleSkillRelatedMenu()) return;
 
             bool levelingActive =
                 _battleSkillWasActive &&
@@ -284,7 +340,17 @@ namespace SO2RAccess
                     var sb = new StringBuilder();
                     AppendSkillInfo(sb, data);
 
-                    if (_battleSkillInnerSelector != null && _battleSkillListBase != null)
+                    // Read position from the appropriate inner selector.
+                    // Combat skills use _combatSkillInnerSelector; battle skills use _battleSkillInnerSelector.
+                    if (_combatSkillInnerSelector != null && _combatSkillListBase != null)
+                    {
+                        var items = _combatSkillInnerSelector.itemDataList;
+                        int total = items?.Count ?? 0;
+                        int idx   = _combatSkillListBase.currentIndex;
+                        if (total > 0 && idx >= 0)
+                            sb.Append(Loc.Get("camp_battleskill_position", idx + 1, total));
+                    }
+                    else if (_battleSkillInnerSelector != null && _battleSkillListBase != null)
                     {
                         var items = _battleSkillInnerSelector.itemDataList;
                         int total = items?.Count ?? 0;

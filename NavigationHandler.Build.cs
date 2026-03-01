@@ -580,7 +580,7 @@ namespace SO2RAccess
                                             // Fallback: parse the key into a readable name
                                             // e.g. "CHARA_LIZARDAXE" → "Lizardaxe"
                                             if (string.IsNullOrEmpty(enemyName))
-                                                enemyName = ParseCharaNameID(nameKey);
+                                                enemyName = TextUtil.ParseCharaNameID(nameKey);
                                         }
                                     }
                                 }
@@ -650,27 +650,6 @@ namespace SO2RAccess
             _categories[CAT_ENEMY].AddRange(items);
         }
 
-        /// <summary>
-        /// Parses a charaNameID key into a readable enemy name.
-        /// e.g. "CHARA_LIZARDAXE" → "Lizardaxe", "CHARA_VOPALBUNNY" → "Vopalbunny"
-        /// Strips the "CHARA_" prefix and converts to title case.
-        /// </summary>
-        private static string ParseCharaNameID(string key)
-        {
-            if (string.IsNullOrEmpty(key)) return "";
-
-            // Strip common prefixes
-            string name = key;
-            if (name.StartsWith("CHARA_", StringComparison.OrdinalIgnoreCase))
-                name = name.Substring(6);
-            else if (name.StartsWith("MON_", StringComparison.OrdinalIgnoreCase))
-                name = name.Substring(4);
-
-            if (string.IsNullOrEmpty(name)) return key;
-
-            // Convert: "LIZARDAXE" → "Lizardaxe", "KILLERRABI" → "Killerrabi"
-            return char.ToUpper(name[0]) + name.Substring(1).ToLower();
-        }
 
         /// <summary>Returns a friendly name for the enemy symbol type.</summary>
         private static string GetEnemyTypeName(FieldEnemySymbolType type)
