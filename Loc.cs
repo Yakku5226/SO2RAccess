@@ -226,15 +226,64 @@ namespace SO2RAccess
             Add("camp_equip_factor",         "Factor: {0}");
             Add("camp_equip_position",       "{0} of {1}.");
 
-            // Camp menu — battle skill leveling sub-screen (also via Enhance → BattleSkillPoint)
-            // Hook-driven: UIBattleSkillInformationPresenter.Set fires on every navigation.
-            Add("camp_battleskill_screen",   "Battle skills.");
-            Add("camp_combatskill_screen",   "Combat skills.");
+            // Camp menu — root battle skill sub-screen (Camp → BattleSkill)
+            // Detailed tactical readout: Name, MP, Type, Target, Element, Range, Effect, Description, Level.
+            Add("camp_root_battleskill_screen",              "Battle skills.");
+            Add("camp_root_battleskill_mp",                  "MP: {0}");
+            Add("camp_root_battleskill_type_damage",         "Type: Damage");
+            Add("camp_root_battleskill_type_durability",     "Type: Shield break");
+            Add("camp_root_battleskill_type_damage_durability","Type: Damage and shield break");
+            Add("camp_root_battleskill_type_support",        "Type: Support");
+            Add("camp_root_battleskill_target_enemy",        "Target: Single enemy");
+            Add("camp_root_battleskill_target_enemy_all",    "Target: All enemies");
+            Add("camp_root_battleskill_target_player",       "Target: Single ally");
+            Add("camp_root_battleskill_target_player_all",   "Target: All allies");
+            Add("camp_root_battleskill_target_self",         "Target: Self");
+            Add("camp_root_battleskill_element",             "Element: {0}");
+            Add("camp_root_battleskill_range",               "Range: {0}");
+            Add("camp_root_battleskill_level",               "Level: {0} of {1}");
+
+            // Element names (used in root battle skill readout)
+            Add("element_earth",     "Earth");
+            Add("element_water",     "Water");
+            Add("element_fire",      "Fire");
+            Add("element_wind",      "Wind");
+            Add("element_lightning", "Lightning");
+            Add("element_star",      "Star");
+            Add("element_negative",  "Negative");
+            Add("element_light",     "Light");
+            Add("element_dark",      "Dark");
+
+            // Camp menu — enhance battle/combat skill sub-screen (Camp → Enhance → BattleSkillPoint/CombatPoint)
+            // Upgrade-focused readout: Name, BP balance/cost, Level, Next level bonuses, MP.
+            Add("camp_enhance_battleskill_screen", "Battle skills.");
+            Add("camp_enhance_combatskill_screen", "Combat skills.");
+            Add("camp_enhance_bp",                 "BP: {0} / {1}");
+            Add("camp_enhance_sp",                 "SP: {0} / {1}");
+            Add("camp_enhance_level",              "Level: {0} of {1}");
+            Add("camp_enhance_level_max",          "Level: {0} of {1}, max");
+            Add("camp_enhance_mp",                 "MP: {0}");
+            Add("camp_enhance_next",               "Upgrade: {0}");
+            Add("camp_enhance_bonus_damage_up",        "Damage up");
+            Add("camp_enhance_bonus_hit_up",           "Hit up");
+            Add("camp_enhance_bonus_critical_up",      "Critical up");
+            Add("camp_enhance_bonus_range_expansion",  "Range expansion");
+            Add("camp_enhance_bonus_heal_up",          "Heal up");
+            Add("camp_enhance_bonus_grant_up",         "Grant up");
+            Add("camp_enhance_bonus_add_attracting",   "Add attracting");
+            Add("camp_enhance_bonus_stop_time_up",     "Stop time up");
+            Add("camp_enhance_bonus_change_effect",    "Effect change");
+            Add("camp_enhance_bonus_add_penetration",  "Add penetration");
+            Add("camp_enhance_bonus_ignore_defence",   "Ignore defence");
+            Add("camp_enhance_bonus_weakness_attack",  "Weakness attack");
+            Add("camp_enhance_bonus_recover_abnormal", "Recover abnormal");
+
+            // Shared — kept for battle skill assignment screen and skills sub-screen
             Add("camp_battleskill_level",    "Level {0} of {1}");
             Add("camp_battleskill_mp",       "MP: {0}");
             Add("camp_battleskill_position", "{0} of {1}.");
 
-            // Enhance sub-menu — shared cost/balance strings
+            // Enhance sub-menu — shared cost/balance strings (kept for skills sub-screen)
             Add("camp_skill_sp_cost",        "SP: {0} / {1}");
             Add("camp_skill_bp_cost",        "BP: {0} / {1}");
             Add("camp_skill_max_level",      ", max");

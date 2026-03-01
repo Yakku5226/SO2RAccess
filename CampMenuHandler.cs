@@ -127,6 +127,7 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(UICampCombatSkillListItemData).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIBattleSkillInformationPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIBattleSkillInformationData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIEnhanceBonusData).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UICampBattleSkillSettingSelector).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UICampBattleSkillEquipListSelector).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UICampBattleSkillSettingEquipListItemData).TypeHandle);

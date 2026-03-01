@@ -2,9 +2,8 @@ using HarmonyLib;
 using Il2CppGame;
 using MelonLoader;
 using System;
-using System.Runtime.CompilerServices;
+using System.Collections.Generic;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace SO2RAccess
 {
@@ -18,9 +17,9 @@ namespace SO2RAccess
         // Both share UIBattleSkillInformationPresenter.Set hook for navigation announcements.
         //
         // Accessed via:
-        //   Camp → BattleSkill (main menu)
-        //   Camp → Enhance → BattleSkillPoint (battle skill leveling with SP)
-        //   Camp → Enhance → CombatPoint (combat skill leveling with BP)
+        //   Camp → BattleSkill (root menu) — tactical readout
+        //   Camp → Enhance → BattleSkillPoint (battle skill leveling) — upgrade-focused
+        //   Camp → Enhance → CombatPoint (combat skill leveling) — upgrade-focused
         private static UICampBattleSkillSelector _battleSkillOuterSelector = null;
         private static UISelectBattleSkillSelector _battleSkillInnerSelector = null;
         private static UIListSelectorBase _battleSkillListBase = null;
@@ -34,6 +33,7 @@ namespace SO2RAccess
         private static bool _battleSkillHeadingPending = false;
 
         // Combat skill toggle mode (ChangeOnOff) — tracks Square button sub-mode.
+        // Only used in Enhance menu (CombatPoint), not in root BattleSkill.
         private static UICampCombatSkillSelector.State _combatSkillLastState =
             UICampCombatSkillSelector.State.Normal;
         private static int _combatSkillToggleLastIndex = -1;
@@ -41,14 +41,7 @@ namespace SO2RAccess
 
         // Battle skill EQUIP SETTING sub-screen (battleSkillSettingSelector on UICampWindow)
         // Shows button slots (L2/R2 etc.) with their assigned skills, and a skill picker.
-        // UICampBattleSkillSettingSelector fields used:
-        //   equipListSelector (UICampBattleSkillEquipListSelector → UIHelpListSelectorBase →
-        //     UIListSelectorBase) — the list of button slots; cast for currentIndex.
-        //   battleSkillListSelector (UICampBattleSkillListSelector → UIListSelectorBase)
-        //     — the skill picker (visible when assigning a skill to a slot).
-        //   currentState (State: Equip = browsing slots, SelectBattleSkill = picking a skill)
-        // Item data: UICampBattleSkillSettingEquipListItemData — categoryName (button label),
-        //   battleSkillName (skill in that slot, empty if none), equipPosition (enum).
+        // Only accessible from the root BattleSkill menu item.
         private static UICampBattleSkillSettingSelector _battleSkillSettingSelector = null;
         private static UICampBattleSkillEquipListSelector _battleSkillEquipListSel = null;
         private static UIListSelectorBase _battleSkillEquipListBase = null;
@@ -57,33 +50,45 @@ namespace SO2RAccess
         private static bool _battleSkillSettingWasActive = false;
         private static bool _battleSkillSettingSuppressHeading = false;
 
+        #region Gate Functions
+
         /// <summary>
-        /// Checks if the current root menu item is one that opens a battle/combat skill screen.
-        /// "BattleSkill" = main camp menu item.
-        /// "BattleSkillPoint" = Enhance sub-menu (battle skill leveling with SP).
-        /// "CombatPoint" = Enhance sub-menu (combat skill leveling with BP).
+        /// Returns true when the root menu highlights "BattleSkill" (Camp root).
+        /// Opens a tactical view of battle skills and the assignment screen.
         /// </summary>
-        private static bool IsBattleSkillRelatedMenu()
+        private static bool IsRootBattleSkillMenu()
         {
-            return _lastRootMenuItemName == "BattleSkill"
-                || _lastRootMenuItemName == "BattleSkillPoint"
-                || _lastRootMenuItemName == "CombatPoint";
+            return _lastRootMenuItemName == "BattleSkill";
         }
 
         /// <summary>
+        /// Returns true when the root menu highlights a battle/combat skill Enhance item.
+        /// "BattleSkillPoint" = battle skill leveling (SP).
+        /// "CombatPoint" = combat skill leveling (BP).
+        /// </summary>
+        private static bool IsEnhanceBattleSkillMenu()
+        {
+            return _lastRootMenuItemName == "BattleSkillPoint"
+                || _lastRootMenuItemName == "CombatPoint";
+        }
+
+        #endregion
+
+        #region Update Methods
+
+        /// <summary>
         /// Tracks entry/exit of battle/combat skill leveling screens.
-        /// These selectors have activeInHierarchy=true permanently, so we cannot
-        /// use that for detection. Instead, we set a "heading pending" flag when
-        /// the root menu item changes to a skill-related item, and the
-        /// UIBattleSkillInformationPresenter.Set hook handles caching the inner
-        /// selectors and announcing the heading when it fires for the first time.
-        /// This method also polls the combat skill toggle mode (Square button).
+        /// These selectors have activeInHierarchy=true permanently, so detection
+        /// relies on a "heading pending" flag set when the root menu item changes.
+        /// Also polls the combat skill toggle mode (Enhance menu only).
         /// </summary>
         private void UpdateBattleSkillSelector()
         {
             if (_battleSkillOuterSelector == null) return;
 
-            if (!IsBattleSkillRelatedMenu())
+            bool isSkillMenu = IsRootBattleSkillMenu() || IsEnhanceBattleSkillMenu();
+
+            if (!isSkillMenu)
             {
                 // Root menu moved away from skill items — deactivate.
                 if (_battleSkillWasActive)
@@ -120,8 +125,8 @@ namespace SO2RAccess
                     DebugLogger.LogState($"CampBattleSkill: heading pending for '{_lastRootMenuItemName}'.");
                 }
 
-                // Poll combat skill toggle mode (Square button: Normal ↔ ChangeOnOff).
-                if (_combatSkillInnerSelector != null)
+                // Poll combat skill toggle mode (Square button) — Enhance menu only.
+                if (IsEnhanceBattleSkillMenu() && _combatSkillInnerSelector != null)
                     UpdateCombatSkillToggleMode();
             }
             catch (Exception ex)
@@ -142,18 +147,14 @@ namespace SO2RAccess
 
         /// <summary>
         /// Polls the UICampBattleSkillSettingSelector (button assignment screen).
-        /// Announces "Battle skill assignment." when the screen opens.
-        /// In Equip state (browsing button slots): polls the equip slot list and announces
-        ///   "[Button]: [Skill name]" or "[Button]: no skill assigned".
-        /// In SelectBattleSkill state (picking a skill): the UIBattleSkillInformationPresenter.Set
-        ///   hook handles announcements with "Assigning to [button]:" prefix.
+        /// Only active when the root menu highlights "BattleSkill" (not Enhance).
         /// </summary>
         private void UpdateBattleSkillSettingSelector()
         {
             if (_battleSkillSettingSelector == null) return;
 
-            // Only poll when the root menu highlights a battle skill item.
-            if (!IsBattleSkillRelatedMenu())
+            // Only poll when the root menu highlights the BattleSkill item.
+            if (!IsRootBattleSkillMenu())
             {
                 // Don't reset _battleSkillSettingWasActive or equip state here.
                 // Resetting causes stale announcements when root menu cursor
@@ -260,30 +261,28 @@ namespace SO2RAccess
             }
         }
 
+        #endregion
+
+        #region Hook
+
         /// <summary>
         /// Postfix for UIBattleSkillInformationPresenter.Set(UIBattleSkillInformationData).
-        /// Fires whenever any skill information panel updates — the leveling screen (both
-        /// battle skills and combat skills via Enhance) and the setting screen's skill picker
-        /// share this hook via the same presenter type.
-        ///
-        /// Leveling screen (UICampBattleSkillSelector active):
-        ///   Announces skill name, level, MP cost, description, effect, position.
-        ///   Works for both battle skills (SelectBattleSkill) and combat skills (SelectCombatSkill).
-        ///
-        /// Setting screen (UICampBattleSkillSettingSelector active, SelectBattleSkill state):
-        ///   Announces "Assigning to [button]: [name]. [level]. [MP]. [desc]. [position]."
-        ///   When in Equip state (browsing slots), hook is silent — polling handles it.
+        /// Routes to different announcement builders based on menu context:
+        ///   Root (Camp → BattleSkill): detailed tactical readout via BuildRootBattleSkillAnnouncement.
+        ///   Enhance (Camp → Enhance → BattleSkillPoint/CombatPoint): upgrade-focused via BuildEnhanceBattleSkillAnnouncement.
+        ///   Assignment picker (root only): prefixed with "Assigning to [button]".
         /// </summary>
         private static void BattleSkillInfoPresenter_Set_Postfix(UIBattleSkillInformationData data)
         {
             if (data == null) return;
 
-            // Only process when the root menu is on a battle/combat skill item.
-            if (!IsBattleSkillRelatedMenu()) return;
+            bool isRoot = IsRootBattleSkillMenu();
+            bool isEnhance = IsEnhanceBattleSkillMenu();
+            if (!isRoot && !isEnhance) return;
 
             bool levelingActive = _battleSkillWasActive && _battleSkillOuterSelector != null;
 
-            bool settingActive =
+            bool settingActive = isRoot &&
                 _battleSkillSettingWasActive &&
                 _battleSkillSettingSelector != null &&
                 _battleSkillSettingSelector.gameObject.activeInHierarchy;
@@ -292,78 +291,97 @@ namespace SO2RAccess
 
             try
             {
-                string name        = data.battleSkillName        ?? "";
-                string description = data.battleSkillDescription ?? "";
-                string effect      = data.effectDescription      ?? "";
-                int level          = data.skillLevel;
-                int levelMax       = data.skillLevelMax;
-                int consumeMP      = data.consumeMP;
-
                 // --- Leveling screen ---
                 if (levelingActive)
                 {
-                    // On first hook fire: cache inner selectors based on root menu
-                    // item name and announce heading + balance.
+                    // On first hook fire: cache inner selectors and announce heading.
                     if (_battleSkillHeadingPending)
                     {
                         _battleSkillHeadingPending = false;
                         CacheBattleSkillInnerSelectors();
                     }
 
-                    // Read list item data for BP cost, max level, and current balance.
-                    int pointCost = 0;
-                    bool isMax = false;
-                    string balance = "";
-                    int idx = -1;
-                    int total = 0;
-
-                    if (_combatSkillInnerSelector != null && _combatSkillListBase != null)
+                    if (isRoot)
                     {
-                        var items = _combatSkillInnerSelector.itemDataList;
-                        total = items?.Count ?? 0;
-                        idx   = _combatSkillListBase.currentIndex;
-                        if (total > 0 && idx >= 0 && idx < total)
-                        {
-                            var itemData = items[idx];
-                            pointCost = itemData.consumeBP;
-                            isMax     = itemData.isLevelMax;
-                        }
-                        balance = ReadSkillPointBalance(_combatSkillInnerSelector);
+                        // Root: detailed tactical readout.
+                        string targetStr = ResolveCurrentSkillTargetType();
+
+                        DebugLogger.LogGameValue("CampBattleSkill.root",
+                            $"name='{data.battleSkillName}' lv={data.skillLevel}/{data.skillLevelMax} " +
+                            $"mp={data.consumeMP} dmgType={data.damageSpeciallyType} target='{targetStr}' " +
+                            $"range='{data.rangeDescription}' effect='{data.effectDescription}' " +
+                            $"desc='{data.battleSkillDescription}'");
+
+                        string result = BuildRootBattleSkillAnnouncement(data, targetStr);
+                        if (!string.IsNullOrEmpty(result))
+                            ScreenReader.Say(result);
                     }
-                    else if (_battleSkillInnerSelector != null && _battleSkillListBase != null)
+                    else
                     {
-                        var items = _battleSkillInnerSelector.itemDataList;
-                        total = items?.Count ?? 0;
-                        idx   = _battleSkillListBase.currentIndex;
-                        if (total > 0 && idx >= 0 && idx < total)
+                        // Enhance: upgrade-focused readout.
+                        int pointCost = 0;
+                        bool isMax = false;
+                        string balance = "";
+                        int listSkillLevel = 0;
+                        int listSkillLevelMax = 0;
+
+                        if (_combatSkillInnerSelector != null && _combatSkillListBase != null)
                         {
-                            var itemData = items[idx];
-                            pointCost = itemData.consumeBP;
-                            isMax     = itemData.isLevelMax;
+                            var items = _combatSkillInnerSelector.itemDataList;
+                            int total = items?.Count ?? 0;
+                            int idx   = _combatSkillListBase.currentIndex;
+                            if (total > 0 && idx >= 0 && idx < total)
+                            {
+                                pointCost = items[idx].consumeBP;
+                                isMax     = items[idx].isLevelMax;
+                                listSkillLevel = items[idx].skillLevel;
+                                // Look up max level from game parameter data
+                                try
+                                {
+                                    var csParam = ParameterManager.Instance?.GetCombatSkillParameter(
+                                        items[idx].combatSkillID);
+                                    if (csParam?.levelupBp != null)
+                                        listSkillLevelMax = csParam.levelupBp.Count;
+                                }
+                                catch (Exception ex)
+                                {
+                                    DebugLogger.LogState(
+                                        $"CombatSkill max level lookup failed: {ex.Message}");
+                                }
+                            }
+                            balance = ReadSkillPointBalance(_combatSkillInnerSelector);
                         }
-                        balance = ReadSkillPointBalance(_battleSkillInnerSelector);
+                        else if (_battleSkillInnerSelector != null && _battleSkillListBase != null)
+                        {
+                            var items = _battleSkillInnerSelector.itemDataList;
+                            int total = items?.Count ?? 0;
+                            int idx   = _battleSkillListBase.currentIndex;
+                            if (total > 0 && idx >= 0 && idx < total)
+                            {
+                                pointCost = items[idx].consumeBP;
+                                isMax     = items[idx].isLevelMax;
+                            }
+                            balance = ReadSkillPointBalance(_battleSkillInnerSelector);
+                        }
+
+                        bool isCombat = _lastRootMenuItemName == "CombatPoint";
+
+                        DebugLogger.LogGameValue("CampBattleSkill.enhance",
+                            $"name='{data.battleSkillName}' lv={data.skillLevel}/{data.skillLevelMax} " +
+                            $"listLv={listSkillLevel}/{listSkillLevelMax} " +
+                            $"mp={data.consumeMP} cost={pointCost} isMax={isMax} balance='{balance}' " +
+                            $"isCombat={isCombat} bonuses={data.bonusDataList?.Count ?? 0}");
+
+                        string result = BuildEnhanceBattleSkillAnnouncement(
+                            data, pointCost, isMax, balance, isCombat,
+                            listSkillLevel, listSkillLevelMax);
+                        if (!string.IsNullOrEmpty(result))
+                            ScreenReader.Say(result);
                     }
-
-                    DebugLogger.LogGameValue("CampBattleSkill.info",
-                        $"name='{name}' lv={level}/{levelMax} mp={consumeMP} " +
-                        $"cost={pointCost} isMax={isMax} balance='{balance}' " +
-                        $"root='{_lastRootMenuItemName}' " +
-                        $"desc='{description}' effect='{effect}'");
-
-                    var sb = new StringBuilder();
-                    AppendSkillInfo(sb, data, pointCost, isMax, balance);
-
-                    if (total > 0 && idx >= 0)
-                        sb.Append(Loc.Get("camp_battleskill_position", idx + 1, total));
-
-                    string result = sb.ToString().Trim();
-                    if (!string.IsNullOrEmpty(result))
-                        ScreenReader.Say(result);
                     return;
                 }
 
-                // --- Setting screen skill picker ---
-                // Only announce in SelectBattleSkill state; in Equip state polling handles it.
+                // --- Setting screen skill picker (root only) ---
                 var settingState = _battleSkillSettingSelector.currentState;
                 if (settingState != UICampBattleSkillSettingSelector.State.SelectBattleSkill)
                     return;
@@ -375,13 +393,13 @@ namespace SO2RAccess
                     buttonName = StripTags(slotData.categoryName ?? "");
 
                 DebugLogger.LogGameValue("CampBattleSkillSetting.picker",
-                    $"button='{buttonName}' name='{name}' lv={level}/{levelMax} mp={consumeMP} " +
-                    $"desc='{description}' effect='{effect}'");
+                    $"button='{buttonName}' name='{data.battleSkillName}' " +
+                    $"lv={data.skillLevel}/{data.skillLevelMax} mp={data.consumeMP}");
 
-                var sb2 = new StringBuilder();
+                var sb = new StringBuilder();
                 if (!string.IsNullOrEmpty(buttonName))
-                    sb2.Append(Loc.Get("camp_battleskill_setting_assigning", buttonName)).Append(". ");
-                AppendSkillInfo(sb2, data);
+                    sb.Append(Loc.Get("camp_battleskill_setting_assigning", buttonName)).Append(". ");
+                AppendSkillInfo(sb, data);
 
                 if (_battleSkillPickerListBase != null)
                 {
@@ -389,12 +407,12 @@ namespace SO2RAccess
                     var pickerList  = _battleSkillPickerListBase.currentDataList;
                     int pickerTotal = pickerList?.Count ?? 0;
                     if (pickerTotal > 0 && pickerIdx >= 0)
-                        sb2.Append(Loc.Get("camp_battleskill_position", pickerIdx + 1, pickerTotal));
+                        sb.Append(Loc.Get("camp_battleskill_position", pickerIdx + 1, pickerTotal));
                 }
 
-                string result2 = sb2.ToString().Trim();
-                if (!string.IsNullOrEmpty(result2))
-                    ScreenReader.Say(result2);
+                string result3 = sb.ToString().Trim();
+                if (!string.IsNullOrEmpty(result3))
+                    ScreenReader.Say(result3);
             }
             catch (Exception ex)
             {
@@ -402,11 +420,159 @@ namespace SO2RAccess
             }
         }
 
+        #endregion
+
+        #region Announcement Builders
+
         /// <summary>
-        /// Caches the appropriate inner selector and announces the heading + balance.
+        /// Builds a detailed tactical readout for the root battle skill menu.
+        /// Format: Name. MP: X. Type: Y. Target: Z. Element: A. Range: B. Effect. Description. Level: X of Y.
+        /// Fields with empty/zero values are omitted.
+        /// </summary>
+        private static string BuildRootBattleSkillAnnouncement(
+            UIBattleSkillInformationData data, string targetTypeStr)
+        {
+            var parts = new List<string>();
+
+            string name = data.battleSkillName ?? "";
+            if (!string.IsNullOrEmpty(name))
+                parts.Add(name);
+
+            // MP cost
+            if (data.consumeMP > 0)
+                parts.Add(Loc.Get("camp_root_battleskill_mp", data.consumeMP));
+
+            // Damage type
+            string typeStr = MapDamageSpeciallyType(data.damageSpeciallyType);
+            if (!string.IsNullOrEmpty(typeStr))
+                parts.Add(typeStr);
+
+            // Target type (from ParameterManager lookup)
+            if (!string.IsNullOrEmpty(targetTypeStr))
+                parts.Add(targetTypeStr);
+
+            // Elements
+            var elements = data.elementIDList;
+            if (elements != null && elements.Count > 0)
+            {
+                var names = new List<string>();
+                for (int i = 0; i < elements.Count; i++)
+                {
+                    string eName = MapElementName(elements[i]);
+                    if (!string.IsNullOrEmpty(eName))
+                        names.Add(eName);
+                }
+                if (names.Count > 0)
+                    parts.Add(Loc.Get("camp_root_battleskill_element", string.Join(", ", names)));
+            }
+
+            // Range
+            string range = data.rangeDescription ?? "";
+            if (!string.IsNullOrEmpty(range))
+                parts.Add(Loc.Get("camp_root_battleskill_range", range));
+
+            // Effect description
+            string effect = (data.effectDescription ?? "").TrimEnd('.', ' ');
+            if (!string.IsNullOrEmpty(effect))
+                parts.Add(effect);
+
+            // Description
+            string desc = (data.battleSkillDescription ?? "").TrimEnd('.', ' ');
+            if (!string.IsNullOrEmpty(desc))
+                parts.Add(desc);
+
+            // Level
+            if (data.skillLevelMax > 0)
+                parts.Add(Loc.Get("camp_root_battleskill_level", data.skillLevel, data.skillLevelMax));
+
+            return parts.Count > 0 ? string.Join(". ", parts) + "." : "";
+        }
+
+        /// <summary>
+        /// Builds an upgrade-focused readout for the Enhance battle/combat skill menu.
+        /// Battle skills: Name. MP. Level. SP. Effect. Description. Upgrade: bonuses.
+        /// Combat skills: Name. Level. BP. Description. Upgrade: effect.
+        /// Level and upgrade info use list item data for combat skills (info panel is 0/0).
+        /// At max level, upgrade section is omitted and level shows ", max".
+        /// </summary>
+        private static string BuildEnhanceBattleSkillAnnouncement(
+            UIBattleSkillInformationData data, int pointCost, bool isMaxLevel,
+            string balance, bool isCombatSkill,
+            int listSkillLevel, int listSkillLevelMax)
+        {
+            var parts = new List<string>();
+
+            string name = data.battleSkillName ?? "";
+            if (!string.IsNullOrEmpty(name))
+                parts.Add(name);
+
+            // MP cost (right after name — zero for combat skills, so naturally skipped)
+            if (data.consumeMP > 0)
+                parts.Add(Loc.Get("camp_enhance_mp", data.consumeMP));
+
+            // Level — use list item data when available (combat skills have 0/0 on info panel)
+            int level = listSkillLevelMax > 0 ? listSkillLevel : data.skillLevel;
+            int levelMax = listSkillLevelMax > 0 ? listSkillLevelMax : data.skillLevelMax;
+            if (levelMax > 0)
+            {
+                if (isMaxLevel)
+                    parts.Add(Loc.Get("camp_enhance_level_max", level, levelMax));
+                else
+                    parts.Add(Loc.Get("camp_enhance_level", level, levelMax));
+            }
+
+            // Point balance and cost (BP for combat skills, SP for battle skills)
+            if (pointCost > 0 && !string.IsNullOrEmpty(balance))
+            {
+                string costKey = isCombatSkill ? "camp_enhance_bp" : "camp_enhance_sp";
+                parts.Add(Loc.Get(costKey, balance, pointCost));
+            }
+
+            string effect = (data.effectDescription ?? "").TrimEnd('.', ' ');
+            string desc = (data.battleSkillDescription ?? "").TrimEnd('.', ' ');
+
+            // Avoid reading identical text twice (e.g. Body Control: both are "Reduces daze time")
+            bool effectSameAsDesc = !string.IsNullOrEmpty(effect) && !string.IsNullOrEmpty(desc)
+                && string.Equals(effect, desc, StringComparison.OrdinalIgnoreCase);
+
+            if (isCombatSkill)
+            {
+                // Combat skills: Description first, then effect as "Upgrade:" label
+                if (!string.IsNullOrEmpty(desc))
+                    parts.Add(desc);
+
+                if (!isMaxLevel && !string.IsNullOrEmpty(effect) && !effectSameAsDesc)
+                    parts.Add(Loc.Get("camp_enhance_next", effect));
+            }
+            else
+            {
+                // Battle skills: Effect, Description, then bonus list as "Upgrade:"
+                if (!string.IsNullOrEmpty(effect))
+                    parts.Add(effect);
+
+                if (!string.IsNullOrEmpty(desc) && !effectSameAsDesc)
+                    parts.Add(desc);
+
+                if (!isMaxLevel)
+                {
+                    string bonusStr = BuildBonusList(data.bonusDataList);
+                    if (!string.IsNullOrEmpty(bonusStr))
+                        parts.Add(Loc.Get("camp_enhance_next", bonusStr));
+                }
+            }
+
+            return parts.Count > 0 ? string.Join(". ", parts) + "." : "";
+        }
+
+        #endregion
+
+        #region Cache and Toggle
+
+        /// <summary>
+        /// Caches the appropriate inner selector and announces the heading.
         /// Called from the hook on the first fire after root menu item changes.
-        /// Uses _lastRootMenuItemName to determine which inner selector to cache,
-        /// avoiding the broken activeInHierarchy / stale outer-state detection.
+        /// Uses _lastRootMenuItemName to determine which inner selector to cache
+        /// and which heading to announce (root vs enhance, battle vs combat).
         /// </summary>
         private static void CacheBattleSkillInnerSelectors()
         {
@@ -420,8 +586,8 @@ namespace SO2RAccess
                     ?? UICampCombatSkillSelector.State.Normal;
                 _combatSkillToggleLastIndex = -1;
 
-                ScreenReader.Say(Loc.Get("camp_combatskill_screen"));
-                DebugLogger.LogState("CampCombatSkill: cached (combat skills).");
+                ScreenReader.Say(Loc.Get("camp_enhance_combatskill_screen"));
+                DebugLogger.LogState("CampCombatSkill: cached (combat skills via Enhance).");
             }
             else
             {
@@ -430,7 +596,11 @@ namespace SO2RAccess
                 _combatSkillInnerSelector = null;
                 _combatSkillListBase = null;
 
-                ScreenReader.Say(Loc.Get("camp_battleskill_screen"));
+                string headingKey = IsRootBattleSkillMenu()
+                    ? "camp_root_battleskill_screen"
+                    : "camp_enhance_battleskill_screen";
+
+                ScreenReader.Say(Loc.Get(headingKey));
                 DebugLogger.LogState($"CampBattleSkill: cached (battle skills) for '{_lastRootMenuItemName}'.");
             }
         }
@@ -439,7 +609,7 @@ namespace SO2RAccess
         /// Polls the combat skill selector's state for toggle mode changes (Square button).
         /// In ChangeOnOff mode, tracks index changes and announces each skill's active/inactive
         /// status via isUse from UICampCombatSkillListItemData.
-        /// Called from UpdateBattleSkillSelector when combat skill selector is active.
+        /// Called from UpdateBattleSkillSelector when combat skill selector is active (Enhance only).
         /// </summary>
         private void UpdateCombatSkillToggleMode()
         {
@@ -459,7 +629,7 @@ namespace SO2RAccess
                 else
                 {
                     // Back to normal — re-announce heading.
-                    ScreenReader.Say(Loc.Get("camp_combatskill_screen"));
+                    ScreenReader.Say(Loc.Get("camp_enhance_combatskill_screen"));
                     _combatSkillToggleLastIndex = -1;
                     _combatSkillToggleLastIsUse = false;
                     DebugLogger.LogState("CampCombatSkill: exited toggle mode.");
@@ -497,13 +667,158 @@ namespace SO2RAccess
             }
         }
 
+        #endregion
+
+        #region Helper Methods
+
         /// <summary>
-        /// Appends battle skill details (name, level, BP balance/cost, MP cost, description, effect)
-        /// to a StringBuilder. Shared between leveling and assignment screen hooks.
+        /// Resolves the current battle skill's target type from ParameterManager.
+        /// Looks up the battleSkillID from the inner selector's current item and
+        /// returns a localized target type string, or empty if unavailable.
         /// </summary>
-        /// <param name="pointCost">BP cost to level up (from list item data). 0 = omit.</param>
-        /// <param name="isMaxLevel">Whether the skill is at max level (from list item data).</param>
-        /// <param name="balance">Current BP balance string (from skillPointValue). Empty = omit.</param>
+        private static string ResolveCurrentSkillTargetType()
+        {
+            try
+            {
+                if (_battleSkillInnerSelector == null || _battleSkillListBase == null)
+                    return "";
+
+                var items = _battleSkillInnerSelector.itemDataList;
+                int idx = _battleSkillListBase.currentIndex;
+                if (items == null || idx < 0 || idx >= items.Count)
+                    return "";
+
+                var skillId = items[idx].battleSkillID;
+                var pm = ParameterManager.Instance;
+                if (pm == null) return "";
+
+                var bsParam = pm.GetBattleSkillParameter(skillId);
+                if (bsParam == null) return "";
+
+                return MapTargetType(bsParam.targetType);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"ResolveCurrentSkillTargetType failed: {ex.Message}");
+                return "";
+            }
+        }
+
+        /// <summary>
+        /// Maps DamageSpeciallyType enum to a localized type string.
+        /// </summary>
+        private static string MapDamageSpeciallyType(DamageSpeciallyType type)
+        {
+            return type switch
+            {
+                DamageSpeciallyType.DAMAGE => Loc.Get("camp_root_battleskill_type_damage"),
+                DamageSpeciallyType.DURABILITY => Loc.Get("camp_root_battleskill_type_durability"),
+                DamageSpeciallyType.DAMAGE_DURABILITY => Loc.Get("camp_root_battleskill_type_damage_durability"),
+                DamageSpeciallyType.SUPPORT => Loc.Get("camp_root_battleskill_type_support"),
+                _ => ""
+            };
+        }
+
+        /// <summary>
+        /// Maps TargetType enum to a localized target string.
+        /// </summary>
+        private static string MapTargetType(TargetType type)
+        {
+            return type switch
+            {
+                TargetType.ENEMY => Loc.Get("camp_root_battleskill_target_enemy"),
+                TargetType.ENEMY_ALL => Loc.Get("camp_root_battleskill_target_enemy_all"),
+                TargetType.PLAYER => Loc.Get("camp_root_battleskill_target_player"),
+                TargetType.PLAYER_ALL => Loc.Get("camp_root_battleskill_target_player_all"),
+                TargetType.SELF => Loc.Get("camp_root_battleskill_target_self"),
+                _ => ""
+            };
+        }
+
+        /// <summary>
+        /// Maps ElementID enum to a localized element name.
+        /// Returns empty for INVALID, NOTHING, and MAX.
+        /// </summary>
+        private static string MapElementName(ElementID id)
+        {
+            return id switch
+            {
+                ElementID.EARTH => Loc.Get("element_earth"),
+                ElementID.WATER => Loc.Get("element_water"),
+                ElementID.FIRE => Loc.Get("element_fire"),
+                ElementID.WIND => Loc.Get("element_wind"),
+                ElementID.LIGHTNING => Loc.Get("element_lightning"),
+                ElementID.STAR => Loc.Get("element_star"),
+                ElementID.NEGATIVE => Loc.Get("element_negative"),
+                ElementID.LIGHT => Loc.Get("element_light"),
+                ElementID.DARK => Loc.Get("element_dark"),
+                _ => ""
+            };
+        }
+
+        /// <summary>
+        /// Maps BattleSkillEnhanceBonusType to a localized bonus name.
+        /// </summary>
+        private static string MapBonusType(BattleSkillEnhanceBonusType type)
+        {
+            return type switch
+            {
+                BattleSkillEnhanceBonusType.DAMAGE_UP => Loc.Get("camp_enhance_bonus_damage_up"),
+                BattleSkillEnhanceBonusType.HIT_UP => Loc.Get("camp_enhance_bonus_hit_up"),
+                BattleSkillEnhanceBonusType.CRITICAL_UP => Loc.Get("camp_enhance_bonus_critical_up"),
+                BattleSkillEnhanceBonusType.RANGE_EXPANSION => Loc.Get("camp_enhance_bonus_range_expansion"),
+                BattleSkillEnhanceBonusType.HEAL_UP => Loc.Get("camp_enhance_bonus_heal_up"),
+                BattleSkillEnhanceBonusType.GRANT_UP => Loc.Get("camp_enhance_bonus_grant_up"),
+                BattleSkillEnhanceBonusType.ADD_ATTRACTING => Loc.Get("camp_enhance_bonus_add_attracting"),
+                BattleSkillEnhanceBonusType.STOP_TIME_UP => Loc.Get("camp_enhance_bonus_stop_time_up"),
+                BattleSkillEnhanceBonusType.CHANGE_EFFECT => Loc.Get("camp_enhance_bonus_change_effect"),
+                BattleSkillEnhanceBonusType.ADD_PENETRATION => Loc.Get("camp_enhance_bonus_add_penetration"),
+                BattleSkillEnhanceBonusType.IGNORE_DEFENCE => Loc.Get("camp_enhance_bonus_ignore_defence"),
+                BattleSkillEnhanceBonusType.ADD_WEAKNESS_ATTACK => Loc.Get("camp_enhance_bonus_weakness_attack"),
+                BattleSkillEnhanceBonusType.RECOVER_ABNORMAL => Loc.Get("camp_enhance_bonus_recover_abnormal"),
+                _ => ""
+            };
+        }
+
+        /// <summary>
+        /// Builds a comma-separated list of upgrade bonuses from bonusDataList.
+        /// Only includes bonuses where isUp is true (improvements at next level).
+        /// Uses bonusName if available, otherwise maps bonusType to a Loc string.
+        /// </summary>
+        private static string BuildBonusList(
+            Il2CppSystem.Collections.Generic.List<UIEnhanceBonusData> bonusDataList)
+        {
+            if (bonusDataList == null || bonusDataList.Count == 0)
+                return "";
+
+            var bonusNames = new List<string>();
+            for (int i = 0; i < bonusDataList.Count; i++)
+            {
+                try
+                {
+                    var bonus = bonusDataList[i];
+                    if (bonus == null || !bonus.isUp) continue;
+
+                    string bName = bonus.bonusName ?? "";
+                    if (string.IsNullOrEmpty(bName))
+                        bName = MapBonusType(bonus.bonusType);
+
+                    if (!string.IsNullOrEmpty(bName))
+                        bonusNames.Add(bName);
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogState($"BuildBonusList entry {i} failed: {ex.Message}");
+                }
+            }
+
+            return bonusNames.Count > 0 ? string.Join(", ", bonusNames) : "";
+        }
+
+        /// <summary>
+        /// Appends battle skill details (name, level, MP cost, description, effect)
+        /// to a StringBuilder. Used by the assignment screen skill picker only.
+        /// </summary>
         private static void AppendSkillInfo(StringBuilder sb, UIBattleSkillInformationData data,
             int pointCost = 0, bool isMaxLevel = false, string balance = "")
         {
@@ -520,8 +835,6 @@ namespace SO2RAccess
                 if (isMaxLevel) sb.Append(Loc.Get("camp_skill_max_level"));
                 sb.Append(". ");
             }
-            // Both battle skills and combat skills use BP (Battle Points).
-            // Show "BP: balance / cost" so the user always knows what they can afford.
             if (pointCost > 0 && !isMaxLevel && !string.IsNullOrEmpty(balance))
                 sb.Append(Loc.Get("camp_skill_bp_cost", balance, pointCost)).Append(". ");
             if (consumeMP > 0)
@@ -566,5 +879,7 @@ namespace SO2RAccess
                 return "";
             }
         }
+
+        #endregion
     }
 }

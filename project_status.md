@@ -510,11 +510,31 @@ Cleanup branch `claude-mod-cleanup` merged to master. Key changes:
 New this session:
 - BattleTargetHandler: L2 target cycling announces enemy name, HP%, shield%, leader, buffs/debuffs ✓ TESTED
 - BattleResultHandler enhanced: SP, BSP totals + per-character BSP + learned skill names (PENDING RETEST)
-- CampMenuHandler.BattleSkill: Enhance sub-menu gates expanded for CombatPoint/BattleSkillPoint (PENDING TEST)
 - SaveNotificationHandler: save sound cue on manual/auto save ✓ TESTED
 - ModSettings: JSON persistence for sound toggle/volume settings
 - AudioCuePlayer: refactored to file-based WAV (dodge + save sounds from disk)
 - TextUtil: shared ParseCharaNameID (was duplicated in NavigationHandler)
+- Combat skill enhance: fixed level display (was 0/0), reordered to Name/Level/BP/Desc/Upgrade (PENDING TEST)
+
+### Battle skill / combat skill menu separation (2026-03-01)
+- **Root battle skills** (Camp → BattleSkill): NEW detailed tactical readout
+  - Format: Name. MP. Type. Target. Element. Range. Effect. Description. Level.
+  - Target type resolved from ParameterManager.GetBattleSkillParameter(battleSkillID)
+  - ✓ TESTED — root battle skills reading correctly
+- **Enhance battle skills** (Camp → Enhance → BattleSkillPoint): upgrade-focused readout
+  - Format: Name. MP. Level. SP balance/cost. Effect. Description. Upgrade: bonuses.
+  - ✓ TESTED — working, user confirmed "rest works fine"
+- **Enhance combat skills** (Camp → Enhance → CombatPoint): upgrade-focused readout
+  - Format: Name. Level X of Y. BP balance/cost. Description. Upgrade: effect.
+  - PENDING TEST — combat skill level now read from UICampCombatSkillListItemData.skillLevel
+    (UIBattleSkillInformationData.skillLevel is always 0 for combat skills)
+  - Max level derived from ConstCombatSkillParameter.levelupBp.Count via ParameterManager
+  - effectDescription used as upgrade label ("Upgrade: Effect chance up")
+  - Duplicate text suppressed (e.g. Body Control where effect == description)
+  - Combat skills have no MP cost (naturally skipped)
+- **Code separation**: IsBattleSkillRelatedMenu() split into IsRootBattleSkillMenu() + IsEnhanceBattleSkillMenu()
+- **Assignment screen**: unchanged, still uses AppendSkillInfo() (root only)
+- Files changed: CampMenuHandler.BattleSkill.cs (rewritten), Loc.cs (new strings), CampMenuHandler.cs (RuntimeHelpers)
 
 ### Battle target lessons learned
 - ShowSelectedTargetEnemy (CallerCount 3) does NOT fire for L2 target switching — likely for skill targeting
