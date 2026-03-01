@@ -90,7 +90,7 @@ namespace SO2RAccess
                 );
 
                 _patchesApplied = true;
-                MelonLogger.Msg("DIAG: ConfigMenuHandler patches applied OK.");
+                DebugLogger.LogState("ConfigMenuHandler: patches applied.");
             }
             catch (Exception ex)
             {
@@ -147,7 +147,6 @@ namespace SO2RAccess
         // Postfix for UIConfigGroupSelectorBase.MoveCursor(int)
         private static void ConfigGroup_MoveCursor_Postfix(UIConfigGroupSelectorBase __instance)
         {
-            MelonLogger.Msg("DIAG: MoveCursor fired");
             try { AnnounceGroupItem(__instance); }
             catch (Exception ex) { MelonLogger.Warning($"ConfigGroup_MoveCursor_Postfix: {ex.Message}"); }
         }
@@ -169,7 +168,6 @@ namespace SO2RAccess
             if (itemSelector == null) return;
 
             string label = GetItemLabel(itemSelector);
-            MelonLogger.Msg($"DIAG: label='{label}'");
             if (string.IsNullOrEmpty(label)) return;
 
             string value = GetItemValue(itemSelector);
@@ -219,8 +217,8 @@ namespace SO2RAccess
                 var gauge = __instance.TryCast<UIConfigGroupGaugeSelectItemSelector>();
                 if (gauge != null)
                 {
-                    string gaugeValue = gauge.value?.text ?? "";
-                    MelonLogger.Msg($"DIAG: gauge value='{gaugeValue}' idx={gauge.currentIndex}/{gauge.maxIndex}");
+                    string gaugeValue = gauge.currentIndex.ToString();
+                    DebugLogger.LogGameValue("ConfigItem.gauge", $"value='{gaugeValue}' idx={gauge.currentIndex}/{gauge.maxIndex}");
                     if (!string.IsNullOrEmpty(gaugeValue))
                     {
                         DebugLogger.LogGameValue("ConfigItem.gauge", gaugeValue);
@@ -251,29 +249,13 @@ namespace SO2RAccess
             if (_labelCache.TryGetValue(itemSelector.Pointer, out string cached) && !string.IsNullOrEmpty(cached))
                 return cached;
 
-            // DIAG: log everything inside this selector's own hierarchy so we can
-            // find where the per-item label actually lives.
+            // Strategy 2: any non-gauge-value GameText inside this selector is the label
             try
             {
                 var gauge = itemSelector.TryCast<UIConfigGroupGaugeSelectItemSelector>();
                 var gaugeValueGT = gauge?.value;
 
                 var selfTexts = itemSelector.GetComponentsInChildren<GameText>(true);
-                if (selfTexts != null && selfTexts.Count > 0)
-                {
-                    MelonLogger.Msg($"DIAG-label: GO='{itemSelector.gameObject?.name}' selfTexts={selfTexts.Count}");
-                    foreach (var gt in selfTexts)
-                    {
-                        bool isGaugeVal = gaugeValueGT != null && gt?.Pointer == gaugeValueGT.Pointer;
-                        MelonLogger.Msg($"DIAG-label:   GT '{gt?.text}' GO='{gt?.gameObject?.name}' isGaugeVal={isGaugeVal}");
-                    }
-                }
-                else
-                {
-                    MelonLogger.Msg($"DIAG-label: GO='{itemSelector.gameObject?.name}' NO selfTexts");
-                }
-
-                // Strategy 2: any non-gauge-value GameText inside this selector is the label
                 if (selfTexts != null)
                 {
                     foreach (var gt in selfTexts)
@@ -282,16 +264,13 @@ namespace SO2RAccess
                             continue;
                         string t = gt?.text ?? "";
                         if (!string.IsNullOrEmpty(t))
-                        {
-                            MelonLogger.Msg($"DIAG-label: Strategy2 => '{t}'");
                             return t;
-                        }
                     }
                 }
             }
             catch (Exception ex)
             {
-                MelonLogger.Msg($"DIAG-label: Strategy2 ex={ex.Message}");
+                DebugLogger.LogState($"ConfigMenuHandler.GetItemLabel Strategy2: {ex.Message}");
             }
 
             // Strategy 3 (fallback): walk backward through siblings
@@ -311,16 +290,13 @@ namespace SO2RAccess
                     {
                         string text = gt?.text ?? "";
                         if (!string.IsNullOrEmpty(text))
-                        {
-                            MelonLogger.Msg($"DIAG-label: Strategy3 sibling[{i}] => '{text}'");
                             return text;
-                        }
                     }
                 }
             }
             catch (Exception ex)
             {
-                MelonLogger.Msg($"DIAG-label: Strategy3 ex={ex.Message}");
+                DebugLogger.LogState($"ConfigMenuHandler.GetItemLabel Strategy3: {ex.Message}");
             }
 
             return "";
@@ -344,9 +320,12 @@ namespace SO2RAccess
 
                 var gauge = itemSelector.TryCast<UIConfigGroupGaugeSelectItemSelector>();
                 if (gauge != null)
-                    return gauge.value?.text ?? "";
+                    return gauge.currentIndex.ToString();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"ConfigMenuHandler.GetItemValue: {ex.Message}");
+            }
 
             return "";
         }

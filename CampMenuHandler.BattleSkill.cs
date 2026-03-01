@@ -282,13 +282,7 @@ namespace SO2RAccess
                         $"desc='{description}' effect='{effect}'");
 
                     var sb = new StringBuilder();
-                    if (!string.IsNullOrEmpty(name))        sb.Append(name).Append(". ");
-                    if (levelMax > 0)
-                        sb.Append(Loc.Get("camp_battleskill_level", level, levelMax)).Append(". ");
-                    if (consumeMP > 0)
-                        sb.Append(Loc.Get("camp_battleskill_mp", consumeMP)).Append(". ");
-                    if (!string.IsNullOrEmpty(description)) sb.Append(description).Append(". ");
-                    if (!string.IsNullOrEmpty(effect))      sb.Append(effect).Append(". ");
+                    AppendSkillInfo(sb, data);
 
                     if (_battleSkillInnerSelector != null && _battleSkillListBase != null)
                     {
@@ -324,13 +318,7 @@ namespace SO2RAccess
                 var sb2 = new StringBuilder();
                 if (!string.IsNullOrEmpty(buttonName))
                     sb2.Append(Loc.Get("camp_battleskill_setting_assigning", buttonName)).Append(". ");
-                if (!string.IsNullOrEmpty(name))        sb2.Append(name).Append(". ");
-                if (levelMax > 0)
-                    sb2.Append(Loc.Get("camp_battleskill_level", level, levelMax)).Append(". ");
-                if (consumeMP > 0)
-                    sb2.Append(Loc.Get("camp_battleskill_mp", consumeMP)).Append(". ");
-                if (!string.IsNullOrEmpty(description)) sb2.Append(description).Append(". ");
-                if (!string.IsNullOrEmpty(effect))      sb2.Append(effect).Append(". ");
+                AppendSkillInfo(sb2, data);
 
                 if (_battleSkillPickerListBase != null)
                 {
@@ -349,6 +337,27 @@ namespace SO2RAccess
             {
                 MelonLogger.Warning($"CampMenuHandler.BattleSkillInfoPresenter_Set_Postfix: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Appends battle skill details (name, level, MP cost, description, effect)
+        /// to a StringBuilder. Shared between leveling and assignment screen hooks.
+        /// </summary>
+        private static void AppendSkillInfo(StringBuilder sb, UIBattleSkillInformationData data)
+        {
+            string name        = data.battleSkillName        ?? "";
+            string description = data.battleSkillDescription ?? "";
+            string effect      = data.effectDescription      ?? "";
+            int levelMax       = data.skillLevelMax;
+            int consumeMP      = data.consumeMP;
+
+            if (!string.IsNullOrEmpty(name))        sb.Append(name).Append(". ");
+            if (levelMax > 0)
+                sb.Append(Loc.Get("camp_battleskill_level", data.skillLevel, levelMax)).Append(". ");
+            if (consumeMP > 0)
+                sb.Append(Loc.Get("camp_battleskill_mp", consumeMP)).Append(". ");
+            if (!string.IsNullOrEmpty(description)) sb.Append(description).Append(". ");
+            if (!string.IsNullOrEmpty(effect))      sb.Append(effect).Append(". ");
         }
     }
 }

@@ -4,7 +4,6 @@ using MelonLoader;
 using System;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace SO2RAccess
 {
@@ -65,11 +64,6 @@ namespace SO2RAccess
 
         private bool _patchesApplied = false;
 
-        /// <summary>Extracts the name from sprite tags (e.g. "&lt;sprite name=R1&gt;" → "R1").</summary>
-        private static readonly Regex _spriteNameExtractor = new Regex(
-            @"<sprite\s+name\s*=\s*([^>]+?)>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-        /// <summary>Strips any remaining rich text tags from game strings.</summary>
-        private static readonly Regex _tagStripper = new Regex("<[^>]+>", RegexOptions.Compiled);
 
 
         // Static so the Harmony postfix (static method) can write and Update() can read.
@@ -218,13 +212,6 @@ namespace SO2RAccess
                 );
 
                 harmony.Patch(
-                    AccessTools.Method(typeof(UICampStatusSelector), "UpdateStatusLevel",
-                        new Type[] { typeof(CharacterParameter) }),
-                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
-                        nameof(Diag_StatusSelector_UpdateStatusLevel))
-                );
-
-                harmony.Patch(
                     AccessTools.Method(typeof(UICampStatusSelector), "UpdateName",
                         new Type[] { typeof(PlayerID), typeof(ConstPlayerParameter) }),
                     postfix: new HarmonyMethod(typeof(CampMenuHandler),
@@ -317,10 +304,11 @@ namespace SO2RAccess
                         DebugLogger.LogState("CampMenu: window closed (IsCampOpen=false via IsOpened).");
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
                     IsCampOpen = false;
                     _campWindow = null;
+                    DebugLogger.LogState($"CampMenu: closure check error: {ex.Message}");
                 }
             }
 
@@ -738,17 +726,20 @@ namespace SO2RAccess
 
         #region Helpers
 
+        private static string StripTags(string text) => TextUtil.StripTags(text);
+
         /// <summary>
-        /// Cleans rich text from a game string. Sprite tags have their name
-        /// extracted (e.g. "&lt;sprite name=R1&gt;" → "R1"), then any remaining
-        /// tags are stripped.
+        /// Resets camp menu state on scene change, preventing IsCampOpen from
+        /// remaining stale if the scene unloads while camp is open.
         /// </summary>
-        private static string StripTags(string text)
+        public void OnSceneChanged()
         {
-            if (string.IsNullOrEmpty(text)) return text;
-            text = _spriteNameExtractor.Replace(text, "$1");
-            text = _tagStripper.Replace(text, "");
-            return text.Trim();
+            if (IsCampOpen)
+            {
+                IsCampOpen = false;
+                _campWindow = null;
+                DebugLogger.LogState("CampMenu: scene changed — IsCampOpen reset.");
+            }
         }
 
         #endregion

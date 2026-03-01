@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace SO2RAccess
@@ -51,8 +52,9 @@ namespace SO2RAccess
             {
                 return string.Format(template, args);
             }
-            catch
+            catch (Exception ex)
             {
+                MelonLoader.MelonLogger.Warning($"Loc.Get format error for key '{key}': {ex.Message}");
                 return template;
             }
         }
@@ -266,6 +268,8 @@ namespace SO2RAccess
             Add("camp_tactics_char",               "{0}: {1}. {2} of {3}.");
             Add("camp_tactics_operation",          "{0}. {1} of {2}.");
             Add("camp_tactics_operation_current",  "{0}, currently set. {1} of {2}.");
+            Add("camp_tactics_currently_set",      "Currently set.");
+            Add("camp_tactics_operation_position", "{0} of {1}.");
 
             // Save game (same UI as load, differentiated by SaveLoadState)
             Add("save_game_screen",         "Save game.");
@@ -291,9 +295,6 @@ namespace SO2RAccess
             Add("battle_result_item",       "Obtained {0}.");
             Add("battle_result_item_multi", "Obtained {0}, {1}.");
 
-            // Battle counter cue
-            Add("battle_counter_ready",     "Counter!");
-
             // Enemy proximity audio
             Add("proximity_wav_missing",    "Enemy proximity sound file not found: {0}");
 
@@ -312,6 +313,8 @@ namespace SO2RAccess
             // Game over (battle loss) menu
             Add("gameover_screen",      "Game over.");
             Add("gameover_menu_item",   "{0}, {1} of {2}.");
+            Add("gameover_retry",       "Retry");
+            Add("gameover_title",       "Title");
 
             // Placeholders — add handler-specific strings here as features are built:
             // Add("hp",           "HP: {0} of {1}");

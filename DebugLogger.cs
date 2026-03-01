@@ -38,8 +38,7 @@ namespace SO2RAccess
         /// </summary>
         public static void LogScreenReader(string text)
         {
-            if (!Main.DebugMode) return;
-            MelonLogger.Msg($"[SR] {text}");
+            Log(LogCategory.ScreenReader, text);
         }
 
         /// <summary>
@@ -47,9 +46,8 @@ namespace SO2RAccess
         /// </summary>
         public static void LogInput(string keyName, string action = null)
         {
-            if (!Main.DebugMode) return;
             string msg = action != null ? $"{keyName} -> {action}" : keyName;
-            MelonLogger.Msg($"[INPUT] {msg}");
+            Log(LogCategory.Input, msg);
         }
 
         /// <summary>
@@ -57,8 +55,7 @@ namespace SO2RAccess
         /// </summary>
         public static void LogState(string description)
         {
-            if (!Main.DebugMode) return;
-            MelonLogger.Msg($"[STATE] {description}");
+            Log(LogCategory.State, description);
         }
 
         /// <summary>
@@ -66,8 +63,7 @@ namespace SO2RAccess
         /// </summary>
         public static void LogGameValue(string name, object value)
         {
-            if (!Main.DebugMode) return;
-            MelonLogger.Msg($"[GAME] {name} = {value}");
+            Log(LogCategory.Game, $"{name} = {value}");
         }
 
         private static string GetPrefix(LogCategory category)

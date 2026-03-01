@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
-using System.Text.RegularExpressions;
 using UnityEngine;
 
 namespace SO2RAccess
@@ -37,7 +36,6 @@ namespace SO2RAccess
         #region Fields
 
         private bool _patchesApplied = false;
-        private static readonly Regex _tagStripper = new Regex("<[^>]+>", RegexOptions.Compiled);
 
         /// <summary>
         /// Runtime map: FieldNpcCharacter instance ID → resolved dialogue display name.
@@ -151,15 +149,7 @@ namespace SO2RAccess
 
         #region Helpers
 
-        /// <summary>
-        /// Removes TextMeshPro rich-text markup tags (e.g. &lt;color&gt;, &lt;sprite&gt;)
-        /// from a string so only the plain text is announced.
-        /// </summary>
-        private static string StripTags(string text)
-        {
-            if (string.IsNullOrEmpty(text)) return text;
-            return _tagStripper.Replace(text, "").Trim();
-        }
+        private static string StripTags(string text) => TextUtil.StripTags(text);
 
         /// <summary>
         /// Finds the nearest field NPC (beyond party range) and records the

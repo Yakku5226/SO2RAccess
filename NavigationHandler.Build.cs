@@ -81,26 +81,7 @@ namespace SO2RAccess
                     $"[{label}] type={npc.npcType} dist={dist:F1} pos={pos}");
             }
 
-            items.Sort((a, b) => a.Distance.CompareTo(b.Distance));
-
-            // Filter out NPCs that are unreachable via NavMesh.
-            // Functional NPCs (shops, inns, guilds) skip this check because
-            // they are commonly behind counters — the game allows interaction
-            // over the counter even though a walkable path does not exist.
-            for (int i = items.Count - 1; i >= 0; i--)
-            {
-                if (items[i].IsCounterNpc)
-                {
-                    DebugLogger.LogState(
-                        $"NAV: keeping counter NPC '{items[i].Label}' (skip reachability)");
-                    continue;
-                }
-                if (!IsReachable(playerPos, items[i].Position))
-                {
-                    DebugLogger.LogState($"NAV: filtered unreachable NPC '{items[i].Label}'");
-                    items.RemoveAt(i);
-                }
-            }
+            SortAndFilterUnreachable(items, playerPos);
 
             // Number any NPCs that still carry the generic "NPC" label.
             int npcNum = 1;
@@ -275,17 +256,7 @@ namespace SO2RAccess
                 });
             }
 
-            items.Sort((a, b) => a.Distance.CompareTo(b.Distance));
-
-            // Filter out chests that are unreachable via NavMesh.
-            for (int i = items.Count - 1; i >= 0; i--)
-            {
-                if (!IsReachable(playerPos, items[i].Position))
-                {
-                    DebugLogger.LogState($"NAV: filtered unreachable chest at dist={items[i].Distance:F1}");
-                    items.RemoveAt(i);
-                }
-            }
+            SortAndFilterUnreachable(items, playerPos);
 
             int unopenedNum = 1;
             int openedNum   = 1;
@@ -341,17 +312,7 @@ namespace SO2RAccess
                 }
             }
 
-            items.Sort((a, b) => a.Distance.CompareTo(b.Distance));
-
-            // Filter out exits that are unreachable via NavMesh.
-            for (int i = items.Count - 1; i >= 0; i--)
-            {
-                if (!IsReachable(playerPos, items[i].Position))
-                {
-                    DebugLogger.LogState($"NAV: filtered unreachable exit '{items[i].Label}'");
-                    items.RemoveAt(i);
-                }
-            }
+            SortAndFilterUnreachable(items, playerPos);
 
             _categories[CAT_EXIT].AddRange(items);
         }
@@ -386,17 +347,7 @@ namespace SO2RAccess
                     $"id={marker.locationPointID} dist={dist:F1}");
             }
 
-            items.Sort((a, b) => a.Distance.CompareTo(b.Distance));
-
-            // Filter out markers that are unreachable via NavMesh.
-            for (int i = items.Count - 1; i >= 0; i--)
-            {
-                if (!IsReachable(playerPos, items[i].Position))
-                {
-                    DebugLogger.LogState($"NAV: filtered unreachable marker at dist={items[i].Distance:F1}");
-                    items.RemoveAt(i);
-                }
-            }
+            SortAndFilterUnreachable(items, playerPos);
 
             if (items.Count > 1)
             {
@@ -461,16 +412,7 @@ namespace SO2RAccess
                 }
             }
 
-            items.Sort((a, b) => a.Distance.CompareTo(b.Distance));
-
-            for (int i = items.Count - 1; i >= 0; i--)
-            {
-                if (!IsReachable(playerPos, items[i].Position))
-                {
-                    DebugLogger.LogState($"NAV: filtered unreachable event at dist={items[i].Distance:F1}");
-                    items.RemoveAt(i);
-                }
-            }
+            SortAndFilterUnreachable(items, playerPos);
 
             int storyNum = 1, paNum = 1, sideNum = 1, genericNum = 1;
             for (int i = 0; i < items.Count; i++)
@@ -515,7 +457,8 @@ namespace SO2RAccess
                 float   dist = Vector3.Distance(playerPos, pos);
 
                 bool recovery = false;
-                try { recovery = sp.IsRecovery; } catch { }
+                try { recovery = sp.IsRecovery; }
+                catch (Exception ex) { DebugLogger.LogState($"NAV BuildSavePoints: IsRecovery error: {ex.Message}"); }
 
                 string label = recovery
                     ? Loc.Get("nav_save_recovery")
@@ -536,16 +479,7 @@ namespace SO2RAccess
                     $"recovery={recovery} dist={dist:F1}");
             }
 
-            items.Sort((a, b) => a.Distance.CompareTo(b.Distance));
-
-            for (int i = items.Count - 1; i >= 0; i--)
-            {
-                if (!IsReachable(playerPos, items[i].Position))
-                {
-                    DebugLogger.LogState($"NAV: filtered unreachable save point at dist={items[i].Distance:F1}");
-                    items.RemoveAt(i);
-                }
-            }
+            SortAndFilterUnreachable(items, playerPos);
 
             // Number items if there are multiples of either type.
             if (saveCount > 1 || recoveryCount > 1)
@@ -688,19 +622,7 @@ namespace SO2RAccess
                     $"partyID={enemy.EnemyPartyID} dist={dist:F1}");
             }
 
-            // Sort by distance
-            items.Sort((a, b) => a.Distance.CompareTo(b.Distance));
-
-            // Filter unreachable
-            for (int i = items.Count - 1; i >= 0; i--)
-            {
-                if (!IsReachable(playerPos, items[i].Position))
-                {
-                    DebugLogger.LogState(
-                        $"NAV: filtered unreachable enemy at dist={items[i].Distance:F1}");
-                    items.RemoveAt(i);
-                }
-            }
+            SortAndFilterUnreachable(items, playerPos);
 
             // Number duplicates of the same base label
             var labelCounts = new Dictionary<string, int>();
@@ -768,6 +690,25 @@ namespace SO2RAccess
                     return Loc.Get("nav_enemy_raid");
                 default:
                     return "";
+            }
+        }
+
+        /// <summary>
+        /// Sorts items by distance and removes those unreachable via NavMesh.
+        /// Items with IsCounterNpc=true skip the reachability check (they are
+        /// behind counters but the game still allows interaction).
+        /// </summary>
+        private void SortAndFilterUnreachable(List<NavItem> items, Vector3 playerPos)
+        {
+            items.Sort((a, b) => a.Distance.CompareTo(b.Distance));
+            for (int i = items.Count - 1; i >= 0; i--)
+            {
+                if (items[i].IsCounterNpc) continue;
+                if (!IsReachable(playerPos, items[i].Position))
+                {
+                    DebugLogger.LogState($"NAV: filtered unreachable '{items[i].Label}' at dist={items[i].Distance:F1}");
+                    items.RemoveAt(i);
+                }
             }
         }
 

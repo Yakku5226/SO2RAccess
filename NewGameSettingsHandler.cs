@@ -141,7 +141,7 @@ namespace SO2RAccess
             try
             {
                 var presenter = GetPresenter(__instance, menu);
-                string value = GetNewValueText(__instance, menu, presenter);
+                string value = GetSettingValueText(__instance, menu, presenter, preferNewValue: true);
                 if (!string.IsNullOrEmpty(value))
                 {
                     DebugLogger.LogGameValue("NewGameSettings.value", $"menu={menu} value='{value}'");
@@ -195,7 +195,7 @@ namespace SO2RAccess
                 if (string.IsNullOrEmpty(label))
                     label = GetFallbackLabel(menu);
 
-                string value = GetValueText(selector, menu, presenter);
+                string value = GetSettingValueText(selector, menu, presenter, preferNewValue: false);
 
                 DebugLogger.LogGameValue("NewGameSettings.item",
                     $"menu={menu} label='{label}' value='{value}'");
@@ -225,41 +225,17 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Returns the current value text for a menu item.
+        /// Returns the value text for a menu item.
+        /// When preferNewValue is true (left/right change), reads nextText first
+        /// because currentText still holds the old value during animation.
+        /// When false (navigating to a row), reads the settled currentText.
         /// Returns empty string for button-only rows (Initialize, Decision).
         /// </summary>
-        private static string GetValueText(
+        private static string GetSettingValueText(
             UITitleSelectVoiceSelector selector,
             UITitleSelectVoiceSelector.Menu menu,
-            UITitleSelectVoiceMenuSelectItemPresenter presenter)
-        {
-            switch (menu)
-            {
-                case UITitleSelectVoiceSelector.Menu.EditName:
-                    // Name row uses the full-name presenter, not a textPresenter.
-                    return selector.fullNamePresenter?.fullName?.text ?? "";
-
-                case UITitleSelectVoiceSelector.Menu.Initialize:
-                case UITitleSelectVoiceSelector.Menu.Decision:
-                    // Button-only rows have no value to announce.
-                    return "";
-
-                default:
-                    // All other rows (VoiceLanguage, VoiceVersion, Difficulty, BGMVersion,
-                    // EnableEventStandingPicture) display their value via textPresenter.
-                    return presenter?.textPresenter?.currentText?.text ?? "";
-            }
-        }
-
-        /// <summary>
-        /// Returns the incoming value text after a left/right change.
-        /// During animation, nextText holds the new value; currentText still holds the old one.
-        /// Falls back to currentText if nextText is empty.
-        /// </summary>
-        private static string GetNewValueText(
-            UITitleSelectVoiceSelector selector,
-            UITitleSelectVoiceSelector.Menu menu,
-            UITitleSelectVoiceMenuSelectItemPresenter presenter)
+            UITitleSelectVoiceMenuSelectItemPresenter presenter,
+            bool preferNewValue)
         {
             switch (menu)
             {
@@ -273,9 +249,13 @@ namespace SO2RAccess
                 default:
                     var tp = presenter?.textPresenter;
                     if (tp == null) return "";
-                    // nextText is the new value animating in; currentText is the old value fading out.
-                    string next = tp.nextText?.text ?? "";
-                    return string.IsNullOrEmpty(next) ? (tp.currentText?.text ?? "") : next;
+                    if (preferNewValue)
+                    {
+                        // nextText is the new value animating in; currentText is the old value fading out.
+                        string next = tp.nextText?.text ?? "";
+                        return string.IsNullOrEmpty(next) ? (tp.currentText?.text ?? "") : next;
+                    }
+                    return tp.currentText?.text ?? "";
             }
         }
 

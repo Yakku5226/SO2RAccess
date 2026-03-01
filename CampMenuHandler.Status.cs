@@ -39,18 +39,9 @@ namespace SO2RAccess
         #region Status Sub-screen Update
 
         /// <summary>
-        /// Polls the UICampStatusSelector and announces the focused party member.
-        /// Detection: the status selector's activeInHierarchy is always true (stale),
-        /// so we detect the status screen by: root menu is hidden AND the last highlighted
-        /// root menu item was "Status". This avoids false announcements on camp open.
-        ///
-        /// Announces "Status." when the screen opens, then full character data (name, level,
-        /// HP, MP, EXP, all combat stats, all base attributes) on open and character tab change.
-        /// Stats come from UICampStatusParameterPresenter.Setup hook (fires before our poll).
-        /// </summary>
-        /// <summary>
-        /// No longer polls for status detection — hook-driven via UpdatePresenter.
-        /// This method is kept only to reset state when camp closes (selector goes null).
+        /// Polls pageIndex to detect L1/R1 page switches on the status screen.
+        /// Main status detection is hook-driven via UpdatePresenter — this method
+        /// only handles page changes (native-only, no hooks fire for page navigation).
         /// </summary>
         private void UpdateStatusSelector()
         {
@@ -242,15 +233,6 @@ namespace SO2RAccess
                 _statusPlayerName = playerID.ToString();
                 MelonLogger.Warning($"CampMenuHandler.StatusUpdateName: {ex.Message}");
             }
-        }
-
-        /// <summary>
-        /// Postfix for UICampStatusSelector.UpdateStatusLevel(CharacterParameter).
-        /// Fires when level data updates — no data to capture here (LevelPresenter.Setup has it).
-        /// </summary>
-        private static void Diag_StatusSelector_UpdateStatusLevel(CharacterParameter charaParam)
-        {
-            DebugLogger.LogState("CampStatus: UpdateStatusLevel fired.");
         }
 
         /// <summary>

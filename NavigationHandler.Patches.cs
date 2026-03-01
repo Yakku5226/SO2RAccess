@@ -45,18 +45,17 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Harmony prefix for GameInputManager.IsDown(InputAction).
-        /// While gamepad nav overlay is active, blocks D-pad directions and
-        /// FieldCameraLeft (L1 camera panning) so the game ignores them.
+        /// Shared input suppression logic for IsDown and IsRepeat prefixes.
+        /// Blocks D-pad directions, shortcut actions, and FieldCameraLeft (L1 camera)
+        /// while the gamepad nav overlay is active.
         /// </summary>
-        private static bool IsDown_Prefix(
+        private static bool SuppressNavInput(
             GameInputManager.InputAction inputAction, ref bool __result)
         {
             if (!_gamepadNavActive) return true;
 
-            // Block directional and shortcut actions while gamepad nav is active.
             // Up=11, Down=12, Right=13, Left=14 — basic D-pad movement
-            // ShortCutUp=39, ShortCutDown=40, ShortCutLeft=41, ShortCutRight=42 — field shortcuts (Quick Heal etc.)
+            // ShortCutUp=39, ShortCutDown=40, ShortCutLeft=41, ShortCutRight=42 — field shortcuts
             // FieldCameraLeft=56 — L1 camera panning
             if (inputAction == GameInputManager.InputAction.Up ||
                 inputAction == GameInputManager.InputAction.Down ||
@@ -76,29 +75,23 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// Harmony prefix for GameInputManager.IsDown(InputAction).
+        /// Blocks suppressed inputs while gamepad nav overlay is active.
+        /// </summary>
+        private static bool IsDown_Prefix(
+            GameInputManager.InputAction inputAction, ref bool __result)
+        {
+            return SuppressNavInput(inputAction, ref __result);
+        }
+
+        /// <summary>
         /// Harmony prefix for GameInputManager.IsRepeat(InputAction).
         /// Mirrors IsDown suppression so held D-pad doesn't auto-repeat in the game.
         /// </summary>
         private static bool IsRepeat_Prefix(
             GameInputManager.InputAction inputAction, ref bool __result)
         {
-            if (!_gamepadNavActive) return true;
-
-            if (inputAction == GameInputManager.InputAction.Up ||
-                inputAction == GameInputManager.InputAction.Down ||
-                inputAction == GameInputManager.InputAction.Left ||
-                inputAction == GameInputManager.InputAction.Right ||
-                inputAction == GameInputManager.InputAction.ShortCutUp ||
-                inputAction == GameInputManager.InputAction.ShortCutDown ||
-                inputAction == GameInputManager.InputAction.ShortCutLeft ||
-                inputAction == GameInputManager.InputAction.ShortCutRight ||
-                inputAction == GameInputManager.InputAction.FieldCameraLeft)
-            {
-                __result = false;
-                return false;
-            }
-
-            return true;
+            return SuppressNavInput(inputAction, ref __result);
         }
 
         /// <summary>

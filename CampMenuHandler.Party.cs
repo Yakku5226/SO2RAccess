@@ -485,8 +485,8 @@ namespace SO2RAccess
                         bool isCurrent = item?.isSetting ?? false;
 
                         if (isCurrent)
-                            sb.Append("Currently set. ");
-                        sb.Append($"{idx + 1} of {total}.");
+                            sb.Append(Loc.Get("camp_tactics_currently_set")).Append(" ");
+                        sb.Append(Loc.Get("camp_tactics_operation_position", idx + 1, total));
                     }
                 }
 

@@ -59,7 +59,7 @@ namespace SO2RAccess
         /// Manual overrides for FieldmapID destination names.
         /// Checked before the game's own map name data.
         /// </summary>
-        private static readonly Dictionary<string, string> MapNameOverrides =
+        private static readonly Dictionary<string, string> _mapNameOverrides =
             new Dictionary<string, string>
         {
             { "EXPEL", "Overworld" },
@@ -705,28 +705,7 @@ namespace SO2RAccess
             }
         }
 
-        /// <summary>
-        /// Returns true if the player is in the field with no menus blocking.
-        /// Used by gamepad nav to decide whether to activate the L1 overlay.
-        /// </summary>
-        private bool IsFieldFree()
-        {
-            try
-            {
-                bool hasFM = FieldManager.Instance != null;
-                bool hasPlayer = hasFM && FieldManager.Instance.GetControlPlayer() != null;
-                bool campOpen = CampMenuHandler.IsCampOpen;
-                bool result = hasFM && hasPlayer && !campOpen;
-                DebugLogger.LogState(
-                    $"IsFieldFree: FM={hasFM} player={hasPlayer} campOpen={campOpen} => {result}");
-                return result;
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"IsFieldFree: exception: {ex.Message}");
-                return false;
-            }
-        }
+        private bool IsFieldFree() => FieldState.IsFieldFree();
 
         private int FirstNonEmptyCategoryFrom(int startIndex)
         {
@@ -810,7 +789,7 @@ namespace SO2RAccess
             string destCode = destId.ToString();
 
             // 1. Manual overrides (EXPEL → "Overworld", etc.)
-            if (MapNameOverrides.TryGetValue(destCode, out string overrideName))
+            if (_mapNameOverrides.TryGetValue(destCode, out string overrideName))
                 return overrideName;
 
             // 2. Check cache

@@ -69,6 +69,10 @@ namespace SO2RAccess
         /// </summary>
         public static void Shutdown()
         {
+            // Cancel any in-flight async sound before releasing the WAV data.
+            try { PlaySound(null, IntPtr.Zero, SND_ASYNC); }
+            catch { /* Best-effort cleanup on shutdown */ }
+
             _dodgeWarningWav = null;
             _initialized = false;
         }
@@ -104,13 +108,12 @@ namespace SO2RAccess
             bw.Write(dataSize);
 
             // Sine wave samples
+            float fadeStart = sampleCount * 0.8f; // Fade out last 20% to avoid click at end
             for (int i = 0; i < sampleCount; i++)
             {
                 float t = (float)i / SampleRate;
                 float sample = (float)Math.Sin(2.0 * Math.PI * frequency * t) * volume;
 
-                // Fade out last 20% to avoid click at end
-                float fadeStart = sampleCount * 0.8f;
                 if (i > fadeStart)
                     sample *= 1f - (i - fadeStart) / (sampleCount - fadeStart);
 

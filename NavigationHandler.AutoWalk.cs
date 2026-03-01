@@ -36,8 +36,9 @@ namespace SO2RAccess
                 }
                 playerPos = p.transform.position;
             }
-            catch
+            catch (Exception ex)
             {
+                DebugLogger.LogState($"NAV AutoWalkTo: player fetch failed: {ex.Message}");
                 ScreenReader.Say(Loc.Get("nav_not_in_field"));
                 return;
             }
@@ -50,9 +51,10 @@ namespace SO2RAccess
                 pathFound = CalculateAndStorePath(playerPos, item.Position,
                     allowPartial: item.IsCounterNpc);
             }
-            catch
+            catch (Exception ex)
             {
                 // NavMesh API completely unavailable — announce and abort.
+                DebugLogger.LogState($"NAV AutoWalkTo: NavMesh error: {ex.Message}");
                 ScreenReader.Say(Loc.Get("nav_autowalk_no_navmesh"));
                 return;
             }

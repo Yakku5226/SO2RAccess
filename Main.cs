@@ -58,6 +58,7 @@ namespace SO2RAccess
         private float _dpadRepeatTimer;
         private int _dpadRepeatDir; // 0=none, 1=up, 2=down, 3=left, 4=right
         private bool _stickUpWasActive;
+        private float _gamepadDiagTimer;
 
         private const float DpadRepeatInitial = 0.4f;
         private const float DpadRepeatInterval = 0.15f;
@@ -162,6 +163,7 @@ namespace SO2RAccess
             DebugLogger.LogState($"Scene changed to: {sceneName}");
             _gameReady = false;
             _navigationHandler?.CancelAutoWalk(announce: false);
+            _campMenuHandler?.OnSceneChanged();
             _shopHandler?.OnSceneChanged();
             _enemyProximityHandler?.OnSceneChanged();
             _gameOverHandler?.OnSceneChanged();
@@ -269,23 +271,12 @@ namespace SO2RAccess
             }
 
             // NumPad 1 also cancels an active auto-walk
-            if (_navigationHandler.IsAutoWalking)
+            if (_navigationHandler.IsAutoWalking && kb[Key.Numpad1].wasPressedThisFrame)
             {
-                if (kb[Key.Numpad1].wasPressedThisFrame)
-                {
-                    DebugLogger.LogInput("Numpad1", "CancelAutoWalk");
-                    _navigationHandler.CancelAutoWalk();
-                    return true;
-                }
+                DebugLogger.LogInput("Numpad1", "CancelAutoWalk");
+                _navigationHandler.CancelAutoWalk();
+                return true;
             }
-
-            // Add more hotkeys here as features are implemented, e.g.:
-            // if (kb[Key.F2].wasPressedThisFrame)
-            // {
-            //     DebugLogger.LogInput("F2", "BattleStatus");
-            //     _battleHandler.AnnounceStatus();
-            //     return true;
-            // }
 
             return false;
         }
@@ -297,8 +288,6 @@ namespace SO2RAccess
         /// L1 held + Left stick up: starts auto-walk to highlighted item.
         /// L1 released: closes nav list silently.
         /// </summary>
-        private float _gamepadDiagTimer;
-
         private void ProcessGamepad()
         {
             var gp = Gamepad.current;

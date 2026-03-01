@@ -226,24 +226,7 @@ namespace SO2RAccess
             }
         }
 
-        /// <summary>
-        /// Returns true if the player is on the field with no menus blocking.
-        /// </summary>
-        private bool IsFieldFree()
-        {
-            try
-            {
-                if (FieldManager.Instance == null) return false;
-                if (FieldManager.Instance.GetControlPlayer() == null) return false;
-                if (CampMenuHandler.IsCampOpen) return false;
-                if (ShopHandler.IsShopOpen) return false;
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
+        private bool IsFieldFree() => FieldState.IsFieldFree();
 
         /// <summary>
         /// Quick check whether the handler can potentially activate.

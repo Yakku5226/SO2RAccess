@@ -153,7 +153,10 @@ namespace SO2RAccess
             {
                 Tolk_Silence();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"ScreenReader.Stop failed: {ex.Message}");
+            }
         }
 
         /// <summary>

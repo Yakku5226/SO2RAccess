@@ -33,7 +33,8 @@ namespace SO2RAccess
         private static int _lastIndex = -1;
 
         // Menu option names by index — matches UIGameOverSelector.MenuType enum order.
-        private static readonly string[] MenuNames = { "Retry", "Title" };
+        // Resolved from localization at first access.
+        private static string[] _menuNames;
 
         #endregion
 
@@ -138,8 +139,9 @@ namespace SO2RAccess
                     DebugLogger.LogState("GameOver: closed.");
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                DebugLogger.LogState($"GameOver: detection error: {ex.Message}");
                 _window = null;
                 _isOpen = false;
                 _findCooldown = 0;
@@ -160,10 +162,13 @@ namespace SO2RAccess
                 if (idx == _lastIndex) return;
                 _lastIndex = idx;
 
-                int total = MenuNames.Length;
+                if (_menuNames == null)
+                    _menuNames = new[] { Loc.Get("gameover_retry"), Loc.Get("gameover_title") };
+
+                int total = _menuNames.Length;
                 if (idx < 0 || idx >= total) return;
 
-                string name = MenuNames[idx];
+                string name = _menuNames[idx];
 
                 DebugLogger.LogGameValue("GameOver.menu",
                     $"{name} ({idx + 1}/{total})");
