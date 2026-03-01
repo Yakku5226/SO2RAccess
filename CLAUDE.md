@@ -31,6 +31,11 @@ Update `project_status.md` on significant progress and before session end.
 - Build: `dotnet build [ModName].csproj`
 - XML docs: `<summary>` on all public classes/methods. Private only if non-obvious. Critical for dev integration.
 - Localization from day one: ALL ScreenReader strings through `Loc.Get()`. No exceptions. `Loc.cs` = Phase 2 framework, not later addition. Even for single-language mods.
+- File size target: aim for ~500 lines max per file. When a file has multiple independent concerns (e.g. menu root + sub-screens), split into separate files.
+- DRY (Don't Repeat Yourself): when the same or similar code appears in multiple places, factor it into a shared method. Fixes happen in one place, not many.
+- Clean string building: assemble screen reader messages with clean joining patterns (e.g. `string.Join`) rather than manual space/comma insertion.
+- Prefer standard library: use built-in .NET methods where they exist (e.g. `string.Join`, `List.Find`, `LINQ`) instead of writing custom versions.
+- Future-proofing: when writing or reviewing code, ask "will this make sense in 6 months? Is it fragile? Could a game update break it in a hard-to-debug way?"
 
 ## Coding Principles
 
@@ -69,14 +74,9 @@ Patterns: `docs/ACCESSIBILITY_MODDING_GUIDE.md`
 
 - `project_status.md` — central tracking (read first!)
 - `docs/ACCESSIBILITY_MODDING_GUIDE.md` — code patterns
-- `docs/technical-reference.md` — MelonLoader, BepInEx, Harmony, Tolk
+- `docs/technical-reference.md` — MelonLoader, Harmony, Tolk
 - `docs/unity-reflection-guide.md` — Reflection (Unity)
 - `docs/state-management-guide.md` — multiple handlers
-- `docs/localization-guide.md` — localization
 - `docs/menu-accessibility-checklist.md` — menu checklist
 - `docs/menu-accessibility-patterns.md` — menu patterns
 - `docs/game-api.md` — keys, methods, patterns
-- `docs/distribution-guide.md` — packaging, publishing
-- `docs/git-github-guide.md` — Git/GitHub intro
-- `templates/` — code templates
-- `scripts/` — PowerShell helpers
