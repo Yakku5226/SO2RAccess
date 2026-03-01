@@ -561,7 +561,7 @@ namespace SO2RAccess
                         _isAutoWalking       = false;
                         _staticIsApproaching = false;
                         _pathCorners         = null;
-                        ScreenReader.Say(Loc.Get("nav_autowalk_arrived", _autoWalkLabel));
+                        AnnounceArrival(Loc.Get("nav_autowalk_arrived", _autoWalkLabel));
                         DebugLogger.LogState($"NAV auto-walk arrived (static) at '{_autoWalkLabel}'.");
                         return;
                     }
@@ -571,7 +571,7 @@ namespace SO2RAccess
                     {
                         _autoWalkArrived     = true;
                         _staticIsApproaching = false;
-                        ScreenReader.Say(Loc.Get("nav_autowalk_arrived_npc", _autoWalkLabel));
+                        AnnounceArrival(Loc.Get("nav_autowalk_arrived_npc", _autoWalkLabel));
                         DebugLogger.LogState($"NAV auto-walk proximity lock '{_autoWalkLabel}'.");
                     }
 
@@ -659,7 +659,7 @@ namespace SO2RAccess
                             _isAutoWalking       = false;
                             _staticIsApproaching = false;
                             _pathCorners         = null;
-                            ScreenReader.Say(
+                            AnnounceArrival(
                                 Loc.Get("nav_autowalk_arrived_npc", _autoWalkLabel));
                             DebugLogger.LogState(
                                 $"NAV auto-walk arrived at counter NPC '{_autoWalkLabel}'.");
@@ -1496,6 +1496,33 @@ namespace SO2RAccess
         #endregion
 
         #region Private — Helpers
+
+        /// <summary>
+        /// How far back (in seconds) to check for a recently spoken message that
+        /// the arrival announcement would interrupt.
+        /// </summary>
+        private const float ArrivalRecentWindow = 0.5f;
+
+        /// <summary>
+        /// Announces an arrival message. If another message was spoken within
+        /// the last half second (e.g. a tutorial popup), the arrival is combined
+        /// with that message so the user hears both: arrival first, then the
+        /// interrupted message replayed after it.
+        /// </summary>
+        private void AnnounceArrival(string arrivalText)
+        {
+            string recent = ScreenReader.GetRecentMessage(ArrivalRecentWindow);
+            if (recent != null)
+            {
+                ScreenReader.Say(arrivalText + " " + recent);
+                DebugLogger.LogState(
+                    $"NAV arrival combined with recent message: '{recent}'");
+            }
+            else
+            {
+                ScreenReader.Say(arrivalText);
+            }
+        }
 
         /// <summary>
         /// Scans the field and opens the navigation list. Shared by keyboard toggle

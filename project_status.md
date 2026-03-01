@@ -203,18 +203,19 @@ Without this list, mod keys WILL conflict with game controls. -->
 - **Location discovery notifications** (`NotificationHandler.cs`) ✓ TESTED
   - Hook: UIFieldLocationPointPresenter.Set(string name, string description) — CallerCount(1)
   - Announces "Discovered [name]. [description]" when a location marker popup appears
-  - Reward resolution: reads ConstLocationPointParameter for current map, gets rewardID,
-    calls GetRewardParameterList to format EXP/Fol/items and appends to announcement
-  - LIMITATION: Rewards announced before reward screen appears (native flow bypasses hooks).
-    Only announces rewards from the location point's rewardID — skills learned and items
-    given by separate game systems (e.g. level-up skills) are not included.
-  - TextManager cannot resolve locationNameID keys; matching by proximity when multiple points
+  - Rewards now handled separately by stacked field notification queue (no longer inline)
 
 - **Map name announcement on area change** (`NavigationHandler.cs`) ✓ TESTED
   - Polls FieldManager.Instance.currentFieldmapID each frame
   - When fieldmap changes, resolves name via ParameterManager/TextManager and announces
   - Skips first detection (game load) to avoid announcing on initial scene
   - Reuses existing ResolveMapName logic (overrides, game data, fallback)
+
+- **Stacked field reward notifications** (`NotificationHandler.cs`) ✓ TESTED
+  - Hook: UIFieldInformationStackSelector.ShowInformation — CallerCount(15)
+  - Queues rapid-fire notifications (EXP, Fol, items, level-ups, talents, etc.)
+  - Announces all queued messages combined after 0.5s delay to prevent interruption
+  - Supports item-style notifications with getText/count/unit fields
 
 - **Reward announcements for managed-code rewards** (`NotificationHandler.cs`)
   - Hook: GameManager.GiveRewardWithWindow — CallerCount(6)
@@ -382,6 +383,11 @@ Without this list, mod keys WILL conflict with game controls. -->
 - **Camp status detection** — FIXED: Both activeInHierarchy and root-menu-hidden detection
   failed (root menu selector also stays activeInHierarchy=true in sub-screens). Now fully
   hook-driven via UICampStatusSelector.UpdatePresenter (fires on open + character tab change).
+
+- **Bug: Auto-walk arrival interrupts tutorial/notification speech** — FIXED:
+  AnnounceArrival() checks if something was spoken in the last 0.5s via
+  ScreenReader.GetRecentMessage(). If so, combines arrival first + interrupted
+  message second into one announcement so the user hears both.
 
 - **Bug: L1 nav blocked after camp menu** — FIXED: Camp closure detection used
   gameObject.activeInHierarchy which stays true after camp closes. Changed to

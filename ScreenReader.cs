@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 using MelonLoader;
+using UnityEngine;
 
 namespace SO2RAccess
 {
@@ -41,6 +42,12 @@ namespace SO2RAccess
 
         private static bool _available = false;
         private static bool _initialized = false;
+
+        /// <summary>The most recently spoken message text.</summary>
+        private static string _lastMessage = null;
+
+        /// <summary>Time.time when the last message was spoken.</summary>
+        private static float _lastMessageTime = -1f;
 
         #endregion
 
@@ -97,6 +104,9 @@ namespace SO2RAccess
 
             DebugLogger.LogScreenReader(text);
 
+            _lastMessage = text;
+            _lastMessageTime = UnityEngine.Time.time;
+
             if (!_available) return;
 
             try
@@ -117,6 +127,19 @@ namespace SO2RAccess
         public static void SayQueued(string text)
         {
             Say(text, false);
+        }
+
+        /// <summary>
+        /// Returns the last spoken message if it was said within the given time window,
+        /// or null if no recent message exists. Used to detect interrupted speech
+        /// so the caller can replay it after a higher-priority announcement.
+        /// </summary>
+        /// <param name="withinSeconds">Maximum age in seconds for the message to be considered recent.</param>
+        public static string GetRecentMessage(float withinSeconds)
+        {
+            if (_lastMessage == null) return null;
+            if (Time.time - _lastMessageTime > withinSeconds) return null;
+            return _lastMessage;
         }
 
         /// <summary>

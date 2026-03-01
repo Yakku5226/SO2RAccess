@@ -45,6 +45,20 @@ namespace SO2RAccess
         /// </summary>
         private static bool _skipNextSelectChoices = false;
 
+        /// <summary>
+        /// Queue for stacked field notifications (EXP, Fol, items, level-ups, etc.)
+        /// that fire in rapid succession. Messages are collected and announced
+        /// together after a short delay so the screen reader doesn't interrupt itself.
+        /// </summary>
+        private static readonly System.Collections.Generic.List<string> _notificationQueue =
+            new System.Collections.Generic.List<string>();
+
+        /// <summary>Time remaining before the notification queue is flushed and announced.</summary>
+        private static float _notificationFlushTimer = 0f;
+
+        /// <summary>Delay in seconds to wait for more notifications before announcing.</summary>
+        private const float NotificationFlushDelay = 0.5f;
+
         #endregion
 
         #region Patch Application
@@ -69,7 +83,10 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(GameManager).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(ConstRewardParameter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(ConstItemParameter).TypeHandle);
-                RuntimeHelpers.RunClassConstructor(typeof(ConstLocationPointParameter).TypeHandle);
+
+                RuntimeHelpers.RunClassConstructor(typeof(UIFieldInformationStackSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIFieldInformationStackDataBase).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIFieldItemInformationStackData).TypeHandle);
 
                 // Fires when a tutorial page is displayed or navigated to.
                 harmony.Patch(
@@ -145,6 +162,17 @@ namespace SO2RAccess
                         }),
                     postfix: new HarmonyMethod(typeof(NotificationHandler),
                         nameof(GiveRewardWithWindow_Postfix))
+                );
+
+                // Fires every time a stacked field notification popup is shown
+                // (EXP gained, Fol gained, items received, level-ups, talents,
+                // skill learning, etc.). CallerCount(15) — hookable.
+                harmony.Patch(
+                    AccessTools.Method(typeof(UIFieldInformationStackSelector),
+                        nameof(UIFieldInformationStackSelector.ShowInformation),
+                        new Type[] { typeof(UIFieldInformationStackDataBase) }),
+                    postfix: new HarmonyMethod(typeof(NotificationHandler),
+                        nameof(FieldInformationStack_ShowInformation_Postfix))
                 );
 
                 _patchesApplied = true;
@@ -368,14 +396,9 @@ namespace SO2RAccess
                 else
                     announcement = Loc.Get("location_discovered", cleanName);
 
-                // Resolve rewards from game data (native reward flow bypasses managed hooks).
-                string rewardText = ResolveLocationRewards(cleanName);
-                if (!string.IsNullOrEmpty(rewardText))
-                    announcement += " " + rewardText;
-
                 ScreenReader.Say(announcement);
                 DebugLogger.LogGameValue("LocationDiscovered",
-                    $"name='{cleanName}' desc='{cleanDesc}' rewards='{rewardText ?? "(none)"}'");
+                    $"name='{cleanName}' desc='{cleanDesc}'");
             }
             catch (Exception ex)
             {
@@ -425,6 +448,111 @@ namespace SO2RAccess
             }
         }
 
+        /// <summary>
+        /// Postfix for UIFieldInformationStackSelector.ShowInformation(UIFieldInformationStackDataBase).
+        /// Fires every time a stacked field notification popup appears — EXP, Fol, items,
+        /// level-ups, talents, battle skills, etc. Queues notifications for combined
+        /// announcement after a short delay (see Update method).
+        /// </summary>
+        private static void FieldInformationStack_ShowInformation_Postfix(
+            UIFieldInformationStackDataBase data)
+        {
+            try
+            {
+                if (data == null) return;
+
+                string info = StripTags(data.information ?? "");
+
+                // Check if this is an item-style notification with extra fields.
+                var itemData = data.TryCast<UIFieldItemInformationStackData>();
+                if (itemData != null)
+                {
+                    string getText = StripTags(itemData.getText ?? "");
+                    int count = itemData.count;
+                    string unit = StripTags(itemData.unit ?? "");
+
+                    // Build a richer announcement for item notifications.
+                    // getText is typically "Got" or similar prefix text.
+                    var sb = new StringBuilder();
+                    if (!string.IsNullOrEmpty(getText))
+                    {
+                        sb.Append(getText);
+                        sb.Append(" ");
+                    }
+                    if (!string.IsNullOrEmpty(info))
+                        sb.Append(info);
+                    if (count > 0)
+                    {
+                        sb.Append(" x");
+                        sb.Append(count);
+                    }
+                    if (!string.IsNullOrEmpty(unit))
+                    {
+                        sb.Append(" ");
+                        sb.Append(unit);
+                    }
+
+                    string itemAnnouncement = sb.ToString().Trim();
+                    if (!string.IsNullOrEmpty(itemAnnouncement))
+                    {
+                        QueueNotification(itemAnnouncement);
+                        DebugLogger.LogGameValue("FieldInfoStack(item)",
+                            $"getText='{getText}' info='{info}' count={count} unit='{unit}'");
+                    }
+                    return;
+                }
+
+                // Generic text notification (EXP, Fol, level-up, talent, etc.).
+                if (!string.IsNullOrEmpty(info))
+                {
+                    QueueNotification(info);
+                    DebugLogger.LogGameValue("FieldInfoStack", $"info='{info}'");
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning(
+                    $"FieldInformationStack_ShowInformation_Postfix: {ex.Message}");
+            }
+        }
+
+        #endregion
+
+        #region Notification Queue
+
+        /// <summary>
+        /// Adds a message to the notification queue and resets the flush timer.
+        /// Messages are held until no new notifications arrive for NotificationFlushDelay
+        /// seconds, then announced together as a single combined message.
+        /// </summary>
+        private static void QueueNotification(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            _notificationQueue.Add(text);
+            _notificationFlushTimer = NotificationFlushDelay;
+        }
+
+        /// <summary>
+        /// Called each frame from Main.UpdateHandlers(). Counts down the flush timer
+        /// and announces all queued notifications as one combined message when it expires.
+        /// </summary>
+        public void Update()
+        {
+            if (_notificationQueue.Count == 0) return;
+
+            _notificationFlushTimer -= UnityEngine.Time.deltaTime;
+            if (_notificationFlushTimer > 0f) return;
+
+            // Flush: combine all queued messages into one announcement.
+            string combined = string.Join(". ", _notificationQueue);
+            _notificationQueue.Clear();
+            _notificationFlushTimer = 0f;
+
+            ScreenReader.Say(combined);
+            DebugLogger.LogGameValue("FieldInfoStack(flush)",
+                $"count={combined.Length} text='{combined}'");
+        }
+
         #endregion
 
         #region Helpers
@@ -471,73 +599,6 @@ namespace SO2RAccess
                     return spriteName.Substring(prefix.Length);
             }
             return spriteName;
-        }
-
-        /// <summary>
-        /// Resolves location point rewards by matching the discovered location name
-        /// against ConstLocationPointParameter data for the current map.
-        /// Returns a formatted string like "50 EXP, Blueberry x2" or null if no match.
-        /// Called from LocationPointPresenter_Set_Postfix because the native reward
-        /// flow bypasses managed Harmony hooks entirely.
-        /// </summary>
-        private static string ResolveLocationRewards(string locationName)
-        {
-            try
-            {
-                var pm = ParameterManager.Instance;
-                var fm = FieldManager.Instance;
-                if (pm == null || fm == null) return null;
-
-                FieldmapID currentMap = fm.currentFieldmapID;
-                var locPoints = pm.GetLocationPointParameterList(currentMap);
-                if (locPoints == null || locPoints.Count == 0) return null;
-
-                // Single location point on this map — use it directly.
-                // TextManager cannot resolve locationNameID keys, so name matching
-                // is not possible. This covers the common case (1 point per area).
-                if (locPoints.Count == 1)
-                {
-                    int rewardID = locPoints[0]?.rewardID ?? 0;
-                    if (rewardID <= 0) return null;
-                    var rewards = pm.GetRewardParameterList(rewardID);
-                    return FormatRewardList(rewards);
-                }
-
-                // Multiple location points — match by proximity to the player.
-                // The player just walked to the point to discover it, so the
-                // nearest FieldLocationPoint on the map is the one being discovered.
-                var locPointList = fm.FieldLocationPointList;
-                if (locPointList == null || locPointList.Count == 0) return null;
-
-                var player = fm.GetControlPlayer();
-                if (player == null) return null;
-
-                var playerPos = player.transform.position;
-                float bestDist = float.MaxValue;
-                int bestRewardID = 0;
-
-                for (int i = 0; i < locPointList.Count; i++)
-                {
-                    var flp = locPointList[i];
-                    if (flp == null) continue;
-
-                    float dist = UnityEngine.Vector3.Distance(playerPos, flp.transform.position);
-                    if (dist < bestDist)
-                    {
-                        bestDist = dist;
-                        bestRewardID = flp.rewardID;
-                    }
-                }
-
-                if (bestRewardID <= 0) return null;
-                var rewardList = pm.GetRewardParameterList(bestRewardID);
-                return FormatRewardList(rewardList);
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"ResolveLocationRewards: {ex.Message}");
-            }
-            return null;
         }
 
         /// <summary>

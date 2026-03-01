@@ -456,6 +456,7 @@ namespace SO2RAccess
             _shopHandler.Update();
             _enemyProximityHandler.Update();
             _gameOverHandler.Update();
+            _notificationHandler.Update();
         }
 
         #endregion
