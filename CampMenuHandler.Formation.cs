@@ -163,9 +163,9 @@ namespace SO2RAccess
                 var sb = new StringBuilder();
 
                 if (!string.IsNullOrEmpty(formationName))
-                    sb.Append(formationName).Append(". ");
+                    AppendSentence(sb, formationName);
                 if (!string.IsNullOrEmpty(effectDescription))
-                    sb.Append(effectDescription).Append(". ");
+                    AppendSentence(sb, effectDescription);
 
                 // Read position from the selector (cast to UIListSelectorBase).
                 var baseSel = _formationSelector.TryCast<UIListSelectorBase>();
@@ -191,7 +191,7 @@ namespace SO2RAccess
         /// <summary>
         /// Postfix for UISkillInformationPresenter.Set(UISkillInformationData).
         /// Fires whenever the skill information panel updates — on each navigation
-        /// in the skills list. Announces skill name, level, description, and position.
+        /// in the skills list. Announces skill name, level, SP cost, description, and position.
         /// </summary>
         private static void SkillInfoPresenter_Set_Postfix(UISkillInformationData data)
         {
@@ -206,28 +206,52 @@ namespace SO2RAccess
                 string description = data.skillDescription ?? "";
                 int level = data.skillLevel;
 
+                // Look up list item data for SP cost, max level, and current balance.
+                int spCost = 0;
+                bool isMax = false;
+                string balance = "";
+                var baseSel = _skillSelector.TryCast<UIListSelectorBase>();
+                int idx = baseSel?.currentIndex ?? -1;
+                int total = 0;
+
+                if (baseSel != null)
+                {
+                    var dataList = baseSel.currentDataList;
+                    total = dataList?.Count ?? 0;
+                }
+
+                var itemList = _skillSelector.itemDataList;
+                int itemCount = itemList?.Count ?? 0;
+                if (itemCount > 0 && idx >= 0 && idx < itemCount)
+                {
+                    var itemData = itemList[idx];
+                    spCost = itemData.consumeSP;
+                    isMax  = itemData.isLevelMax;
+                }
+
+                // ReadSkillPointBalance is defined in BattleSkill partial class.
+                balance = ReadSkillPointBalance(_skillSelector);
+
                 DebugLogger.LogGameValue("CampSkill.info",
-                    $"name='{name}' lv={level} desc='{description}'");
+                    $"name='{name}' lv={level} spCost={spCost} isMax={isMax} balance='{balance}' desc='{description}'");
 
                 var sb = new StringBuilder();
 
                 if (!string.IsNullOrEmpty(name))
                     sb.Append(name).Append(". ");
                 if (level > 0)
-                    sb.Append(Loc.Get("camp_skill_level", level)).Append(". ");
-                if (!string.IsNullOrEmpty(description))
-                    sb.Append(description).Append(". ");
-
-                // Read position from the selector (cast to UIListSelectorBase).
-                var baseSel = _skillSelector.TryCast<UIListSelectorBase>();
-                if (baseSel != null)
                 {
-                    int idx = baseSel.currentIndex;
-                    var list = baseSel.currentDataList;
-                    int total = list?.Count ?? 0;
-                    if (total > 0 && idx >= 0)
-                        sb.Append(Loc.Get("camp_skill_position", idx + 1, total));
+                    sb.Append(Loc.Get("camp_skill_level", level));
+                    if (isMax) sb.Append(Loc.Get("camp_skill_max_level"));
+                    sb.Append(". ");
                 }
+                if (spCost > 0 && !isMax && !string.IsNullOrEmpty(balance))
+                    sb.Append(Loc.Get("camp_skill_sp_cost", balance, spCost)).Append(". ");
+                if (!string.IsNullOrEmpty(description))
+                    AppendSentence(sb, description);
+
+                if (total > 0 && idx >= 0)
+                    sb.Append(Loc.Get("camp_skill_position", idx + 1, total));
 
                 string result = sb.ToString().Trim();
                 if (!string.IsNullOrEmpty(result))

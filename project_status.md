@@ -288,14 +288,17 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Numbered when multiples of the same type exist (e.g. "Save point 1", "Recovery save point 2")
   - NavMesh reachability filter applied; live transform tracking for auto-walk
 
-- **Enhance menu sub-screen announcements** (`CampMenuHandler.BattleSkill.cs`) — PENDING TEST
+- **Enhance menu sub-screen announcements** (`CampMenuHandler.BattleSkill.cs`, `CampMenuHandler.Formation.cs`) ✓ TESTED
   - Camp → Enhance shows 3 sub-items: Skill, CombatPoint, BattleSkillPoint
-  - Fix: gate checks expanded from "BattleSkill" to also accept "BattleSkillPoint" and "CombatPoint"
-  - Combat skill support: UICampCombatSkillSelector cached when State.SelectCombatSkill
-  - Skill (via Enhance): should work via existing skill handler (gate already matches "Skill")
-  - CombatPoint: announces "Combat skills." + skill details via shared hook
-  - BattleSkillPoint: announces "Battle skills." + skill details via shared hook
-  - Test: all 3 Enhance sub-screens + verify main BattleSkill still works
+  - Gate checks expanded from "BattleSkill" to also accept "BattleSkillPoint" and "CombatPoint"
+  - Hook-based deferred detection: activeInHierarchy always true, so heading + inner selector
+    caching deferred to UIBattleSkillInformationPresenter.Set hook on first fire
+  - Combat skills (CombatPoint): BP balance/cost per skill, max level indicator, toggle mode (Square)
+  - Battle skills (BattleSkillPoint): BP balance/cost per skill, max level indicator
+  - Skills (Skill): SP balance/cost per skill, max level indicator
+  - Balance shown per-skill as "BP: 28 / 5" or "SP: 100 / 5" (not on heading)
+  - Toggle mode (Square button): announces "Toggle mode", skill active/inactive status on navigate and confirm
+  - Double punctuation fix: AppendSentence helper strips trailing periods from game text
 
 - **Camp formation sub-screen announcements** (`CampMenuHandler.cs`) — NOT TESTED (needs more party members)
 

@@ -234,6 +234,16 @@ namespace SO2RAccess
             Add("camp_battleskill_mp",       "MP: {0}");
             Add("camp_battleskill_position", "{0} of {1}.");
 
+            // Enhance sub-menu — shared cost/balance strings
+            Add("camp_skill_sp_cost",        "SP: {0} / {1}");
+            Add("camp_skill_bp_cost",        "BP: {0} / {1}");
+            Add("camp_skill_max_level",      ", max");
+
+            // Combat skill toggle mode (Square button in combat skills screen)
+            Add("camp_combatskill_toggle",   "Toggle mode.");
+            Add("camp_combatskill_active",   "{0}, active. {1} of {2}.");
+            Add("camp_combatskill_inactive", "{0}, inactive. {1} of {2}.");
+
             // Camp menu — battle skill assignment sub-screen
             // Equip state: polled — "[Button]: [Skill]" or "[Button]: no skill assigned".
             // SelectBattleSkill state: hook-driven — "Assigning to [button]: [skill details]".

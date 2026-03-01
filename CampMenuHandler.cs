@@ -525,25 +525,11 @@ namespace SO2RAccess
             _combatSkillInnerSelector = null;
             _combatSkillListBase = null;
             _battleSkillWasActive = false;
-            _battleSkillSuppressHeading = false;
+            _battleSkillHeadingPending = false;
 
             if (_battleSkillOuterSelector != null)
             {
                 DebugLogger.LogState("CampMenu: battle skill selector cached.");
-
-                // Check for stale active state — suppress heading if already open.
-                try
-                {
-                    if (_battleSkillOuterSelector.gameObject.activeInHierarchy)
-                    {
-                        _battleSkillSuppressHeading = true;
-                        DebugLogger.LogState("CampBattleSkill: stale on open — heading will be suppressed.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MelonLogger.Warning($"CampBattleSkill stale-check failed: {ex.Message}");
-                }
             }
             else
             {
