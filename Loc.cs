@@ -196,8 +196,8 @@ namespace SO2RAccess
 
             // Camp menu — item sub-screen
             Add("camp_item_screen",          "Items.");
-            Add("camp_item_entry",           "{0}, {1}. {2}. {3} of {4}.");
-            Add("camp_item_entry_nodesc",    "{0}, {1}. {2} of {3}.");
+            Add("camp_item_factor",          "Factor: {0}");
+            Add("camp_item_position",        "{0} of {1}.");
 
             // Camp menu — status sub-screen
             // Full character data: name, level, HP/MP, EXP, combat stats, base attributes.

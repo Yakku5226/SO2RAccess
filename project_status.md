@@ -144,7 +144,13 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Approach: polling currentIndex from Main.UpdateHandlers() — navigation is native-only, no Harmony hook fires
   - Item names currently use enum.ToString() (e.g. "BattleSkill") — can be refined with Loc entries
 
-- **Camp item sub-screen announcements** (`CampMenuHandler.cs`) ✓ TESTED
+- **Camp item sub-screen announcements** (`CampMenuHandler.Items.cs`) ✓ TESTED — UPDATED
+  - Now reads: Name x[quantity]. Effect. Description. Factor info. Position.
+  - Effect text from UIItemInformationData.itemEffectInformation (what the item actually does)
+  - Factor name + description for crafted/enhanced items
+  - Quantity shown as "x5" instead of bare number
+  - Double period fix: AppendSentence strips trailing periods from game text
+  - Hook: UIItemInformationPresenter.Set caches effect/factor data for polling
 
 - **Post-battle result announcements** (`BattleResultHandler.cs`) — PENDING RETEST
   - Now announces SP and BSP totals after EXP/Fol
@@ -328,11 +334,14 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Auto-run static arrival (exits, markers): stops and announces "Arrived"
   - Scene change cancels auto-run silently
 
-## Pending Tests (Camp Item Sub-screen)
+## Pending Tests (Camp Item Sub-screen — updated format)
 
 - [x] Camp item screen: "Items." announced when opening item screen ✓
-- [x] Camp item screen: name and description announced on navigation ✓
-- [ ] Camp item screen: item count verified (need multiple of same item to test)
+- [ ] Camp item screen: quantity reads as "x5" (not bare number)
+- [ ] Camp item screen: effect text reads (e.g., "Restores a small amount of HP")
+- [ ] Camp item screen: description reads after effect
+- [ ] Camp item screen: no double period at end of description
+- [ ] Camp item screen: factor info reads for crafted/enhanced items (if available)
 - [x] Camp item screen: returning to root menu re-announces root item ✓
 - [x] Camp item screen: no stale announcement on camp re-open ✓
 
@@ -452,6 +461,12 @@ Without this list, mod keys WILL conflict with game controls. -->
 
 - **Gamepad nav menu** — IMPLEMENTED AND TESTED. L1 hold-to-open with D-pad navigation.
   See Key Bindings (Mod) section above for full control scheme.
+
+- **Bug: Enhance menu shows wrong data when switching between CombatPoint/BattleSkillPoint** — FIXED:
+  When navigating between CombatPoint and BattleSkillPoint within the Enhance sub-menu, both passed
+  the same IsEnhanceBattleSkillMenu() gate, so _battleSkillWasActive stayed true and inner selectors
+  were never re-cached. Combat skills showed missing level/BP on first visit; battle skills showed
+  the last combat skill's BP cost. Fix: track _lastBattleSkillMenuItem and re-cache when it changes.
 
 ## Code Cleanup (2026-03-01)
 

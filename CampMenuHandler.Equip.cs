@@ -225,7 +225,16 @@ namespace SO2RAccess
         /// </summary>
         private static void ItemInfoPresenter_Set_Postfix(UIItemInformationData data)
         {
-            // Gate: only process when the equip screen is open and item list is active.
+            // Cache effect/factor info for the item sub-screen whenever
+            // the info panel updates — used by UpdateItemSelector polling.
+            if (_lastRootMenuItemName == "Item" && data != null)
+            {
+                _itemCachedEffect = data.itemEffectInformation ?? "";
+                _itemCachedFactorName = data.itemFactorName ?? "";
+                _itemCachedFactorInfo = data.itemFactorInformation ?? "";
+            }
+
+            // Gate: only process equip announcements when the equip screen is open.
             if (_equipSelector == null) return;
             if (_lastRootMenuItemName != "Equip") return;
 

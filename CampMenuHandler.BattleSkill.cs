@@ -11,7 +11,7 @@ namespace SO2RAccess
     {
         // Battle skill LEVELING sub-screen (battleSkillSelector on UICampWindow)
         // UICampBattleSkillSelector wraps two inner selectors:
-        //   - UISelectBattleSkillSelector (battleSkillSelector) for battle skills (SP)
+        //   - UISelectBattleSkillSelector (battleSkillSelector) for battle skills (BP)
         //   - UICampCombatSkillSelector (combatSkillSelector) for combat skills (BP)
         // State.SelectBattleSkill → battle skills, State.SelectCombatSkill → combat skills.
         // Both share UIBattleSkillInformationPresenter.Set hook for navigation announcements.
@@ -31,6 +31,11 @@ namespace SO2RAccess
         // activeInHierarchy is always true for these selectors. The hook only
         // fires when the screen is truly showing skill data.
         private static bool _battleSkillHeadingPending = false;
+
+        // Tracks which specific skill sub-item we're on (e.g. "CombatPoint" vs
+        // "BattleSkillPoint" vs "BattleSkill") so we re-cache inner selectors
+        // when switching between them within the same gate.
+        private static string _lastBattleSkillMenuItem = "";
 
         // Combat skill toggle mode (ChangeOnOff) — tracks Square button sub-mode.
         // Only used in Enhance menu (CombatPoint), not in root BattleSkill.
@@ -63,7 +68,7 @@ namespace SO2RAccess
 
         /// <summary>
         /// Returns true when the root menu highlights a battle/combat skill Enhance item.
-        /// "BattleSkillPoint" = battle skill leveling (SP).
+        /// "BattleSkillPoint" = battle skill leveling (BP).
         /// "CombatPoint" = combat skill leveling (BP).
         /// </summary>
         private static bool IsEnhanceBattleSkillMenu()
@@ -102,6 +107,7 @@ namespace SO2RAccess
                     _combatSkillLastState = UICampCombatSkillSelector.State.Normal;
                     _combatSkillToggleLastIndex = -1;
                     _combatSkillToggleLastIsUse = false;
+                    _lastBattleSkillMenuItem = "";
                     DebugLogger.LogState("CampBattleSkill: deactivated (root menu moved away).");
                 }
                 return;
@@ -122,7 +128,23 @@ namespace SO2RAccess
                     _combatSkillLastState = UICampCombatSkillSelector.State.Normal;
                     _combatSkillToggleLastIndex = -1;
                     _combatSkillToggleLastIsUse = false;
+                    _lastBattleSkillMenuItem = _lastRootMenuItemName;
                     DebugLogger.LogState($"CampBattleSkill: heading pending for '{_lastRootMenuItemName}'.");
+                }
+                else if (_lastRootMenuItemName != _lastBattleSkillMenuItem)
+                {
+                    // Switched between skill sub-items (e.g. CombatPoint → BattleSkillPoint).
+                    // Must re-cache inner selectors since each sub-item uses a different one.
+                    _battleSkillHeadingPending = true;
+                    _battleSkillInnerSelector = null;
+                    _battleSkillListBase = null;
+                    _combatSkillInnerSelector = null;
+                    _combatSkillListBase = null;
+                    _combatSkillLastState = UICampCombatSkillSelector.State.Normal;
+                    _combatSkillToggleLastIndex = -1;
+                    _combatSkillToggleLastIsUse = false;
+                    _lastBattleSkillMenuItem = _lastRootMenuItemName;
+                    DebugLogger.LogState($"CampBattleSkill: sub-item changed to '{_lastRootMenuItemName}', re-caching.");
                 }
 
                 // Poll combat skill toggle mode (Square button) — Enhance menu only.
@@ -142,6 +164,7 @@ namespace SO2RAccess
                 _combatSkillLastState = UICampCombatSkillSelector.State.Normal;
                 _combatSkillToggleLastIndex = -1;
                 _combatSkillToggleLastIsUse = false;
+                _lastBattleSkillMenuItem = "";
             }
         }
 
@@ -490,7 +513,7 @@ namespace SO2RAccess
 
         /// <summary>
         /// Builds an upgrade-focused readout for the Enhance battle/combat skill menu.
-        /// Battle skills: Name. MP. Level. SP. Effect. Description. Upgrade: bonuses.
+        /// Battle skills: Name. MP. Level. BP. Effect. Description. Upgrade: bonuses.
         /// Combat skills: Name. Level. BP. Description. Upgrade: effect.
         /// Level and upgrade info use list item data for combat skills (info panel is 0/0).
         /// At max level, upgrade section is omitted and level shows ", max".
@@ -521,11 +544,10 @@ namespace SO2RAccess
                     parts.Add(Loc.Get("camp_enhance_level", level, levelMax));
             }
 
-            // Point balance and cost (BP for combat skills, SP for battle skills)
+            // Point balance and cost (BP for both battle and combat skills)
             if (pointCost > 0 && !string.IsNullOrEmpty(balance))
             {
-                string costKey = isCombatSkill ? "camp_enhance_bp" : "camp_enhance_sp";
-                parts.Add(Loc.Get(costKey, balance, pointCost));
+                parts.Add(Loc.Get("camp_enhance_bp", balance, pointCost));
             }
 
             string effect = (data.effectDescription ?? "").TrimEnd('.', ' ');
@@ -854,7 +876,7 @@ namespace SO2RAccess
 
         /// <summary>
         /// Reads the displayed skill point balance from a selector's skillPointValue GameText.
-        /// Works for UISelectBattleSkillSelector (SP) and UICampCombatSkillSelector (BP).
+        /// Works for UISelectBattleSkillSelector (BP) and UICampCombatSkillSelector (BP).
         /// Returns the text as-is (e.g. "100" or "SP: 100"), or empty string on failure.
         /// </summary>
         private static string ReadSkillPointBalance(object selector)

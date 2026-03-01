@@ -4,7 +4,6 @@ using MelonLoader;
 using System;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace SO2RAccess
 {
@@ -21,8 +20,15 @@ namespace SO2RAccess
         // session), suppress the "Items." heading and don't reset _itemLastIndex to -1.
         private static bool _itemSuppressHeading = false;
 
+        // Cached from UIItemInformationPresenter.Set hook — contains the effect text
+        // ("Restores 30% HP") and factor info that UIItemListItemData doesn't carry.
+        private static string _itemCachedEffect = "";
+        private static string _itemCachedFactorName = "";
+        private static string _itemCachedFactorInfo = "";
+
         /// <summary>
-        /// Polls the UICampItemSelector and announces item name, quantity, and description.
+        /// Polls the UICampItemSelector and announces item name, quantity, effect,
+        /// description, factor info, and position.
         /// UICampItemSelector wraps a UICampItemListSelector (itemListSelector field).
         /// currentIndex and currentDataList are on UIListSelectorBase — cast required.
         /// Announces "Items." when genuinely entering the sub-screen.
@@ -113,13 +119,31 @@ namespace SO2RAccess
                 int count = item.itemCount;
                 string description = item.itemDescription ?? "";
 
-                DebugLogger.LogGameValue("CampItem.item",
-                    $"{name} x{count} ({idx + 1}/{total}): {description}");
+                // Effect, factor name, and factor info come from the
+                // UIItemInformationPresenter.Set hook (cached per navigation).
+                string effect = _itemCachedEffect;
+                string factorName = _itemCachedFactorName;
+                string factorInfo = _itemCachedFactorInfo;
 
-                if (string.IsNullOrEmpty(description))
-                    ScreenReader.Say(Loc.Get("camp_item_entry_nodesc", name, count, idx + 1, total));
-                else
-                    ScreenReader.Say(Loc.Get("camp_item_entry", name, count, description, idx + 1, total));
+                DebugLogger.LogGameValue("CampItem.item",
+                    $"{name} x{count} ({idx + 1}/{total}): effect='{effect}' desc='{description}' factor='{factorName}'");
+
+                // Build announcement: Name x[count]. Effect. Description. Factor. Position.
+                var sb = new StringBuilder();
+                sb.Append(name).Append(" x").Append(count).Append(". ");
+
+                if (!string.IsNullOrEmpty(effect))
+                    AppendSentence(sb, effect);
+                if (!string.IsNullOrEmpty(description))
+                    AppendSentence(sb, description);
+                if (!string.IsNullOrEmpty(factorName))
+                    sb.Append(Loc.Get("camp_item_factor", factorName)).Append(". ");
+                if (!string.IsNullOrEmpty(factorInfo))
+                    AppendSentence(sb, factorInfo);
+
+                sb.Append(Loc.Get("camp_item_position", idx + 1, total));
+
+                ScreenReader.Say(sb.ToString().Trim());
             }
             catch (Exception ex)
             {
