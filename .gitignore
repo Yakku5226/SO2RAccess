@@ -18,3 +18,9 @@ Desktop.ini
 .vscode/
 *.user
 *.suo
+
+# Personal learning glossary (not for commit)
+coding-glossary.txt
+
+# Cloned refactoring prompts repo (not for commit)
+.llm-prompts/
