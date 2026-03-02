@@ -38,7 +38,7 @@
 **Phase:** Phase 3 — Feature Implementation
 **Currently working on:** Phase 3 features
 **Blocked by:** Nothing — framework fully working in-game
-**Last completed:** Battle target handler, save notifications, mod settings, audio cue refactor (2026-03-01)
+**Last completed:** Events category: drop generic events, add side event hints (2026-03-02)
 
 ## Codebase Analysis Progress
 
@@ -152,7 +152,7 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Double period fix: AppendSentence strips trailing periods from game text
   - Hook: UIItemInformationPresenter.Set caches effect/factor data for polling
 
-- **Post-battle result announcements** (`BattleResultHandler.cs`) — PENDING RETEST
+- **Post-battle result announcements** (`BattleResultHandler.cs`) ✓ TESTED
   - Now announces SP and BSP totals after EXP/Fol
   - Level-ups include per-character BSP gained and learned battle skill names
   - Skill names resolved via ParameterManager → TextManager chain (may need fallback if TextManager doesn't resolve)
@@ -187,7 +187,7 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Announces the game's message text plus each item name and count
   - Hook: UIOverflowItemPresenter.SetItem (CallerCount 3, fires when popup is populated)
 
-- **Battle dodge warning audio cue** (`BattleCounterHandler.cs`, `AudioCuePlayer.cs`) — PENDING TEST (updated to file-based WAV)
+- **Battle dodge warning audio cue** (`BattleCounterHandler.cs`, `AudioCuePlayer.cs`) ✓ TESTED
   - Plays Dodge.wav when an enemy is about to hit the player (dodge warning)
   - Hook: BattleCharacter.DoAttackNotify postfix — the game's own visual flash trigger
   - Only fires when target.IsControlPlayer() — ignores attacks on party members
@@ -196,7 +196,7 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Volume-adjusted WAV cached in unmanaged memory, rebuilt only when volume setting changes
   - Refactored: shared TryParseWav() and ScalePcmSamples() helpers (dodge + save sound use same code)
 
-- **Enemy proximity audio cue** (`EnemyProximityHandler.cs`, `SpatialAudioPlayer.cs`) — PENDING TEST
+- **Enemy proximity audio cue** (`EnemyProximityHandler.cs`, `SpatialAudioPlayer.cs`) ✓ TESTED
   - Looping spatial WAV cue warns of nearby field enemies
   - Volume scales with distance: full at 3 units, silent at 25 units
   - Stereo panning based on enemy direction relative to player's facing
@@ -269,11 +269,14 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Steam Input must be disabled for gamepad detection to work
   - Bug fixed: field shortcuts (Quick Heal) now blocked — ShortCut actions (39-42) added to suppression list
 
-- **Navigation Events category** (`NavigationHandler.cs`) — NOT TESTED
+- **Navigation Events category** (`NavigationHandler.cs`) ✓ TESTED
   - New "Events" category added to nav list (5th category after Markers)
   - Scans FieldEventCollision objects, filtered by IsEventActivate() (only active triggers shown)
-  - Classified as "Story event", "Private action", "Side event", or generic "Event"
-  - Numbered by type in distance order (e.g. "Story event 1", "Private action 2")
+  - Classified as "Story event", "Private action", or "Side event" (generic events dropped — no content)
+  - PAs and sub-events with isDisableIcon=true skipped (game hides them)
+  - Side events annotated with hints: "(reward)", "(battle)", or "(reward, battle)" when applicable
+  - Plain "Side event" (no hint) = needs user testing to determine relevance
+  - Numbered by label type in distance order (e.g. "Story event 1", "Side event (reward) 2")
   - NavMesh reachability filter applied; static transforms (LiveTransform = null)
 
 - **Navigation Enemies category** (`NavigationHandler.cs`) — TESTED, WORKING
@@ -293,6 +296,31 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Labels: "Save point" or "Recovery save point" based on IsRecovery property
   - Numbered when multiples of the same type exist (e.g. "Save point 1", "Recovery save point 2")
   - NavMesh reachability filter applied; live transform tracking for auto-walk
+
+- **Navigation Stairs category** (`NavigationHandler.Build.cs`) — PENDING TEST (needs dungeon)
+  - New "Stairs" category added to nav list (8th category)
+  - Uses FieldManager.Instance.FieldStairsList (game-managed list)
+  - Labels: "Stairs up" or "Stairs down" based on isUpperStage property
+  - Numbered when multiples of the same direction exist (e.g. "Stairs up 1", "Stairs down 2")
+  - NavMesh reachability filter applied; static transforms (LiveTransform = null)
+
+- **Navigation Doors category** (`NavigationHandler.Build.cs`) — PENDING TEST (needs dungeon)
+  - New "Doors" category added to nav list (9th category)
+  - Uses FieldManager.Instance.FieldDoorList, filtered to StoneDoor type only
+  - Labels: "Stone door, open" or "Stone door, closed" based on doorState
+  - AutoDoor and Default door types excluded (auto-doors are ambient, not useful as nav targets)
+  - Numbered when multiples of same state exist
+  - NavMesh reachability filter applied; static transforms
+
+- **Navigation Warp Points category** (`NavigationHandler.Build.cs`) — PENDING TEST (needs dungeon)
+  - New "Warp Points" category added to nav list (10th category)
+  - Source: FieldManager.Instance.FieldGimmickManager.FieldGimmickList
+  - Identifies 3 gimmick types via TryCast:
+    - FieldGimmick09 (warp panels) → "Warp panel"
+    - FieldGimmick17 (magic circles) → "Magic circle" (filtered by IsEnable + not disabled)
+    - FieldGimmick03 (moving platforms) → "Platform"
+  - Each type numbered separately if multiples exist
+  - NavMesh reachability filter applied; static transforms
 
 - **Enhance menu sub-screen announcements** (`CampMenuHandler.BattleSkill.cs`, `CampMenuHandler.Formation.cs`) ✓ TESTED
   - Camp → Enhance shows 3 sub-items: Skill, CombatPoint, BattleSkillPoint
@@ -320,7 +348,7 @@ Without this list, mod keys WILL conflict with game controls. -->
 - **Field Navigation — Phase 2 (audio list + auto-run)** (`NavigationHandler.cs`) ✓ COMPLETE AND TESTED
   - F5: open/close navigation list; also cancels auto-run if active
   - NumPad 8/2: navigate up/down within category
-  - NumPad 4/6: switch category (NPCs, Chests, Exits, Markers, Events, Save Points, Enemies)
+  - NumPad 4/6: switch category (NPCs, Chests, Exits, Markers, Events, Save Points, Enemies, Stairs, Doors, Warp Points)
   - NumPad 5: auto-run to selected item; press again to stop following
   - Items sorted by distance (closest first) within each category
   - Party members filtered (dist < 2 units)
@@ -337,11 +365,11 @@ Without this list, mod keys WILL conflict with game controls. -->
 ## Pending Tests (Camp Item Sub-screen — updated format)
 
 - [x] Camp item screen: "Items." announced when opening item screen ✓
-- [ ] Camp item screen: quantity reads as "x5" (not bare number)
-- [ ] Camp item screen: effect text reads (e.g., "Restores a small amount of HP")
-- [ ] Camp item screen: description reads after effect
-- [ ] Camp item screen: no double period at end of description
-- [ ] Camp item screen: factor info reads for crafted/enhanced items (if available)
+- [x] Camp item screen: quantity reads as "x5" (not bare number) ✓
+- [x] Camp item screen: effect text reads (e.g., "Restores a small amount of HP") ✓
+- [x] Camp item screen: description reads after effect ✓
+- [x] Camp item screen: no double period at end of description ✓
+- [x] Camp item screen: factor info reads for crafted/enhanced items (if available) ✓
 - [x] Camp item screen: returning to root menu re-announces root item ✓
 - [x] Camp item screen: no stale announcement on camp re-open ✓
 
@@ -596,18 +624,17 @@ New this session:
 - Player run speed: GetMoveSpeed(true) = 6.5 units/second
 
 ### Next feature candidates
-- In-game test: Navigation Events category (does FieldEventCollision show active triggers?)
 - Navigation: Enemies — DONE ✓ (parsed names, TextManager doesn't resolve on field)
-- Navigation: Save points (FieldSavePoint via FieldManager.FieldSavePointList) — DONE ✓
-- Navigation: Doors (FieldDoor via FieldManager.FieldDoorList) — dungeon doors, open/close state
-- Navigation: Stairs (FieldStairs via FieldManager.FieldStairsList) — vertical transitions
-- Navigation: Gimmicks (FieldGimmick01-18) — dungeon puzzle objects (warp gates, switches, etc.)
+- Navigation: Events — DONE ✓ (tested)
+- Navigation: Save points — DONE ✓
+- Navigation: Stairs — DONE (pending dungeon test)
+- Navigation: Doors (stone only) — DONE (pending dungeon test)
+- Navigation: Warp Points (panels, circles, platforms) — DONE (pending dungeon test)
 - Navigation: Flavor chat triggers (FieldFlavorChatCollision) — party banter spots
 - Operations child screens: Party Formation, Assist Formation, Formation — pending test (need more party members)
 - Camp sub-screen: skill learning (UICampSkillLearningSelector — complex, deferred)
 - Battle pause menu handler (detailed enemy info: element resistances, buffs, HP when spectacled)
 - Battle status announcements (player HP/MP during combat)
-- Known bug: battle skill leveling inner menus (spending points) don't announce — fix later
 
 ### Notes
 - Build command: `dotnet build SO2RAccess.csproj` (auto-copies to Mods folder)

@@ -50,10 +50,14 @@ namespace SO2RAccess
         private const int CAT_EVENT  = 4;
         private const int CAT_SAVE   = 5;
         private const int CAT_ENEMY  = 6;
-        private const int CAT_COUNT  = 7;
+        private const int CAT_STAIRS = 7;
+        private const int CAT_DOOR   = 8;
+        private const int CAT_WARP   = 9;
+        private const int CAT_COUNT  = 10;
 
         private static readonly string[] _categoryNames =
-            { "NPCs", "Chests", "Exits", "Markers", "Events", "Save Points", "Enemies" };
+            { "NPCs", "Chests", "Exits", "Markers", "Events", "Save Points", "Enemies",
+              "Stairs", "Doors", "Warp Points" };
 
         /// <summary>
         /// Manual overrides for FieldmapID destination names.
@@ -669,6 +673,9 @@ namespace SO2RAccess
                 BuildEvents(playerPos);
                 BuildSavePoints(fm.FieldSavePointList, playerPos);
                 BuildEnemies(playerPos);
+                BuildStairs(fm.FieldStairsList, playerPos);
+                BuildDoors(fm.FieldDoorList, playerPos);
+                BuildWarpPoints(fm, playerPos);
 
                 int totalItems = 0;
                 for (int i = 0; i < CAT_COUNT; i++) totalItems += _categories[i].Count;
@@ -680,7 +687,10 @@ namespace SO2RAccess
                     $"markers={_categories[CAT_MARKER].Count} " +
                     $"events={_categories[CAT_EVENT].Count} " +
                     $"saves={_categories[CAT_SAVE].Count} " +
-                    $"enemies={_categories[CAT_ENEMY].Count}");
+                    $"enemies={_categories[CAT_ENEMY].Count} " +
+                    $"stairs={_categories[CAT_STAIRS].Count} " +
+                    $"doors={_categories[CAT_DOOR].Count} " +
+                    $"warps={_categories[CAT_WARP].Count}");
 
                 if (totalItems == 0)
                 {

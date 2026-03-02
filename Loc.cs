@@ -167,14 +167,12 @@ namespace SO2RAccess
             Add("nav_marker",         "Quest marker");
             Add("nav_marker_n",       "Quest marker {0}");
             Add("nav_npc_n",          "NPC {0}");
-            Add("nav_event_story",     "Story event");
-            Add("nav_event_pa",        "Private action");
-            Add("nav_event_side",      "Side event");
-            Add("nav_event_generic",   "Event");
-            Add("nav_event_story_n",   "Story event {0}");
-            Add("nav_event_pa_n",      "Private action {0}");
-            Add("nav_event_side_n",    "Side event {0}");
-            Add("nav_event_generic_n", "Event {0}");
+            Add("nav_event_story",              "Story event");
+            Add("nav_event_pa",                 "Private action");
+            Add("nav_event_side",               "Side event");
+            Add("nav_event_side_reward",        "Side event (reward)");
+            Add("nav_event_side_battle",        "Side event (battle)");
+            Add("nav_event_side_reward_battle", "Side event (reward, battle)");
             Add("nav_save",            "Save point");
             Add("nav_save_n",          "Save point {0}");
             Add("nav_save_recovery",   "Recovery save point");
@@ -188,6 +186,26 @@ namespace SO2RAccess
             Add("nav_enemy_medium",  "medium");
             Add("nav_enemy_strong",  "strong");
             Add("nav_enemy_raid",    "raid");
+
+            // Navigation — stairs
+            Add("nav_stairs_up",             "Stairs up");
+            Add("nav_stairs_down",           "Stairs down");
+            Add("nav_stairs_up_n",           "Stairs up {0}");
+            Add("nav_stairs_down_n",         "Stairs down {0}");
+
+            // Navigation — doors (stone only)
+            Add("nav_door_stone_open",       "Stone door, open");
+            Add("nav_door_stone_closed",     "Stone door, closed");
+            Add("nav_door_stone_open_n",     "Stone door, open {0}");
+            Add("nav_door_stone_closed_n",   "Stone door, closed {0}");
+
+            // Navigation — warp points
+            Add("nav_warp_panel",            "Warp panel");
+            Add("nav_warp_panel_n",          "Warp panel {0}");
+            Add("nav_warp_circle",           "Magic circle");
+            Add("nav_warp_circle_n",         "Magic circle {0}");
+            Add("nav_warp_platform",         "Platform");
+            Add("nav_warp_platform_n",       "Platform {0}");
 
             // Camp menu — root
             Add("camp_menu_screen",           "Camp menu.");

@@ -365,6 +365,9 @@ namespace SO2RAccess
         /// <summary>
         /// Scans for active event triggers (story, private action, sub-event).
         /// Only includes triggers whose conditions are currently satisfied.
+        /// Generic events (no type matched) are dropped — they have no content.
+        /// PAs and sub-events with isDisableIcon are skipped (game hides them).
+        /// Sub-events are annotated with "(reward)" or "(battle)" hints when applicable.
         /// </summary>
         private void BuildEvents(Vector3 playerPos)
         {
@@ -381,22 +384,44 @@ namespace SO2RAccess
                 {
                     if (!evt.IsEventActivate()) continue;
 
-                    Vector3 pos  = evt.transform.position;
-                    float   dist = Vector3.Distance(playerPos, pos);
-
-                    string label;
                     var scenario = evt.GetEnableScenarioEvent();
                     var pa       = evt.GetEnablePrivateActionEvent();
                     var sub      = evt.GetEnableSubEvent();
 
+                    // Drop generic events — no script attached, nothing happens
+                    if (scenario == null && pa == null && sub == null)
+                        continue;
+
+                    // Skip events the game itself marks as hidden
+                    if (pa != null && pa.isDisableIcon) continue;
+                    if (sub != null && sub.isDisableIcon) continue;
+
+                    Vector3 pos  = evt.transform.position;
+                    float   dist = Vector3.Distance(playerPos, pos);
+
+                    string label;
                     if (scenario != null)
+                    {
                         label = Loc.Get("nav_event_story");
+                    }
                     else if (pa != null)
+                    {
                         label = Loc.Get("nav_event_pa");
-                    else if (sub != null)
-                        label = Loc.Get("nav_event_side");
+                    }
                     else
-                        label = Loc.Get("nav_event_generic");
+                    {
+                        // Sub-event — add hints for reward or battle
+                        bool hasReward = sub.treasureID > 0;
+                        bool hasBattle = sub.enemyPartyID > 0;
+                        if (hasReward && hasBattle)
+                            label = Loc.Get("nav_event_side_reward_battle");
+                        else if (hasReward)
+                            label = Loc.Get("nav_event_side_reward");
+                        else if (hasBattle)
+                            label = Loc.Get("nav_event_side_battle");
+                        else
+                            label = Loc.Get("nav_event_side");
+                    }
 
                     items.Add(new NavItem
                     {
@@ -414,18 +439,26 @@ namespace SO2RAccess
 
             SortAndFilterUnreachable(items, playerPos);
 
-            int storyNum = 1, paNum = 1, sideNum = 1, genericNum = 1;
+            // Number duplicates within each label type
+            var counts = new Dictionary<string, int>();
+            var totals = new Dictionary<string, int>();
+            foreach (var item in items)
+            {
+                if (!totals.ContainsKey(item.Label))
+                    totals[item.Label] = 0;
+                totals[item.Label]++;
+            }
+
             for (int i = 0; i < items.Count; i++)
             {
                 var item = items[i];
-                if (item.Label == Loc.Get("nav_event_story"))
-                    item.Label = Loc.Get("nav_event_story_n", storyNum++);
-                else if (item.Label == Loc.Get("nav_event_pa"))
-                    item.Label = Loc.Get("nav_event_pa_n", paNum++);
-                else if (item.Label == Loc.Get("nav_event_side"))
-                    item.Label = Loc.Get("nav_event_side_n", sideNum++);
-                else
-                    item.Label = Loc.Get("nav_event_generic_n", genericNum++);
+                if (totals[item.Label] > 1)
+                {
+                    if (!counts.ContainsKey(item.Label))
+                        counts[item.Label] = 0;
+                    counts[item.Label]++;
+                    item.Label = $"{item.Label} {counts[item.Label]}";
+                }
                 items[i] = item;
                 DebugLogger.LogGameValue("NAV:EVENT", $"[{item.Label}] dist={item.Distance:F1}");
             }
@@ -669,6 +702,296 @@ namespace SO2RAccess
                     return Loc.Get("nav_enemy_raid");
                 default:
                     return "";
+            }
+        }
+
+        /// <summary>
+        /// Scans for stairs on the current field map.
+        /// Labels as "Stairs up" or "Stairs down" based on isUpperStage.
+        /// Uses FieldManager.FieldStairsList (game-managed list).
+        /// </summary>
+        private void BuildStairs(
+            Il2CppSystem.Collections.Generic.List<FieldStairs> list,
+            Vector3 playerPos)
+        {
+            _categories[CAT_STAIRS].Clear();
+            if (list == null) return;
+
+            var items = new List<NavItem>();
+            int upCount = 0, downCount = 0;
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                var stairs = list[i];
+                if (stairs == null) continue;
+
+                Vector3 pos  = stairs.transform.position;
+                float   dist = Vector3.Distance(playerPos, pos);
+
+                bool isUp = false;
+                try { isUp = stairs.isUpperStage; }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogState($"NAV BuildStairs: isUpperStage error: {ex.Message}");
+                }
+
+                string label = isUp
+                    ? Loc.Get("nav_stairs_up")
+                    : Loc.Get("nav_stairs_down");
+
+                if (isUp) upCount++; else downCount++;
+
+                items.Add(new NavItem
+                {
+                    Label         = label,
+                    Distance      = dist,
+                    Position      = pos,
+                    LiveTransform = null,
+                });
+
+                DebugLogger.LogGameValue("NAV:STAIRS",
+                    $"isUp={isUp} dist={dist:F1}");
+            }
+
+            SortAndFilterUnreachable(items, playerPos);
+
+            if (upCount > 1 || downCount > 1)
+            {
+                int uNum = 1, dNum = 1;
+                for (int i = 0; i < items.Count; i++)
+                {
+                    var item = items[i];
+                    if (item.Label == Loc.Get("nav_stairs_up"))
+                    {
+                        if (upCount > 1)
+                            item.Label = Loc.Get("nav_stairs_up_n", uNum++);
+                    }
+                    else
+                    {
+                        if (downCount > 1)
+                            item.Label = Loc.Get("nav_stairs_down_n", dNum++);
+                    }
+                    items[i] = item;
+                }
+            }
+
+            _categories[CAT_STAIRS].AddRange(items);
+        }
+
+        /// <summary>
+        /// Scans for stone doors on the current field map.
+        /// Only includes doors with seType == StoneDoor.
+        /// Labels as "Stone door, open" or "Stone door, closed" based on doorState.
+        /// Uses FieldManager.FieldDoorList (game-managed list).
+        /// </summary>
+        private void BuildDoors(
+            Il2CppSystem.Collections.Generic.List<FieldDoor> list,
+            Vector3 playerPos)
+        {
+            _categories[CAT_DOOR].Clear();
+            if (list == null) return;
+
+            var items = new List<NavItem>();
+            int openCount = 0, closedCount = 0;
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                var door = list[i];
+                if (door == null) continue;
+
+                try
+                {
+                    if (door.seType != FieldDoor.DoorSeType.StoneDoor) continue;
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogState($"NAV BuildDoors: seType error: {ex.Message}");
+                    continue;
+                }
+
+                Vector3 pos  = door.transform.position;
+                float   dist = Vector3.Distance(playerPos, pos);
+
+                bool isOpen = false;
+                try { isOpen = door.doorState == FieldDoor.State.Open; }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogState($"NAV BuildDoors: doorState error: {ex.Message}");
+                }
+
+                string label = isOpen
+                    ? Loc.Get("nav_door_stone_open")
+                    : Loc.Get("nav_door_stone_closed");
+
+                if (isOpen) openCount++; else closedCount++;
+
+                items.Add(new NavItem
+                {
+                    Label         = label,
+                    Distance      = dist,
+                    Position      = pos,
+                    LiveTransform = null,
+                });
+
+                DebugLogger.LogGameValue("NAV:DOOR",
+                    $"isOpen={isOpen} dist={dist:F1}");
+            }
+
+            SortAndFilterUnreachable(items, playerPos);
+
+            if (openCount > 1 || closedCount > 1)
+            {
+                int oNum = 1, cNum = 1;
+                for (int i = 0; i < items.Count; i++)
+                {
+                    var item = items[i];
+                    if (item.Label == Loc.Get("nav_door_stone_open"))
+                    {
+                        if (openCount > 1)
+                            item.Label = Loc.Get("nav_door_stone_open_n", oNum++);
+                    }
+                    else
+                    {
+                        if (closedCount > 1)
+                            item.Label = Loc.Get("nav_door_stone_closed_n", cNum++);
+                    }
+                    items[i] = item;
+                }
+            }
+
+            _categories[CAT_DOOR].AddRange(items);
+        }
+
+        /// <summary>
+        /// Scans for warp-related gimmicks: warp panels (Gimmick09), magic circles
+        /// (Gimmick17), and moving platforms (Gimmick03). Iterates
+        /// FieldGimmickManager.FieldGimmickList and uses TryCast to identify types.
+        /// </summary>
+        private void BuildWarpPoints(FieldManager fm, Vector3 playerPos)
+        {
+            _categories[CAT_WARP].Clear();
+
+            try
+            {
+                var gimmickMgr = fm.FieldGimmickManager;
+                if (gimmickMgr == null) return;
+
+                var gimmickList = gimmickMgr.FieldGimmickList;
+                if (gimmickList == null) return;
+
+                var items = new List<NavItem>();
+                int panelCount = 0, circleCount = 0, platformCount = 0;
+
+                for (int i = 0; i < gimmickList.Count; i++)
+                {
+                    var gimmick = gimmickList[i];
+                    if (gimmick == null) continue;
+
+                    var panel = gimmick.TryCast<FieldGimmick09>();
+                    if (panel != null)
+                    {
+                        Vector3 pos  = panel.transform.position;
+                        float   dist = Vector3.Distance(playerPos, pos);
+                        panelCount++;
+
+                        items.Add(new NavItem
+                        {
+                            Label         = Loc.Get("nav_warp_panel"),
+                            Distance      = dist,
+                            Position      = pos,
+                            LiveTransform = null,
+                        });
+
+                        DebugLogger.LogGameValue("NAV:WARP",
+                            $"panel dist={dist:F1}");
+                        continue;
+                    }
+
+                    var circle = gimmick.TryCast<FieldGimmick17>();
+                    if (circle != null)
+                    {
+                        try
+                        {
+                            if (!circle.IsEnable()) continue;
+                            if (circle.isDisableWarp) continue;
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.LogState(
+                                $"NAV BuildWarpPoints: circle filter error: {ex.Message}");
+                            continue;
+                        }
+
+                        Vector3 pos  = circle.transform.position;
+                        float   dist = Vector3.Distance(playerPos, pos);
+                        circleCount++;
+
+                        items.Add(new NavItem
+                        {
+                            Label         = Loc.Get("nav_warp_circle"),
+                            Distance      = dist,
+                            Position      = pos,
+                            LiveTransform = null,
+                        });
+
+                        DebugLogger.LogGameValue("NAV:WARP",
+                            $"circle dist={dist:F1}");
+                        continue;
+                    }
+
+                    var platform = gimmick.TryCast<FieldGimmick03>();
+                    if (platform != null)
+                    {
+                        Vector3 pos  = platform.transform.position;
+                        float   dist = Vector3.Distance(playerPos, pos);
+                        platformCount++;
+
+                        items.Add(new NavItem
+                        {
+                            Label         = Loc.Get("nav_warp_platform"),
+                            Distance      = dist,
+                            Position      = pos,
+                            LiveTransform = null,
+                        });
+
+                        DebugLogger.LogGameValue("NAV:WARP",
+                            $"platform dist={dist:F1}");
+                        continue;
+                    }
+                }
+
+                SortAndFilterUnreachable(items, playerPos);
+
+                if (panelCount > 1 || circleCount > 1 || platformCount > 1)
+                {
+                    int pNum = 1, cNum = 1, plNum = 1;
+                    for (int i = 0; i < items.Count; i++)
+                    {
+                        var item = items[i];
+                        if (item.Label == Loc.Get("nav_warp_panel"))
+                        {
+                            if (panelCount > 1)
+                                item.Label = Loc.Get("nav_warp_panel_n", pNum++);
+                        }
+                        else if (item.Label == Loc.Get("nav_warp_circle"))
+                        {
+                            if (circleCount > 1)
+                                item.Label = Loc.Get("nav_warp_circle_n", cNum++);
+                        }
+                        else if (item.Label == Loc.Get("nav_warp_platform"))
+                        {
+                            if (platformCount > 1)
+                                item.Label = Loc.Get("nav_warp_platform_n", plNum++);
+                        }
+                        items[i] = item;
+                    }
+                }
+
+                _categories[CAT_WARP].AddRange(items);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV BuildWarpPoints error: {ex.Message}");
             }
         }
 
