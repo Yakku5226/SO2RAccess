@@ -261,7 +261,7 @@ namespace SO2RAccess
         /// first (set by native init), falls back to ConstEnemyParameter.charaNameID
         /// parsed into a readable name (e.g. "CHARA_LIZARDAXE" → "Lizardaxe").
         /// </summary>
-        private static string ResolveEnemyName(BattleParameterBase battleParam,
+        internal static string ResolveEnemyName(BattleParameterBase battleParam,
             CharacterParameter charParam)
         {
             // Try the runtime name first (set by native BattleCharacter.Initialize).
@@ -311,7 +311,7 @@ namespace SO2RAccess
         /// Checks whether this enemy has been scanned with Spectacles by querying
         /// the game's see-through list on UIBattlePauseSelector.
         /// </summary>
-        private static bool IsEnemySpectacled(BattleParameterBase battleParam)
+        internal static bool IsEnemySpectacled(BattleParameterBase battleParam)
         {
             try
             {
@@ -337,7 +337,7 @@ namespace SO2RAccess
         /// Returns null if the enemy is not a leader.
         /// Chain: BattleEnemyParameter.LeaderType → ToSystemMessageID → TextManager.
         /// </summary>
-        private static string ResolveLeaderType(BattleParameterBase battleParam)
+        internal static string ResolveLeaderType(BattleParameterBase battleParam)
         {
             try
             {
@@ -369,7 +369,7 @@ namespace SO2RAccess
         /// Returns null if none are active. Skips BREAK (announced via shield gauge).
         /// Chain: CharacterParameter.GetBuffDebuffList → ToMessageID → TextManager.
         /// </summary>
-        private static string ResolveBuffDebuffs(CharacterParameter charParam)
+        internal static string ResolveBuffDebuffs(CharacterParameter charParam)
         {
             try
             {
@@ -410,7 +410,7 @@ namespace SO2RAccess
         /// multiple alive enemies share the same base name.
         /// Uses ResolveEnemyName for consistent name comparison.
         /// </summary>
-        private static string ResolveDuplicateName(BattleCharacter target, string baseName)
+        internal static string ResolveDuplicateName(BattleCharacter target, string baseName)
         {
             try
             {

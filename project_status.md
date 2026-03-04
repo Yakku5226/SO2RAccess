@@ -38,7 +38,7 @@
 **Phase:** Phase 3 — Feature Implementation
 **Currently working on:** Phase 3 features
 **Blocked by:** Nothing — framework fully working in-game
-**Last completed:** Events category: drop generic events, add side event hints (2026-03-02)
+**Last completed:** Battle command menu handler (Triangle menu) — items, spells, target, tactics (2026-03-03)
 
 ## Codebase Analysis Progress
 
@@ -152,10 +152,13 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Double period fix: AppendSentence strips trailing periods from game text
   - Hook: UIItemInformationPresenter.Set caches effect/factor data for polling
 
-- **Post-battle result announcements** (`BattleResultHandler.cs`) ✓ TESTED
-  - Now announces SP and BSP totals after EXP/Fol
-  - Level-ups include per-character BSP gained and learned battle skill names
-  - Skill names resolved via ParameterManager → TextManager chain (may need fallback if TextManager doesn't resolve)
+- **Post-battle result announcements** (`BattleResultHandler.cs`) — PENDING RETEST (descriptions + bonuses added)
+  - Announces SP and BSP totals after EXP/Fol
+  - Level-ups include per-character BSP gained and learned battle skills
+  - Learned skills now announce with description: "Learned Fire Bolt: Unleashes a fiery projectile."
+    (via UICommon.CreateBattleSkillInformationData; falls back to name-only if description unavailable)
+  - Bonus announcements: chain bonus (after totals), per-character Training and Open Eyes bonuses
+  - Skill names resolved via ParameterManager → TextManager chain
 
 - **Battle target announcements** (`BattleTargetHandler.cs`) ✓ TESTED
   - Hold L2 to enter target change mode; announces current enemy info
@@ -214,6 +217,46 @@ Without this list, mod keys WILL conflict with game controls. -->
   - "Retry, 1 of 2." / "Title, 2 of 2." as player navigates up/down
   - Polling-based (native navigation, same pattern as shop/camp)
   - FindObjectOfType<UIGameOverWindow> with IsOpened polling
+
+- **Battle command menu (Triangle)** (`BattleMenuHandler.cs`) ✓ TESTED
+  - "Battle menu." announced when menu opens via Triangle during battle
+  - Root menu: "Items, 1 of 4.", "Spells, unavailable, 2 of 4.", "Strategy, 3 of 4.", "Escape, 4 of 4."
+  - Items sub-menu: Recovery/Combat tabs, item name + count + effect description + position
+    - Effect text read from itemInformationPresenter's GameText (direct UI read fallback)
+    - Item count from ItemManager.GetItemCount(itemID)
+  - Spells sub-menu: per-character tabs, spell name + MP cost + range + effect + position
+    - Character name resolved via ParameterManager → TextManager chain
+  - Target selection: enemy/ally targeting after skill/item pick
+    - Enemy: name + HP% (or exact with Spectacles) + position; reuses BattleTargetHandler helpers
+    - Ally: name + HP/MP + position; self-targeting detected (single entry)
+    - AoE: "All enemies" / "All allies" announced once
+  - Strategy/Tactics sub-menu: character list + operation selection
+    - Character: name + current operation assignment + position
+    - Operation: name read from UICommonListItemPresenter.textMesh + "Currently set" indicator + position
+  - Phase detection: UIStackSelectorWindowBase.GetPeekSelector() (OpenBattleState does NOT change for sub-screens)
+  - All selectors have activeInHierarchy=True permanently — peek-based detection required
+  - 4 hooks: SpellInfoData, EffectRange, UseDescription, OperationInfo
+  - Tactics operation selector also matched in IdentifyPhase (may be pushed onto stack separately)
+
+- **Battle pause menu** (`BattlePauseHandler.cs`) ✓ TESTED
+  - "Battle status." announced when pause menu opens (Start/Options during battle)
+  - Tiered info system: basic (auto), weaknesses, resistances, status, equipment, cooking, music, leader
+  - Keyboard: NumPad 8/2 tier cycling, NumPad 4/6 character cycling
+  - Gamepad: R1/L1 tier cycling, D-pad native character cycling (all directions, polling announces)
+  - Allies: "Name. HP X of Y. MP X of Y. N of Total."
+  - Enemies: "Name. HP X of Y." (with Spectacles) or "HP unknown." (without)
+  - Empty tiers auto-skipped; tier resets on character change
+  - Hooks: SetHp, SetMp, SetElemental, SetAllBuffList, SetTargetName on UIBattlePauseCharacterPresenter
+  - HP/MP read directly from CharacterParameter (not hook caches — fixes timing bug)
+  - Ally name: ParameterManager chain (BattlePlayerParameter → charaNameID → TextManager) as primary
+  - RefreshPauseUI called synchronously before BuildTiers (fixes stale cache)
+  - Buff categorization via icon sprite matching (GetIconSprite → category map)
+  - BattleTargetHandler helpers reused (enemy names, spectacles, status conditions)
+  - Bugs fixed (2026-03-04):
+    - HP/MP all zeros: direct CharacterParameter reads instead of hook caches
+    - Ally name empty: ParameterManager chain resolves "Claude" via charaNameID
+    - D-pad conflict: game uses ALL D-pad directions for character cycling natively;
+      tier cycling moved to L1/R1 shoulder buttons (free during pause)
 
 - **Camp status talents sub-screen** (`CampMenuHandler.cs`) ✓ TESTED
   - Hook: UITalentPresenter.Set(List<UITalentData>) — CallerCount(1)
@@ -549,10 +592,29 @@ Cleanup branch `claude-mod-cleanup` merged to master. Key changes:
 - **Source:** YouTube clip trimmed from 5s to 15s
 - **User has a specific use in mind** — to be implemented in a future session
 
-### Current work (2026-03-01)
-New this session:
+### Current work (2026-03-04)
+- BattlePauseHandler: all bugs fixed and tested ✓
+  - Ally name: ParameterManager chain (charaNameID → TextManager) — shows "Claude"
+  - HP/MP: direct CharacterParameter reads — shows real values
+  - Gamepad tier cycling: moved from D-pad (conflicts with game's native character cycling
+    on ALL directions) to L1/R1 shoulder buttons
+  - Status conditions tier confirmed working (Stun on enemy)
+
+### Previous work (2026-03-03)
+- BattleMenuHandler: battle command menu (Triangle) fully implemented and tested
+  - New file: BattleMenuHandler.cs (~1000 lines)
+  - Phases: root menu, items, spells, target selection, tactics/strategy
+- BattlePauseHandler: initial implementation with tiered info system
+  - New file: BattlePauseHandler.cs (~500 lines)
+
+### Previous work (2026-03-02)
+- BattleResultHandler: learned skills now announce with description (UICommon.CreateBattleSkillInformationData)
+- BattleResultHandler: bonus announcements added (chain, Training, Open Eyes) — PENDING TEST
+- Old Loc key `battle_result_learned_skills` replaced with `battle_result_learned_skill` (name + desc)
+  and `battle_result_learned_skill_noDesc` (name only fallback)
+
+### Previous session (2026-03-01)
 - BattleTargetHandler: L2 target cycling announces enemy name, HP%, shield%, leader, buffs/debuffs ✓ TESTED
-- BattleResultHandler enhanced: SP, BSP totals + per-character BSP + learned skill names (PENDING RETEST)
 - SaveNotificationHandler: save sound cue on manual/auto save ✓ TESTED
 - ModSettings: JSON persistence for sound toggle/volume settings
 - AudioCuePlayer: refactored to file-based WAV (dodge + save sounds from disk)

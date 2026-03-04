@@ -374,7 +374,11 @@ namespace SO2RAccess
             Add("battle_result_levelup",    "{0} leveled up to {1}.");
             Add("battle_result_levelup_sp", "Gained {0} SP.");
             Add("battle_result_levelup_bsp","Gained {0} Battle Skill Points.");
-            Add("battle_result_learned_skills", "Learned: {0}.");
+            Add("battle_result_learned_skill", "Learned {0}: {1}.");
+            Add("battle_result_learned_skill_noDesc", "Learned {0}.");
+            Add("battle_result_bonus_chain", "Chain bonus active.");
+            Add("battle_result_bonus_training", "{0} has Training bonus.");
+            Add("battle_result_bonus_openeyes", "{0} has Open Eyes bonus.");
             Add("battle_result_item",       "Obtained {0}.");
             Add("battle_result_item_multi", "Obtained {0}, {1}.");
 
@@ -411,6 +415,55 @@ namespace SO2RAccess
             Add("battle_target_defeated",       "Defeated.");
             Add("battle_target_leader",         "Leader: {0}.");
             Add("battle_target_status",         "{0}.");
+
+            // Battle pause menu (Start/Options during battle)
+            Add("battle_pause_heading",         "Battle status.");
+            Add("battle_pause_ally",            "{0}. HP {1} of {2}. MP {3} of {4}. {5} of {6}.");
+            Add("battle_pause_enemy",           "{0}. HP {1} of {2}. {3} of {4}.");
+            Add("battle_pause_enemy_unknown",   "{0}. HP unknown. {1} of {2}.");
+            Add("battle_pause_defeated",        "{0}. Defeated. {1} of {2}.");
+            Add("battle_pause_tier",            "{0}: {1}. {2} of {3}.");
+            Add("battle_pause_weaknesses",      "Weaknesses");
+            Add("battle_pause_resistances",     "Resistances");
+            Add("battle_pause_conditions",      "Status conditions");
+            Add("battle_pause_equipment",       "Equipment effects");
+            Add("battle_pause_cooking",         "Cooking buffs");
+            Add("battle_pause_music",           "Music effects");
+            Add("battle_pause_leader",          "Leader effects");
+            Add("battle_pause_elem_double",     "{0}, double damage");
+            Add("battle_pause_elem_half",       "{0}, half damage");
+            Add("battle_pause_elem_immune",     "{0}, immune");
+            Add("battle_pause_elem_absorb",     "{0}, absorb");
+            Add("battle_pause_none",            "None");
+
+            // Battle menu (Triangle during combat)
+            Add("battle_menu_heading",              "Battle menu.");
+            Add("battle_menu_root_item",            "{0}, {1} of {2}.");
+            Add("battle_menu_root_item_unavailable", "{0}, unavailable, {1} of {2}.");
+            Add("battle_menu_items_recovery",       "Recovery.");
+            Add("battle_menu_items_combat",         "Combat.");
+            Add("battle_menu_items_detail",         "{0} x{1}. {2}. {3} of {4}.");
+            Add("battle_menu_items_empty",          "No items.");
+            Add("battle_menu_spell_heading",        "{0}. Skills.");
+            Add("battle_menu_spell_detail",         "{0}. MP {1}. {2}. {3}. {4} of {5}.");
+            Add("battle_menu_spell_unavailable",    "{0}. MP {1}. Unavailable. {2} of {3}.");
+            Add("battle_menu_spell_empty",          "No skills.");
+            Add("battle_menu_target_enemy",         "Using {0}. {1}. HP {2}%. {3} of {4}.");
+            Add("battle_menu_target_enemy_exact",   "Using {0}. {1}. HP {2} of {3}. {4} of {5}.");
+            Add("battle_menu_target_enemy_unknown",  "Using {0}. {1}. HP unknown. {2} of {3}.");
+            Add("battle_menu_target_ally",          "Using {0}. {1}. HP {2} of {3}. MP {4} of {5}. {6} of {7}.");
+            Add("battle_menu_target_all_enemies",   "Using {0}. All enemies.");
+            Add("battle_menu_target_all_allies",    "Using {0}. All allies.");
+            Add("battle_menu_target_self",          "Using {0}. Self.");
+
+            // Battle menu — items without description
+            Add("battle_menu_items_basic",          "{0} x{1}. {2} of {3}.");
+
+            // Battle menu — tactics/strategy
+            Add("battle_menu_tactics_heading",      "Strategy.");
+            Add("battle_menu_tactics_char",         "{0}. {1}. {2} of {3}.");
+            Add("battle_menu_tactics_current",      "Currently set.");
+            Add("battle_menu_position",             "{0} of {1}.");
         }
 
         #endregion

@@ -54,6 +54,8 @@ namespace SO2RAccess
         private GameOverHandler _gameOverHandler;
         private SaveNotificationHandler _saveNotificationHandler;
         private BattleTargetHandler _battleTargetHandler;
+        private BattlePauseHandler _battlePauseHandler;
+        private BattleMenuHandler _battleMenuHandler;
 
         // Gamepad nav overlay — L1 hold-to-open state.
         private bool _gamepadL1Held;
@@ -118,6 +120,8 @@ namespace SO2RAccess
             _gameOverHandler = new GameOverHandler();
             _saveNotificationHandler = new SaveNotificationHandler();
             _battleTargetHandler = new BattleTargetHandler();
+            _battlePauseHandler = new BattlePauseHandler();
+            _battleMenuHandler = new BattleMenuHandler();
         }
 
         private IEnumerator AnnounceStartupDelayed()
@@ -180,6 +184,8 @@ namespace SO2RAccess
             _gameOverHandler?.OnSceneChanged();
             _saveNotificationHandler?.OnSceneChanged();
             _battleTargetHandler?.OnSceneChanged();
+            _battlePauseHandler?.OnSceneChanged();
+            _battleMenuHandler?.OnSceneChanged();
 
             // Apply patches once — safe to call on every scene load, handlers guard against duplicates.
             _titleHandler.ApplyPatches(_harmony);
@@ -200,6 +206,8 @@ namespace SO2RAccess
             _gameOverHandler.ApplyPatches(_harmony);
             _saveNotificationHandler.ApplyPatches(_harmony);
             _battleTargetHandler.ApplyPatches(_harmony);
+            _battlePauseHandler.ApplyPatches(_harmony);
+            _battleMenuHandler.ApplyPatches(_harmony);
         }
 
         /// <summary>
@@ -240,6 +248,36 @@ namespace SO2RAccess
                 DebugLogger.LogInput("F1", "Help");
                 ScreenReader.Say(Loc.Get("help"));
                 return true;
+            }
+
+            // Battle pause menu — tier/character cycling (takes priority over nav)
+            if (_battlePauseHandler.IsPauseOpen)
+            {
+                if (kb[Key.Numpad8].wasPressedThisFrame)
+                {
+                    DebugLogger.LogInput("Numpad8", "PauseTierUp");
+                    _battlePauseHandler.TierUp();
+                    return true;
+                }
+                if (kb[Key.Numpad2].wasPressedThisFrame)
+                {
+                    DebugLogger.LogInput("Numpad2", "PauseTierDown");
+                    _battlePauseHandler.TierDown();
+                    return true;
+                }
+                if (kb[Key.Numpad4].wasPressedThisFrame)
+                {
+                    DebugLogger.LogInput("Numpad4", "PauseCharLeft");
+                    _battlePauseHandler.CycleCharacterLeft();
+                    return true;
+                }
+                if (kb[Key.Numpad6].wasPressedThisFrame)
+                {
+                    DebugLogger.LogInput("Numpad6", "PauseCharRight");
+                    _battlePauseHandler.CycleCharacterRight();
+                    return true;
+                }
+                return false;
             }
 
             // NumPad 5 — toggle navigation list (also cancels auto-walk)
@@ -344,6 +382,25 @@ namespace SO2RAccess
                     float ly = gp.leftStick.y.ReadValue();
                     MelonLogger.Msg($"[GAMEPAD DIAG] L1={ls} R1={rs} DUp={du} DDown={dd} DLeft={dl} DRight={dr} LStickY={ly:F2} | _gamepadL1Held={_gamepadL1Held} navOpen={_navigationHandler.IsListOpen} autoWalk={_navigationHandler.IsAutoWalking}");
                 }
+            }
+
+            // Battle pause menu — L1/R1 for tier cycling.
+            // Game uses ALL D-pad directions for character cycling natively;
+            // our polling detects character index changes and announces.
+            // L1/R1 are free during pause (nav overlay blocked by return).
+            if (_battlePauseHandler.IsPauseOpen)
+            {
+                if (gp.leftShoulder.wasPressedThisFrame)
+                {
+                    DebugLogger.LogInput("L1", "PauseTierUp");
+                    _battlePauseHandler.TierUp();
+                }
+                else if (gp.rightShoulder.wasPressedThisFrame)
+                {
+                    DebugLogger.LogInput("R1", "PauseTierDown");
+                    _battlePauseHandler.TierDown();
+                }
+                return; // Don't process L1 nav overlay while pause is open
             }
 
             bool l1Pressed = gp.leftShoulder.wasPressedThisFrame;
@@ -463,6 +520,8 @@ namespace SO2RAccess
             _notificationHandler.Update();
             _saveNotificationHandler.Update();
             _battleTargetHandler.Update();
+            _battlePauseHandler.Update();
+            _battleMenuHandler.Update();
         }
 
         #endregion
