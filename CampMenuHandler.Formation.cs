@@ -15,8 +15,7 @@ namespace SO2RAccess
         // Info: UICampFormationInformationPresenter.Set hook fires on every formation change.
         // Announces formation name, effect description, and position.
         private static UICampFormationSelector _formationSelector = null;
-        private static bool _formationWasActive = false;
-        private static bool _formationSuppressHeading = false;
+        private static readonly SubScreenState _formationState = new SubScreenState();
 
         // Skills sub-screen — field/IC skills (skillSelector on UICampWindow)
         // UICampSkillSelector extends UICharacterTabListSelectorBase → UIHelpListSelectorBase
@@ -24,8 +23,7 @@ namespace SO2RAccess
         // Info: UISkillInformationPresenter.Set hook fires on every skill navigation.
         // Announces skill name, description, level, and position.
         private static UICampSkillSelector _skillSelector = null;
-        private static bool _skillWasActive = false;
-        private static bool _skillSuppressHeading = false;
+        private static readonly SubScreenState _skillState = new SubScreenState();
 
         /// <summary>
         /// Polls the UICampFormationSelector for active state changes.
@@ -37,51 +35,22 @@ namespace SO2RAccess
         {
             if (_formationSelector == null) return;
 
-            // Only poll when the root menu highlights "Formation".
-            if (_lastRootMenuItemName != "Formation")
-            {
-                // Don't reset _formationWasActive here.
-                // Resetting causes stale announcements when root menu cursor
-                // returns to "Formation" during normal navigation.
-                return;
-            }
+            if (_lastRootMenuItemName != "Formation") return;
 
             try
             {
                 bool isActive = _formationSelector.gameObject.activeInHierarchy;
 
-                if (!isActive)
-                {
-                    if (_formationWasActive)
-                    {
-                        _formationWasActive = false;
-                        DebugLogger.LogState("CampFormation: selector hidden.");
-                    }
-                    return;
-                }
-
-                if (!_formationWasActive)
-                {
-                    _formationWasActive = true;
-
-                    if (!_formationSuppressHeading)
-                    {
-                        ScreenReader.Say(Loc.Get("camp_formation_screen"));
-                        DebugLogger.LogState("CampFormation: selector visible.");
-                    }
-                    else
-                    {
-                        _formationSuppressHeading = false;
-                        DebugLogger.LogState("CampFormation: stale open — heading suppressed.");
-                    }
-                }
+                _formationState.CheckEntry(
+                    isActive,
+                    () => ScreenReader.Say(Loc.Get("camp_formation_screen")),
+                    "CampFormation");
             }
             catch (Exception ex)
             {
                 MelonLogger.Warning($"CampMenuHandler.UpdateFormationSelector: {ex.Message}");
                 _formationSelector = null;
-                _formationWasActive = false;
-                _formationSuppressHeading = false;
+                _formationState.Reset();
             }
         }
 
@@ -95,51 +64,22 @@ namespace SO2RAccess
         {
             if (_skillSelector == null) return;
 
-            // Only poll when the root menu highlights "Skill".
-            if (_lastRootMenuItemName != "Skill")
-            {
-                // Don't reset _skillWasActive here.
-                // Resetting causes stale announcements when root menu cursor
-                // returns to "Skill" during normal navigation.
-                return;
-            }
+            if (_lastRootMenuItemName != "Skill") return;
 
             try
             {
                 bool isActive = _skillSelector.gameObject.activeInHierarchy;
 
-                if (!isActive)
-                {
-                    if (_skillWasActive)
-                    {
-                        _skillWasActive = false;
-                        DebugLogger.LogState("CampSkill: selector hidden.");
-                    }
-                    return;
-                }
-
-                if (!_skillWasActive)
-                {
-                    _skillWasActive = true;
-
-                    if (!_skillSuppressHeading)
-                    {
-                        ScreenReader.Say(Loc.Get("camp_skill_screen"));
-                        DebugLogger.LogState("CampSkill: selector visible.");
-                    }
-                    else
-                    {
-                        _skillSuppressHeading = false;
-                        DebugLogger.LogState("CampSkill: stale open — heading suppressed.");
-                    }
-                }
+                _skillState.CheckEntry(
+                    isActive,
+                    () => ScreenReader.Say(Loc.Get("camp_skill_screen")),
+                    "CampSkill");
             }
             catch (Exception ex)
             {
                 MelonLogger.Warning($"CampMenuHandler.UpdateSkillSelector: {ex.Message}");
                 _skillSelector = null;
-                _skillWasActive = false;
-                _skillSuppressHeading = false;
+                _skillState.Reset();
             }
         }
 
@@ -151,7 +91,7 @@ namespace SO2RAccess
         private static void FormationInfoPresenter_Set_Postfix(
             string formationName, string effectDescription)
         {
-            if (!_formationWasActive) return;
+            if (!_formationState.WasActive) return;
             if (_formationSelector == null) return;
             if (_lastRootMenuItemName != "Formation") return;
 
@@ -195,7 +135,7 @@ namespace SO2RAccess
         /// </summary>
         private static void SkillInfoPresenter_Set_Postfix(UISkillInformationData data)
         {
-            if (!_skillWasActive) return;
+            if (!_skillState.WasActive) return;
             if (_skillSelector == null) return;
             if (_lastRootMenuItemName != "Skill") return;
             if (data == null) return;

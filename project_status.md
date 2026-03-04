@@ -553,7 +553,18 @@ Cleanup branch `claude-mod-cleanup` merged to master. Key changes:
 - **OnSceneChanged added to CampMenuHandler:** prevents stale IsCampOpen if scene changes while camp is open
 - **IsFieldFree now checks ShopHandler.IsShopOpen** in NavigationHandler (was missing before)
 - **DIAG logs removed:** ~30 unconditional MelonLogger.Msg("DIAG:...") lines removed from ConfigMenuHandler
-- **Deferred (low priority):** stale-open check helper consolidation, UpdateXxx polling pattern helper, StripControllerPrefix consolidation across NotificationHandler/GamepadMenuHandler
+- **Deferred (low priority):** UpdateXxx polling pattern helper, StripControllerPrefix consolidation across NotificationHandler/GamepadMenuHandler
+
+## Code Cleanup (2026-03-04)
+
+Stale-open check helper consolidation. Key changes:
+
+- **New shared utility:** `SubScreenState.cs` — consolidates _wasActive/_suppressHeading/_lastIndex pattern into reusable class with CheckEntry(), SeedOnOpen(), SuppressNextHeading(), Reset() methods
+- **9 sub-screens refactored:** Items, Equip, Formation, Skill, BattleSkillSetting, Party Formation, Assist Formation, Tactics — each replaced 2-3 repeated fields with a single SubScreenState instance
+- **Open postfix simplified:** 7 identical try-catch stale-suppress blocks replaced with StaleSuppressIfActive() helper; Equip and BattleSkillSetting blocks expanded to seed child selector indices
+- **Bug fixed: camp close announced root menu item** — _menuSelector now nulled on window close (prevented stale "Item, 1 of 10" announcement)
+- **Bug fixed: sub-screen content announced on root menu highlight** — Equip slot list and BattleSkillSetting slot list indices now seeded in Open postfix (prevented spurious child announcements when just highlighting root item)
+- **Not changed:** BattleSkill main handler (hook-driven), Status (hook-driven), ShopHandler, BattleMenuHandler, GameOverHandler
 
 ## Architecture Decisions
 
@@ -593,6 +604,10 @@ Cleanup branch `claude-mod-cleanup` merged to master. Key changes:
 - **User has a specific use in mind** — to be implemented in a future session
 
 ### Current work (2026-03-04)
+- SubScreenState helper: stale-open check consolidation ✓
+  - New file: SubScreenState.cs
+  - 9 sub-screens refactored to use helper
+  - Two bugs found and fixed during refactor (camp close + root highlight)
 - BattlePauseHandler: all bugs fixed and tested ✓
   - Ally name: ParameterManager chain (charaNameID → TextManager) — shows "Claude"
   - HP/MP: direct CharacterParameter reads — shows real values
@@ -619,7 +634,7 @@ Cleanup branch `claude-mod-cleanup` merged to master. Key changes:
 - ModSettings: JSON persistence for sound toggle/volume settings
 - AudioCuePlayer: refactored to file-based WAV (dodge + save sounds from disk)
 - TextUtil: shared ParseCharaNameID (was duplicated in NavigationHandler)
-- Combat skill enhance: fixed level display (was 0/0), reordered to Name/Level/BP/Desc/Upgrade (PENDING TEST)
+- Combat skill enhance: fixed level display (was 0/0), reordered to Name/Level/BP/Desc/Upgrade ✓ TESTED
 
 ### Battle skill / combat skill menu separation (2026-03-01)
 - **Root battle skills** (Camp → BattleSkill): NEW detailed tactical readout
@@ -631,7 +646,7 @@ Cleanup branch `claude-mod-cleanup` merged to master. Key changes:
   - ✓ TESTED — working, user confirmed "rest works fine"
 - **Enhance combat skills** (Camp → Enhance → CombatPoint): upgrade-focused readout
   - Format: Name. Level X of Y. BP balance/cost. Description. Upgrade: effect.
-  - PENDING TEST — combat skill level now read from UICampCombatSkillListItemData.skillLevel
+  - ✓ TESTED — combat skill level now read from UICampCombatSkillListItemData.skillLevel
     (UIBattleSkillInformationData.skillLevel is always 0 for combat skills)
   - Max level derived from ConstCombatSkillParameter.levelupBp.Count via ParameterManager
   - effectDescription used as upgrade label ("Upgrade: Effect chance up")

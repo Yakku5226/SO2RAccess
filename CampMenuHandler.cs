@@ -304,6 +304,7 @@ namespace SO2RAccess
                     {
                         IsCampOpen = false;
                         _campWindow = null;
+                        _menuSelector = null;
                         DebugLogger.LogState("CampMenu: window closed (IsCampOpen=false via IsOpened).");
                     }
                 }
@@ -311,6 +312,7 @@ namespace SO2RAccess
                 {
                     IsCampOpen = false;
                     _campWindow = null;
+                    _menuSelector = null;
                     DebugLogger.LogState($"CampMenu: closure check error: {ex.Message}");
                 }
             }
@@ -431,13 +433,10 @@ namespace SO2RAccess
 
             _itemSelector = __instance.itemSelector;
             _itemListSelectorBase = null;
-            _itemLastIndex = -1;
-            _itemWasActive = false;
-            _itemSuppressHeading = false;
+            _itemState.Reset();
 
             _equipSelector = __instance.equipSelector;
-            _equipWasActive = false;
-            _equipSuppressHeading = false;
+            _equipState.Reset();
             _equipSlotListBase = null;
             _equipSlotLastIndex = -1;
             _equipSlotWasActive = false;
@@ -455,8 +454,7 @@ namespace SO2RAccess
 
                 // If the item selector is already active on open it is stale from a
                 // previous session (the game does not reset its active state on close).
-                // Pre-seed _itemLastIndex with the current index and mark heading as
-                // suppressed so neither "Items." nor the stale item is re-announced.
+                // Pre-seed index so neither "Items." nor the stale item is re-announced.
                 try
                 {
                     if (_itemSelector.gameObject.activeInHierarchy)
@@ -466,9 +464,8 @@ namespace SO2RAccess
                         if (baseSel != null)
                         {
                             _itemListSelectorBase = baseSel;
-                            _itemLastIndex = baseSel.currentIndex;
-                            _itemSuppressHeading = true;
-                            DebugLogger.LogState($"CampItem: stale on open, seeded index={_itemLastIndex}.");
+                            _itemState.SeedOnOpen(baseSel.currentIndex);
+                            DebugLogger.LogState($"CampItem: stale on open, seeded index={_itemState.LastIndex}.");
                         }
                     }
                 }
@@ -501,18 +498,26 @@ namespace SO2RAccess
             {
                 DebugLogger.LogState("CampMenu: equip selector cached.");
 
-                // Check for stale active state — suppress heading if already open.
+                // Seed child slot index so highlighting "Equip" on root menu
+                // doesn't trigger a spurious slot announcement.
                 try
                 {
                     if (_equipSelector.gameObject.activeInHierarchy)
                     {
-                        _equipSuppressHeading = true;
-                        DebugLogger.LogState("CampEquip: stale on open — heading will be suppressed.");
+                        _equipState.SuppressNextHeading();
+                        var slotSel = _equipSelector.equipListSelector;
+                        var slotBase = slotSel?.TryCast<UIListSelectorBase>();
+                        if (slotBase != null)
+                        {
+                            _equipSlotListBase = slotBase;
+                            _equipSlotLastIndex = slotBase.currentIndex;
+                        }
+                        DebugLogger.LogState($"CampEquip: stale on open, seeded slotIdx={_equipSlotLastIndex}.");
                     }
                 }
                 catch (Exception ex)
                 {
-                    MelonLogger.Warning($"CampEquip stale-check failed: {ex.Message}");
+                    MelonLogger.Warning($"CampEquip stale-seed failed: {ex.Message}");
                 }
             }
             else
@@ -529,38 +534,42 @@ namespace SO2RAccess
             _battleSkillHeadingPending = false;
 
             if (_battleSkillOuterSelector != null)
-            {
                 DebugLogger.LogState("CampMenu: battle skill selector cached.");
-            }
             else
-            {
                 MelonLogger.Warning("[CAMP] campWindow.battleSkillSelector is null.");
-            }
 
             _battleSkillSettingSelector = __instance.battleSkillSettingSelector;
             _battleSkillEquipListSel = null;
             _battleSkillEquipListBase = null;
             _battleSkillPickerListBase = null;
             _battleSkillEquipLastIndex = -1;
-            _battleSkillSettingWasActive = false;
-            _battleSkillSettingSuppressHeading = false;
+            _battleSkillSettingState.Reset();
 
             if (_battleSkillSettingSelector != null)
             {
                 DebugLogger.LogState("CampMenu: battle skill setting selector cached.");
 
-                // Check for stale active state — suppress heading if already open.
+                // Seed child equip slot index so highlighting "BattleSkill" on root menu
+                // doesn't trigger a spurious slot announcement.
                 try
                 {
                     if (_battleSkillSettingSelector.gameObject.activeInHierarchy)
                     {
-                        _battleSkillSettingSuppressHeading = true;
-                        DebugLogger.LogState("CampBattleSkillSetting: stale on open — heading will be suppressed.");
+                        _battleSkillSettingState.SuppressNextHeading();
+                        var equipSel = _battleSkillSettingSelector.equipListSelector;
+                        var equipBase = equipSel?.TryCast<UIListSelectorBase>();
+                        if (equipBase != null)
+                        {
+                            _battleSkillEquipListSel = equipSel;
+                            _battleSkillEquipListBase = equipBase;
+                            _battleSkillEquipLastIndex = equipBase.currentIndex;
+                        }
+                        DebugLogger.LogState($"CampBattleSkillSetting: stale on open, seeded equipIdx={_battleSkillEquipLastIndex}.");
                     }
                 }
                 catch (Exception ex)
                 {
-                    MelonLogger.Warning($"CampBattleSkillSetting stale-check failed: {ex.Message}");
+                    MelonLogger.Warning($"CampBattleSkillSetting stale-seed failed: {ex.Message}");
                 }
             }
             else
@@ -569,25 +578,12 @@ namespace SO2RAccess
             }
 
             _formationSelector = __instance.formationSelector;
-            _formationWasActive = false;
-            _formationSuppressHeading = false;
+            _formationState.Reset();
 
             if (_formationSelector != null)
             {
                 DebugLogger.LogState("CampMenu: formation selector cached.");
-
-                try
-                {
-                    if (_formationSelector.gameObject.activeInHierarchy)
-                    {
-                        _formationSuppressHeading = true;
-                        DebugLogger.LogState("CampFormation: stale on open — heading will be suppressed.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MelonLogger.Warning($"CampFormation stale-check failed: {ex.Message}");
-                }
+                StaleSuppressIfActive(_formationSelector.gameObject, _formationState, "CampFormation");
             }
             else
             {
@@ -595,25 +591,12 @@ namespace SO2RAccess
             }
 
             _skillSelector = __instance.skillSelector;
-            _skillWasActive = false;
-            _skillSuppressHeading = false;
+            _skillState.Reset();
 
             if (_skillSelector != null)
             {
                 DebugLogger.LogState("CampMenu: skill selector cached.");
-
-                try
-                {
-                    if (_skillSelector.gameObject.activeInHierarchy)
-                    {
-                        _skillSuppressHeading = true;
-                        DebugLogger.LogState("CampSkill: stale on open — heading will be suppressed.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MelonLogger.Warning($"CampSkill stale-check failed: {ex.Message}");
-                }
+                StaleSuppressIfActive(_skillSelector.gameObject, _skillState, "CampSkill");
             }
             else
             {
@@ -622,27 +605,13 @@ namespace SO2RAccess
 
             // --- Party Formation ---
             _selectCharSelector = __instance.selectCharacterSelector;
-            _selectCharLastIndex = -1;
-            _selectCharWasActive = false;
-            _selectCharSuppressHeading = false;
+            _selectCharState.Reset();
             _selectCharDataList = null;
 
             if (_selectCharSelector != null)
             {
                 DebugLogger.LogState("CampMenu: select character selector cached.");
-
-                try
-                {
-                    if (_selectCharSelector.gameObject.activeInHierarchy)
-                    {
-                        _selectCharSuppressHeading = true;
-                        DebugLogger.LogState("CampPartyFormation: stale on open — heading will be suppressed.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MelonLogger.Warning($"CampPartyFormation stale-check failed: {ex.Message}");
-                }
+                StaleSuppressIfActive(_selectCharSelector.gameObject, _selectCharState, "CampPartyFormation");
             }
             else
             {
@@ -651,8 +620,7 @@ namespace SO2RAccess
 
             // --- Assist Formation ---
             _assistSelector = __instance.assistSettingSelector;
-            _assistWasActive = false;
-            _assistSuppressHeading = false;
+            _assistState.Reset();
             _assistEquipListBase = null;
             _assistEquipLastIndex = -1;
             _assistCharListBase = null;
@@ -662,19 +630,7 @@ namespace SO2RAccess
             if (_assistSelector != null)
             {
                 DebugLogger.LogState("CampMenu: assist setting selector cached.");
-
-                try
-                {
-                    if (_assistSelector.gameObject.activeInHierarchy)
-                    {
-                        _assistSuppressHeading = true;
-                        DebugLogger.LogState("CampAssist: stale on open — heading will be suppressed.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MelonLogger.Warning($"CampAssist stale-check failed: {ex.Message}");
-                }
+                StaleSuppressIfActive(_assistSelector.gameObject, _assistState, "CampAssist");
             }
             else
             {
@@ -683,8 +639,7 @@ namespace SO2RAccess
 
             // --- Tactics ---
             _operationSelector = __instance.operationSelector;
-            _operationWasActive = false;
-            _operationSuppressHeading = false;
+            _operationState.Reset();
             _operationCharLastIndex = -1;
             _operationSelectListBase = null;
             _operationSelectLastIndex = -1;
@@ -693,19 +648,7 @@ namespace SO2RAccess
             if (_operationSelector != null)
             {
                 DebugLogger.LogState("CampMenu: operation selector cached.");
-
-                try
-                {
-                    if (_operationSelector.gameObject.activeInHierarchy)
-                    {
-                        _operationSuppressHeading = true;
-                        DebugLogger.LogState("CampTactics: stale on open — heading will be suppressed.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MelonLogger.Warning($"CampTactics stale-check failed: {ex.Message}");
-                }
+                StaleSuppressIfActive(_operationSelector.gameObject, _operationState, "CampTactics");
             }
             else
             {
@@ -718,6 +661,28 @@ namespace SO2RAccess
         #region Helpers
 
         private static string StripTags(string text) => TextUtil.StripTags(text);
+
+        /// <summary>
+        /// If the game object is already active (stale from previous session),
+        /// marks the SubScreenState to suppress its heading on next activation.
+        /// Called in the Open postfix for each sub-screen selector.
+        /// </summary>
+        private static void StaleSuppressIfActive(
+            UnityEngine.GameObject go, SubScreenState state, string logLabel)
+        {
+            try
+            {
+                if (go.activeInHierarchy)
+                {
+                    state.SuppressNextHeading();
+                    DebugLogger.LogState($"{logLabel}: stale on open — heading will be suppressed.");
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"{logLabel} stale-check failed: {ex.Message}");
+            }
+        }
 
         /// <summary>
         /// Resets camp menu state on scene change, preventing IsCampOpen from

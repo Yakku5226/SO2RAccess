@@ -18,8 +18,7 @@ namespace SO2RAccess
         //     — the list of items that can be equipped in the selected slot
         // Slot list: polled. Item list: driven by UIItemInformationPresenter.Set hook.
         private static UICampEquipSelector _equipSelector = null;
-        private static bool _equipWasActive = false;
-        private static bool _equipSuppressHeading = false;
+        private static readonly SubScreenState _equipState = new SubScreenState();
 
         // Equip slot list
         private static UIListSelectorBase _equipSlotListBase = null;
@@ -60,58 +59,49 @@ namespace SO2RAccess
             if (_equipSelector == null) return;
 
             // Only poll when the root menu highlights "Equip".
-            if (_lastRootMenuItemName != "Equip")
-            {
-                // Don't reset _equipWasActive or slot/item state here.
-                // Resetting causes stale announcements when root menu cursor
-                // returns to "Equip" during normal navigation.
-                return;
-            }
+            if (_lastRootMenuItemName != "Equip") return;
 
             try
             {
                 bool isActive = _equipSelector.gameObject.activeInHierarchy;
 
-                if (!isActive)
-                {
-                    if (_equipWasActive)
+                bool shouldPoll = _equipState.CheckEntry(
+                    isActive,
+                    () =>
                     {
-                        _equipWasActive = false;
+                        ScreenReader.Say(Loc.Get("camp_equip_screen"));
+                        _equipSlotLastIndex = -1;
+                    },
+                    "CampEquip",
+                    onHidden: () =>
+                    {
                         _equipSlotWasActive = false;
                         _equipItemListActive = false;
                         _equipSlotListBase = null;
                         _equipItemListBase = null;
-                        DebugLogger.LogState("CampEquip: selector hidden.");
+                    });
+
+                if (!shouldPoll)
+                {
+                    // On genuine first entry, cache sub-selectors.
+                    if (_equipState.WasActive)
+                    {
+                        if (_equipSlotCategoryNames == null)
+                            CacheEquipSlotCategories();
+
+                        if (_equipSlotListBase == null)
+                        {
+                            var slotSel = _equipSelector.equipListSelector;
+                            _equipSlotListBase = slotSel?.TryCast<UIListSelectorBase>();
+                        }
+
+                        if (_equipItemListBase == null)
+                        {
+                            var itemSel = _equipSelector.itemListSelector;
+                            _equipItemListBase = itemSel?.TryCast<UIListSelectorBase>();
+                        }
                     }
                     return;
-                }
-
-                if (!_equipWasActive)
-                {
-                    _equipWasActive = true;
-
-                    // Cache slot category names (Weapon, Armor, etc.) from game data.
-                    if (_equipSlotCategoryNames == null)
-                        CacheEquipSlotCategories();
-
-                    // Cache sub-selectors.
-                    var slotSel = _equipSelector.equipListSelector;
-                    _equipSlotListBase = slotSel?.TryCast<UIListSelectorBase>();
-
-                    var itemSel = _equipSelector.itemListSelector;
-                    _equipItemListBase = itemSel?.TryCast<UIListSelectorBase>();
-
-                    if (!_equipSuppressHeading)
-                    {
-                        ScreenReader.Say(Loc.Get("camp_equip_screen"));
-                        _equipSlotLastIndex = -1;
-                        DebugLogger.LogState("CampEquip: selector visible.");
-                    }
-                    else
-                    {
-                        _equipSuppressHeading = false;
-                        DebugLogger.LogState("CampEquip: stale open — heading suppressed.");
-                    }
                 }
 
                 // Use currentState to determine which sub-list is active.
@@ -128,8 +118,7 @@ namespace SO2RAccess
             {
                 MelonLogger.Warning($"CampMenuHandler.UpdateEquipSelector: {ex.Message}");
                 _equipSelector = null;
-                _equipWasActive = false;
-                _equipSuppressHeading = false;
+                _equipState.Reset();
                 _equipSlotListBase = null;
                 _equipSlotLastIndex = -1;
                 _equipSlotWasActive = false;

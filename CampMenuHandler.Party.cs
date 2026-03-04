@@ -17,9 +17,7 @@ namespace SO2RAccess
         // Uses GetCurrentIndex() method instead of currentIndex property.
         // Character data cached from UICampCharacterStatusPresenter.SetStatus hook.
         private static UICampSelectCharacterSelector _selectCharSelector = null;
-        private static int _selectCharLastIndex = -1;
-        private static bool _selectCharWasActive = false;
-        private static bool _selectCharSuppressHeading = false;
+        private static readonly SubScreenState _selectCharState = new SubScreenState();
         private static Il2CppSystem.Collections.Generic.List<CampCharacterStatusParameterData> _selectCharDataList = null;
 
         #endregion
@@ -30,8 +28,7 @@ namespace SO2RAccess
         // UICampAssistSettingSelector with two states: Equip (slot browsing),
         // SelectAssistCharacter (character picker).
         private static UICampAssistSettingSelector _assistSelector = null;
-        private static bool _assistWasActive = false;
-        private static bool _assistSuppressHeading = false;
+        private static readonly SubScreenState _assistState = new SubScreenState();
         private static UIListSelectorBase _assistEquipListBase = null;
         private static int _assistEquipLastIndex = -1;
         private static UIListSelectorBase _assistCharListBase = null;
@@ -48,8 +45,7 @@ namespace SO2RAccess
         // Character data: UICampOperationCharacterListItemData (characterName, operation).
         // Operation info: UICampOperationInformationPresenter.Set hook.
         private static UICampOperationSelector _operationSelector = null;
-        private static bool _operationWasActive = false;
-        private static bool _operationSuppressHeading = false;
+        private static readonly SubScreenState _operationState = new SubScreenState();
         private static int _operationCharLastIndex = -1;
         private static UIListSelectorBase _operationSelectListBase = null;
         private static int _operationSelectLastIndex = -1;
@@ -69,46 +65,23 @@ namespace SO2RAccess
         {
             if (_selectCharSelector == null) return;
 
-            if (_lastRootMenuItemName != "PartyFormation")
-            {
-                return;
-            }
+            if (_lastRootMenuItemName != "PartyFormation") return;
 
             try
             {
                 bool isActive = _selectCharSelector.gameObject.activeInHierarchy;
 
-                if (!isActive)
-                {
-                    if (_selectCharWasActive)
-                    {
-                        _selectCharWasActive = false;
-                        DebugLogger.LogState("CampPartyFormation: selector hidden.");
-                    }
-                    return;
-                }
+                bool shouldPoll = _selectCharState.CheckEntry(
+                    isActive,
+                    () => ScreenReader.Say(Loc.Get("camp_party_formation_screen")),
+                    "CampPartyFormation");
 
-                if (!_selectCharWasActive)
-                {
-                    _selectCharWasActive = true;
-                    _selectCharLastIndex = -1;
-
-                    if (!_selectCharSuppressHeading)
-                    {
-                        ScreenReader.Say(Loc.Get("camp_party_formation_screen"));
-                        DebugLogger.LogState("CampPartyFormation: selector visible.");
-                    }
-                    else
-                    {
-                        _selectCharSuppressHeading = false;
-                        DebugLogger.LogState("CampPartyFormation: stale open — heading suppressed.");
-                    }
-                }
+                if (!shouldPoll) return;
 
                 // Poll GetCurrentIndex() — not a UIListSelectorBase, so method call needed.
                 int idx = _selectCharSelector.GetCurrentIndex();
-                if (idx == _selectCharLastIndex) return;
-                _selectCharLastIndex = idx;
+                if (idx == _selectCharState.LastIndex) return;
+                _selectCharState.LastIndex = idx;
 
                 if (_selectCharDataList == null || idx < 0 || idx >= _selectCharDataList.Count)
                     return;
@@ -131,8 +104,7 @@ namespace SO2RAccess
             {
                 MelonLogger.Warning($"CampMenuHandler.UpdatePartyFormationSelector: {ex.Message}");
                 _selectCharSelector = null;
-                _selectCharWasActive = false;
-                _selectCharLastIndex = -1;
+                _selectCharState.Reset();
                 _selectCharDataList = null;
             }
         }
@@ -146,46 +118,30 @@ namespace SO2RAccess
         {
             if (_assistSelector == null) return;
 
-            if (_lastRootMenuItemName != "AssistFormation")
-            {
-                return;
-            }
+            if (_lastRootMenuItemName != "AssistFormation") return;
 
             try
             {
                 bool isActive = _assistSelector.gameObject.activeInHierarchy;
 
-                if (!isActive)
-                {
-                    if (_assistWasActive)
+                bool shouldPoll = _assistState.CheckEntry(
+                    isActive,
+                    () =>
                     {
-                        _assistWasActive = false;
+                        ScreenReader.Say(Loc.Get("camp_assist_screen"));
+                        _assistEquipLastIndex = -1;
+                        _assistCharLastIndex = -1;
+                        _assistLastState = -1;
+                    },
+                    "CampAssist",
+                    onHidden: () =>
+                    {
                         _assistEquipListBase = null;
                         _assistCharListBase = null;
                         _assistLastState = -1;
-                        DebugLogger.LogState("CampAssist: selector hidden.");
-                    }
-                    return;
-                }
+                    });
 
-                if (!_assistWasActive)
-                {
-                    _assistWasActive = true;
-                    _assistEquipLastIndex = -1;
-                    _assistCharLastIndex = -1;
-                    _assistLastState = -1;
-
-                    if (!_assistSuppressHeading)
-                    {
-                        ScreenReader.Say(Loc.Get("camp_assist_screen"));
-                        DebugLogger.LogState("CampAssist: selector visible.");
-                    }
-                    else
-                    {
-                        _assistSuppressHeading = false;
-                        DebugLogger.LogState("CampAssist: stale open — heading suppressed.");
-                    }
-                }
+                if (!shouldPoll) return;
 
                 int state = (int)_assistSelector.currentState;
 
@@ -285,7 +241,7 @@ namespace SO2RAccess
             {
                 MelonLogger.Warning($"CampMenuHandler.UpdateAssistSettingSelector: {ex.Message}");
                 _assistSelector = null;
-                _assistWasActive = false;
+                _assistState.Reset();
                 _assistEquipListBase = null;
                 _assistCharListBase = null;
                 _assistLastState = -1;
@@ -304,45 +260,29 @@ namespace SO2RAccess
         {
             if (_operationSelector == null) return;
 
-            if (_lastRootMenuItemName != "Tactics")
-            {
-                return;
-            }
+            if (_lastRootMenuItemName != "Tactics") return;
 
             try
             {
                 bool isActive = _operationSelector.gameObject.activeInHierarchy;
 
-                if (!isActive)
-                {
-                    if (_operationWasActive)
-                    {
-                        _operationWasActive = false;
-                        _operationSelectListBase = null;
-                        _operationLastState = -1;
-                        DebugLogger.LogState("CampTactics: selector hidden.");
-                    }
-                    return;
-                }
-
-                if (!_operationWasActive)
-                {
-                    _operationWasActive = true;
-                    _operationCharLastIndex = -1;
-                    _operationSelectLastIndex = -1;
-                    _operationLastState = -1;
-
-                    if (!_operationSuppressHeading)
+                bool shouldPoll = _operationState.CheckEntry(
+                    isActive,
+                    () =>
                     {
                         ScreenReader.Say(Loc.Get("camp_tactics_screen"));
-                        DebugLogger.LogState("CampTactics: selector visible.");
-                    }
-                    else
+                        _operationCharLastIndex = -1;
+                        _operationSelectLastIndex = -1;
+                        _operationLastState = -1;
+                    },
+                    "CampTactics",
+                    onHidden: () =>
                     {
-                        _operationSuppressHeading = false;
-                        DebugLogger.LogState("CampTactics: stale open — heading suppressed.");
-                    }
-                }
+                        _operationSelectListBase = null;
+                        _operationLastState = -1;
+                    });
+
+                if (!shouldPoll) return;
 
                 int state = (int)_operationSelector.currentState;
 
@@ -412,7 +352,7 @@ namespace SO2RAccess
             {
                 MelonLogger.Warning($"CampMenuHandler.UpdateTacticsSelector: {ex.Message}");
                 _operationSelector = null;
-                _operationWasActive = false;
+                _operationState.Reset();
                 _operationSelectListBase = null;
                 _operationLastState = -1;
             }
@@ -453,7 +393,7 @@ namespace SO2RAccess
         private static void OperationInfoPresenter_Set_Postfix(
             string name, string description, string prefabPath)
         {
-            if (!_operationWasActive) return;
+            if (!_operationState.WasActive) return;
             if (_operationSelector == null) return;
             if (_lastRootMenuItemName != "Tactics") return;
 

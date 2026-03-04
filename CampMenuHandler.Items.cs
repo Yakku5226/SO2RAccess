@@ -14,11 +14,7 @@ namespace SO2RAccess
         // currentIndex/currentDataList live on UIListSelectorBase — need a cast.
         private static UICampItemSelector _itemSelector = null;
         private static UIListSelectorBase _itemListSelectorBase = null;
-        private static int _itemLastIndex = -1;
-        private static bool _itemWasActive = false;
-        // When the item selector is already active on camp open (stale from a previous
-        // session), suppress the "Items." heading and don't reset _itemLastIndex to -1.
-        private static bool _itemSuppressHeading = false;
+        private static readonly SubScreenState _itemState = new SubScreenState();
 
         // Cached from UIItemInformationPresenter.Set hook — contains the effect text
         // ("Restores 30% HP") and factor info that UIItemListItemData doesn't carry.
@@ -40,38 +36,22 @@ namespace SO2RAccess
             if (_itemSelector == null) return;
 
             // Only poll when the root menu highlights "Item".
-            // All sub-screens have activeInHierarchy=True permanently, so we use the
-            // root menu item name as the only reliable signal for which screen is current.
-            if (_lastRootMenuItemName != "Item")
-            {
-                // Don't reset _itemWasActive or _itemLastIndex here.
-                // The item list is permanently active and retains its index,
-                // so resetting would cause stale announcements when the root
-                // menu cursor returns to "Item" during normal navigation.
-                return;
-            }
+            if (_lastRootMenuItemName != "Item") return;
 
             try
             {
                 bool isActive = _itemSelector.gameObject.activeInHierarchy;
 
-                if (!isActive)
-                {
-                    if (_itemWasActive)
-                    {
-                        _itemWasActive = false;
-                        _itemListSelectorBase = null;
-                        DebugLogger.LogState("CampItem: selector hidden.");
-                    }
-                    return;
-                }
+                bool shouldPoll = _itemState.CheckEntry(
+                    isActive,
+                    () => ScreenReader.Say(Loc.Get("camp_item_screen")),
+                    "CampItem",
+                    onHidden: () => { _itemListSelectorBase = null; });
 
-                if (!_itemWasActive)
+                if (!shouldPoll)
                 {
-                    _itemWasActive = true;
-
-                    // Cache the inner list selector if not already pre-cached by the postfix.
-                    if (_itemListSelectorBase == null)
+                    // On genuine first entry, cache the inner list selector.
+                    if (_itemState.WasActive && _itemListSelectorBase == null)
                     {
                         var inner = _itemSelector.itemListSelector;
                         _itemListSelectorBase = inner?.TryCast<UIListSelectorBase>();
@@ -81,31 +61,14 @@ namespace SO2RAccess
                         else
                             MelonLogger.Warning("[CAMP] itemListSelector cast to UIListSelectorBase failed.");
                     }
-
-                    if (!_itemSuppressHeading)
-                    {
-                        // Genuine entry — announce heading and reset index to force
-                        // first-item announcement next frame.
-                        _itemLastIndex = -1;
-                        ScreenReader.Say(Loc.Get("camp_item_screen"));
-                        DebugLogger.LogState("CampItem: selector visible.");
-                    }
-                    else
-                    {
-                        // Stale on camp re-open — suppress heading and keep pre-seeded
-                        // _itemLastIndex so the stale item is not re-announced.
-                        _itemSuppressHeading = false;
-                        DebugLogger.LogState("CampItem: stale open — heading suppressed.");
-                    }
-
                     return;
                 }
 
                 if (_itemListSelectorBase == null) return;
 
                 int idx = _itemListSelectorBase.currentIndex;
-                if (idx == _itemLastIndex) return;
-                _itemLastIndex = idx;
+                if (idx == _itemState.LastIndex) return;
+                _itemState.LastIndex = idx;
 
                 var list = _itemListSelectorBase.currentDataList;
                 if (list == null) return;
@@ -150,9 +113,7 @@ namespace SO2RAccess
                 MelonLogger.Warning($"CampMenuHandler.UpdateItemSelector: {ex.Message}");
                 _itemSelector = null;
                 _itemListSelectorBase = null;
-                _itemWasActive = false;
-                _itemLastIndex = -1;
-                _itemSuppressHeading = false;
+                _itemState.Reset();
             }
         }
     }

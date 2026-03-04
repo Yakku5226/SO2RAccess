@@ -52,8 +52,7 @@ namespace SO2RAccess
         private static UIListSelectorBase _battleSkillEquipListBase = null;
         private static UIListSelectorBase _battleSkillPickerListBase = null;
         private static int _battleSkillEquipLastIndex = -1;
-        private static bool _battleSkillSettingWasActive = false;
-        private static bool _battleSkillSettingSuppressHeading = false;
+        private static readonly SubScreenState _battleSkillSettingState = new SubScreenState();
 
         #region Gate Functions
 
@@ -176,53 +175,46 @@ namespace SO2RAccess
         {
             if (_battleSkillSettingSelector == null) return;
 
-            // Only poll when the root menu highlights the BattleSkill item.
-            if (!IsRootBattleSkillMenu())
-            {
-                // Don't reset _battleSkillSettingWasActive or equip state here.
-                // Resetting causes stale announcements when root menu cursor
-                // returns to the item during normal navigation.
-                return;
-            }
+            // Only poll when inside the BattleSkill sub-screen (root menu hidden).
+            if (!IsRootBattleSkillMenu()) return;
 
             try
             {
                 bool isActive = _battleSkillSettingSelector.gameObject.activeInHierarchy;
 
-                if (!isActive)
-                {
-                    if (_battleSkillSettingWasActive)
+                bool shouldPoll = _battleSkillSettingState.CheckEntry(
+                    isActive,
+                    () =>
                     {
-                        _battleSkillSettingWasActive = false;
+                        ScreenReader.Say(Loc.Get("camp_battleskill_setting_screen"));
+                        _battleSkillEquipLastIndex = -1;
+                    },
+                    "CampBattleSkillSetting",
+                    onHidden: () =>
+                    {
                         _battleSkillEquipListSel = null;
                         _battleSkillEquipListBase = null;
                         _battleSkillPickerListBase = null;
                         _battleSkillEquipLastIndex = -1;
-                        DebugLogger.LogState("CampBattleSkillSetting: selector hidden.");
+                    });
+
+                if (!shouldPoll)
+                {
+                    // On genuine first entry, cache sub-selectors.
+                    if (_battleSkillSettingState.WasActive)
+                    {
+                        if (_battleSkillEquipListSel == null)
+                        {
+                            _battleSkillEquipListSel  = _battleSkillSettingSelector.equipListSelector;
+                            _battleSkillEquipListBase  = _battleSkillEquipListSel?.TryCast<UIListSelectorBase>();
+                        }
+                        if (_battleSkillPickerListBase == null)
+                        {
+                            var pickerSel              = _battleSkillSettingSelector.battleSkillListSelector;
+                            _battleSkillPickerListBase  = pickerSel?.TryCast<UIListSelectorBase>();
+                        }
                     }
                     return;
-                }
-
-                if (!_battleSkillSettingWasActive)
-                {
-                    _battleSkillSettingWasActive = true;
-
-                    _battleSkillEquipListSel  = _battleSkillSettingSelector.equipListSelector;
-                    _battleSkillEquipListBase  = _battleSkillEquipListSel?.TryCast<UIListSelectorBase>();
-                    var pickerSel              = _battleSkillSettingSelector.battleSkillListSelector;
-                    _battleSkillPickerListBase  = pickerSel?.TryCast<UIListSelectorBase>();
-
-                    if (!_battleSkillSettingSuppressHeading)
-                    {
-                        ScreenReader.Say(Loc.Get("camp_battleskill_setting_screen"));
-                        _battleSkillEquipLastIndex = -1;
-                        DebugLogger.LogState("CampBattleSkillSetting: selector visible.");
-                    }
-                    else
-                    {
-                        _battleSkillSettingSuppressHeading = false;
-                        DebugLogger.LogState("CampBattleSkillSetting: stale open — heading suppressed.");
-                    }
                 }
 
                 // In Equip state: poll slot list. In SelectBattleSkill: hook handles it.
@@ -238,8 +230,7 @@ namespace SO2RAccess
                 _battleSkillEquipListBase = null;
                 _battleSkillPickerListBase = null;
                 _battleSkillEquipLastIndex = -1;
-                _battleSkillSettingWasActive = false;
-                _battleSkillSettingSuppressHeading = false;
+                _battleSkillSettingState.Reset();
             }
         }
 
@@ -306,7 +297,7 @@ namespace SO2RAccess
             bool levelingActive = _battleSkillWasActive && _battleSkillOuterSelector != null;
 
             bool settingActive = isRoot &&
-                _battleSkillSettingWasActive &&
+                _battleSkillSettingState.WasActive &&
                 _battleSkillSettingSelector != null &&
                 _battleSkillSettingSelector.gameObject.activeInHierarchy;
 
