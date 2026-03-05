@@ -54,7 +54,8 @@ namespace SO2RAccess
             var found = UnityEngine.Object.FindObjectsOfType<FieldNpcCharacter>();
             if (found == null) return;
 
-            var items = new List<NavItem>();
+            var npcItems = new List<NavItem>();
+            var interactItems = new List<NavItem>();
             foreach (var npc in found)
             {
                 if (npc == null) continue;
@@ -69,33 +70,41 @@ namespace SO2RAccess
 
                 string label = ResolveNpcName(npc, npcParams);
                 bool isCounter = IsFunctionalNpcType(npc.npcType);
-                items.Add(new NavItem
+                bool isInteractable = IsInteractableNpcType(npc.npcType);
+                var item = new NavItem
                 {
                     Label         = label,
                     Distance      = dist,
                     Position      = pos,
                     LiveTransform = npc.transform,
                     IsCounterNpc  = isCounter,
-                });
-                DebugLogger.LogGameValue("NAV:NPC",
+                };
+                DebugLogger.LogGameValue(isInteractable ? "NAV:INTERACT" : "NAV:NPC",
                     $"[{label}] type={npc.npcType} dist={dist:F1} pos={pos}");
+
+                if (isInteractable)
+                    interactItems.Add(item);
+                else
+                    npcItems.Add(item);
             }
 
-            SortAndFilterUnreachable(items, playerPos);
+            SortAndFilterUnreachable(npcItems, playerPos);
+            SortAndFilterUnreachable(interactItems, playerPos);
 
             // Number any NPCs that still carry the generic "NPC" label.
             int npcNum = 1;
-            for (int i = 0; i < items.Count; i++)
+            for (int i = 0; i < npcItems.Count; i++)
             {
-                var item = items[i];
+                var item = npcItems[i];
                 if (item.Label == "NPC")
                 {
                     item.Label = Loc.Get("nav_npc_n", npcNum++);
-                    items[i]   = item;
+                    npcItems[i] = item;
                 }
             }
 
-            _categories[CAT_NPC].AddRange(items);
+            _categories[CAT_NPC].AddRange(npcItems);
+            _categories[CAT_INTERACTABLE].AddRange(interactItems);
         }
 
         /// <summary>

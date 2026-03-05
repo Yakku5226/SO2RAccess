@@ -43,21 +43,22 @@ namespace SO2RAccess
     {
         #region Constants
 
-        private const int CAT_NPC    = 0;
-        private const int CAT_CHEST  = 1;
-        private const int CAT_EXIT   = 2;
-        private const int CAT_MARKER = 3;
-        private const int CAT_EVENT  = 4;
-        private const int CAT_SAVE   = 5;
-        private const int CAT_ENEMY  = 6;
-        private const int CAT_STAIRS = 7;
-        private const int CAT_DOOR   = 8;
-        private const int CAT_WARP   = 9;
-        private const int CAT_COUNT  = 10;
+        private const int CAT_NPC          = 0;
+        private const int CAT_CHEST        = 1;
+        private const int CAT_EXIT         = 2;
+        private const int CAT_MARKER       = 3;
+        private const int CAT_EVENT        = 4;
+        private const int CAT_SAVE         = 5;
+        private const int CAT_ENEMY        = 6;
+        private const int CAT_STAIRS       = 7;
+        private const int CAT_DOOR         = 8;
+        private const int CAT_WARP         = 9;
+        private const int CAT_INTERACTABLE = 10;
+        private const int CAT_COUNT        = 11;
 
         private static readonly string[] _categoryNames =
             { "NPCs", "Chests", "Exits", "Markers", "Events", "Save Points", "Enemies",
-              "Stairs", "Doors", "Warp Points" };
+              "Stairs", "Doors", "Warp Points", "Interactables" };
 
         /// <summary>
         /// Manual overrides for FieldmapID destination names.
@@ -690,7 +691,8 @@ namespace SO2RAccess
                     $"enemies={_categories[CAT_ENEMY].Count} " +
                     $"stairs={_categories[CAT_STAIRS].Count} " +
                     $"doors={_categories[CAT_DOOR].Count} " +
-                    $"warps={_categories[CAT_WARP].Count}");
+                    $"warps={_categories[CAT_WARP].Count} " +
+                    $"interactables={_categories[CAT_INTERACTABLE].Count}");
 
                 if (totalItems == 0)
                 {
@@ -874,6 +876,21 @@ namespace SO2RAccess
         /// by NavMesh reachability because the game allows interaction over
         /// the counter even though no walkable path exists.
         /// </summary>
+        /// <summary>
+        /// Returns true for NPC types that represent interactable objects
+        /// (switches, beds, inspection points) rather than characters.
+        /// These go into the Interactables nav category instead of NPCs.
+        /// </summary>
+        private static bool IsInteractableNpcType(NpcType type)
+        {
+            return type switch
+            {
+                NpcType.CHECK => true,
+                NpcType.BED   => true,
+                _             => false
+            };
+        }
+
         private static bool IsFunctionalNpcType(NpcType type)
         {
             return type switch
@@ -900,7 +917,7 @@ namespace SO2RAccess
                 NpcType.GUILD          => "Guild",
                 NpcType.FISH_COLLECTOR => "Collector",
                 NpcType.FACILITY       => "Facility",
-                NpcType.CHECK          => "Info",
+                NpcType.CHECK          => "Switch",
                 NpcType.BED            => "Bed",
                 NpcType.PSYNARD        => "Psynard",
                 _                      => "NPC"

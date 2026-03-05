@@ -114,7 +114,7 @@ namespace SO2RAccess
         /// Reads the display text and optional talker name, then announces them.
         /// </summary>
         private static void ConversationPresenter_SetMessage_Postfix(
-            string message, string talkerName)
+            string message, string talkerName, string voiceID)
         {
             try
             {
@@ -130,13 +130,27 @@ namespace SO2RAccess
                 if (!string.IsNullOrEmpty(cleanName))
                     TryRecordNpcName(cleanName);
 
-                string announcement = string.IsNullOrEmpty(cleanName)
-                    ? Loc.Get("dialogue_no_name", cleanMessage)
-                    : Loc.Get("dialogue_with_name", cleanName, cleanMessage);
+                // In NameOnlyWhenVoiced mode, voiced lines announce just the speaker name
+                // so the game's voice audio can carry the dialogue without overlap.
+                // voiceID is never empty — cutscene voices use "sc#####_###" format,
+                // while unvoiced NPC field chat uses "NPC_*" format.
+                bool isVoiced = !string.IsNullOrEmpty(voiceID)
+                    && voiceID.StartsWith("sc", StringComparison.OrdinalIgnoreCase);
+                bool nameOnly = isVoiced
+                    && !string.IsNullOrEmpty(cleanName)
+                    && ModSettings.DialogueVoiceMode == DialogueVoiceMode.NameOnlyWhenVoiced;
+
+                string announcement;
+                if (nameOnly)
+                    announcement = Loc.Get("dialogue_speaker_only", cleanName);
+                else if (string.IsNullOrEmpty(cleanName))
+                    announcement = Loc.Get("dialogue_no_name", cleanMessage);
+                else
+                    announcement = Loc.Get("dialogue_with_name", cleanName, cleanMessage);
 
                 ScreenReader.Say(announcement);
                 DebugLogger.LogGameValue("Dialogue",
-                    $"name='{cleanName}' msg='{cleanMessage}'");
+                    $"name='{cleanName}' voiced={isVoiced} voiceID='{voiceID ?? ""}' mode={ModSettings.DialogueVoiceMode} msg='{cleanMessage}'");
             }
             catch (Exception ex)
             {
@@ -217,6 +231,11 @@ namespace SO2RAccess
                         string codeName = param.Name;
                         if (string.IsNullOrEmpty(codeName)) break;
 
+                        // Skip event objects (switches, triggers, cutscene actors) —
+                        // they aren't real NPCs and shouldn't learn dialogue names.
+                        if (codeName.StartsWith("ev_", StringComparison.OrdinalIgnoreCase))
+                            break;
+
                         if (!PersistentNpcNames.ContainsKey(codeName))
                         {
                             PersistentNpcNames[codeName] = displayName;
@@ -269,6 +288,9 @@ namespace SO2RAccess
                     string name = line.Substring(sep + 1).Trim();
                     if (!string.IsNullOrEmpty(code) && !string.IsNullOrEmpty(name))
                     {
+                        // Skip event objects that were incorrectly saved in older versions.
+                        if (code.StartsWith("ev_", StringComparison.OrdinalIgnoreCase))
+                            continue;
                         PersistentNpcNames[code] = name;
                         loaded++;
                     }
