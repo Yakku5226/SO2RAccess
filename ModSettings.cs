@@ -6,6 +6,17 @@ using MelonLoader;
 namespace SO2RAccess
 {
     /// <summary>
+    /// Controls how dialogue is announced when voice acting is present.
+    /// </summary>
+    public enum DialogueVoiceMode
+    {
+        /// <summary>Always read speaker name and full text.</summary>
+        Full = 0,
+        /// <summary>Read only the speaker name when the line is voiced.</summary>
+        NameOnlyWhenVoiced = 1
+    }
+
+    /// <summary>
     /// Persistent mod settings. Loads from and saves to a JSON file
     /// in UserData/SO2RAccess/settings.json. Settings are exposed as
     /// static properties for easy access from handlers and the future
@@ -32,6 +43,18 @@ namespace SO2RAccess
 
         /// <summary>Volume of the enemy proximity audio cue (0.0 to 1.0).</summary>
         public static float EnemyProximitySoundVolume { get; set; } = 1.0f;
+
+        /// <summary>How dialogue is announced when voice acting is present.</summary>
+        public static DialogueVoiceMode DialogueVoiceMode { get; set; } = DialogueVoiceMode.Full;
+
+        /// <summary>Whether ally health warnings (below 50%, below 25%, KO) are announced in battle.</summary>
+        public static bool AllyHealthWarningEnabled { get; set; } = true;
+
+        /// <summary>Whether ally negative status ailments are announced in battle.</summary>
+        public static bool AllyStatusAilmentEnabled { get; set; } = true;
+
+        /// <summary>Whether damage dealt by the player-controlled character is announced.</summary>
+        public static bool PlayerDamageDealtEnabled { get; set; } = true;
 
         #endregion
 
@@ -69,6 +92,12 @@ namespace SO2RAccess
                     DodgeSoundVolume = Math.Clamp(data.DodgeSoundVolume, 0f, 1f);
                     EnemyProximitySoundEnabled = data.EnemyProximitySoundEnabled;
                     EnemyProximitySoundVolume = Math.Clamp(data.EnemyProximitySoundVolume, 0f, 1f);
+                    DialogueVoiceMode = Enum.IsDefined(typeof(DialogueVoiceMode), data.DialogueVoiceMode)
+                        ? (DialogueVoiceMode)data.DialogueVoiceMode
+                        : DialogueVoiceMode.Full;
+                    AllyHealthWarningEnabled = data.AllyHealthWarningEnabled;
+                    AllyStatusAilmentEnabled = data.AllyStatusAilmentEnabled;
+                    PlayerDamageDealtEnabled = data.PlayerDamageDealtEnabled;
                 }
                 MelonLogger.Msg("ModSettings: loaded.");
             }
@@ -94,7 +123,11 @@ namespace SO2RAccess
                     DodgeSoundEnabled = DodgeSoundEnabled,
                     DodgeSoundVolume = DodgeSoundVolume,
                     EnemyProximitySoundEnabled = EnemyProximitySoundEnabled,
-                    EnemyProximitySoundVolume = EnemyProximitySoundVolume
+                    EnemyProximitySoundVolume = EnemyProximitySoundVolume,
+                    DialogueVoiceMode = (int)DialogueVoiceMode,
+                    AllyHealthWarningEnabled = AllyHealthWarningEnabled,
+                    AllyStatusAilmentEnabled = AllyStatusAilmentEnabled,
+                    PlayerDamageDealtEnabled = PlayerDamageDealtEnabled
                 };
 
                 var options = new JsonSerializerOptions { WriteIndented = true };
@@ -119,6 +152,10 @@ namespace SO2RAccess
             public float DodgeSoundVolume { get; set; } = 0.8f;
             public bool EnemyProximitySoundEnabled { get; set; } = true;
             public float EnemyProximitySoundVolume { get; set; } = 1.0f;
+            public int DialogueVoiceMode { get; set; } = 0;
+            public bool AllyHealthWarningEnabled { get; set; } = true;
+            public bool AllyStatusAilmentEnabled { get; set; } = true;
+            public bool PlayerDamageDealtEnabled { get; set; } = true;
         }
 
         #endregion

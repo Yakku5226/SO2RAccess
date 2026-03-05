@@ -46,12 +46,20 @@ namespace SO2RAccess
 
         /// <summary>
         /// Shared input suppression logic for IsDown and IsRepeat prefixes.
-        /// Blocks D-pad directions, shortcut actions, and FieldCameraLeft (L1 camera)
-        /// while the gamepad nav overlay is active.
+        /// When the mod menu is open, blocks ALL game input actions.
+        /// When only the gamepad nav overlay is active, blocks D-pad directions,
+        /// shortcut actions, and FieldCameraLeft (L1 camera).
         /// </summary>
         private static bool SuppressNavInput(
             GameInputManager.InputAction inputAction, ref bool __result)
         {
+            // Mod menu open — block everything so no game action leaks through.
+            if (ModMenuHandler.SuppressAllGameInput)
+            {
+                __result = false;
+                return false;
+            }
+
             if (!_gamepadNavActive) return true;
 
             // Up=11, Down=12, Right=13, Left=14 — basic D-pad movement
@@ -101,6 +109,12 @@ namespace SO2RAccess
         /// </summary>
         private static bool GetDPad_Prefix(ref Vector2 __result)
         {
+            if (ModMenuHandler.SuppressAllGameInput)
+            {
+                __result = Vector2.zero;
+                return false;
+            }
+
             if (!_gamepadNavActive) return true;
 
             __result = Vector2.zero;

@@ -42,6 +42,20 @@ namespace SO2RAccess
         /// </summary>
         public void Update()
         {
+            // Respect the mod setting — if disabled, stop any active playback and bail.
+            if (!ModSettings.EnemyProximitySoundEnabled)
+            {
+                if (_isPlaying)
+                {
+                    SpatialAudioPlayer.Stop();
+                    _isPlaying = false;
+                }
+                return;
+            }
+
+            // Push the user's volume setting to the audio player each frame.
+            SpatialAudioPlayer.UserVolume = ModSettings.EnemyProximitySoundVolume;
+
             if (!SpatialAudioPlayer.IsPlaying && !CanActivate())
             {
                 // Not on the field — nothing to do.

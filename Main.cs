@@ -56,6 +56,8 @@ namespace SO2RAccess
         private BattleTargetHandler _battleTargetHandler;
         private BattlePauseHandler _battlePauseHandler;
         private BattleMenuHandler _battleMenuHandler;
+        private BattleStatusHandler _battleStatusHandler;
+        private ModMenuHandler _modMenuHandler;
 
         // Gamepad nav overlay — L1 hold-to-open state.
         private bool _gamepadL1Held;
@@ -85,7 +87,7 @@ namespace SO2RAccess
             // Load audio files from the mod sounds folder.
             string soundsDir = Path.Combine(Directory.GetCurrentDirectory(),
                 "UserData", "SO2RAccess", "Sounds");
-            string proximityWavPath = Path.Combine(soundsDir, "Enemy_proximity.wav");
+            string proximityWavPath = Path.Combine(soundsDir, "Enemynearby.wav");
             SpatialAudioPlayer.Initialize(proximityWavPath);
 
             string dodgeWavPath = Path.Combine(soundsDir, "Dodge.wav");
@@ -122,6 +124,8 @@ namespace SO2RAccess
             _battleTargetHandler = new BattleTargetHandler();
             _battlePauseHandler = new BattlePauseHandler();
             _battleMenuHandler = new BattleMenuHandler();
+            _battleStatusHandler = new BattleStatusHandler();
+            _modMenuHandler = new ModMenuHandler();
         }
 
         private IEnumerator AnnounceStartupDelayed()
@@ -186,6 +190,7 @@ namespace SO2RAccess
             _battleTargetHandler?.OnSceneChanged();
             _battlePauseHandler?.OnSceneChanged();
             _battleMenuHandler?.OnSceneChanged();
+            _battleStatusHandler?.OnSceneChanged();
 
             // Apply patches once — safe to call on every scene load, handlers guard against duplicates.
             _titleHandler.ApplyPatches(_harmony);
@@ -208,6 +213,7 @@ namespace SO2RAccess
             _battleTargetHandler.ApplyPatches(_harmony);
             _battlePauseHandler.ApplyPatches(_harmony);
             _battleMenuHandler.ApplyPatches(_harmony);
+            _battleStatusHandler.ApplyPatches(_harmony);
         }
 
         /// <summary>
@@ -233,6 +239,18 @@ namespace SO2RAccess
             var kb = Keyboard.current;
             if (kb == null) return false;
 
+            // F4 — toggle mod settings menu
+            if (kb[Key.F4].wasPressedThisFrame && !_modMenuHandler.IsOpen)
+            {
+                DebugLogger.LogInput("F4", "ModMenuOpen");
+                _modMenuHandler.Open();
+                return true;
+            }
+
+            // Mod menu consumes all keyboard input while open
+            if (_modMenuHandler.IsOpen)
+                return _modMenuHandler.ProcessKeyboard(kb);
+
             // F12 — toggle debug mode
             if (kb[Key.F12].wasPressedThisFrame)
             {
@@ -247,6 +265,22 @@ namespace SO2RAccess
             {
                 DebugLogger.LogInput("F1", "Help");
                 ScreenReader.Say(Loc.Get("help"));
+                return true;
+            }
+
+            // F2 — toggle dialogue voice mode
+            if (kb[Key.F2].wasPressedThisFrame)
+            {
+                ModSettings.DialogueVoiceMode =
+                    ModSettings.DialogueVoiceMode == DialogueVoiceMode.Full
+                        ? DialogueVoiceMode.NameOnlyWhenVoiced
+                        : DialogueVoiceMode.Full;
+                string locKey = ModSettings.DialogueVoiceMode == DialogueVoiceMode.Full
+                    ? "dialogue_mode_full"
+                    : "dialogue_mode_name_only";
+                ScreenReader.Say(Loc.Get(locKey));
+                MelonLogger.Msg($"Dialogue voice mode: {ModSettings.DialogueVoiceMode}.");
+                ModSettings.Save();
                 return true;
             }
 
@@ -382,6 +416,19 @@ namespace SO2RAccess
                     float ly = gp.leftStick.y.ReadValue();
                     MelonLogger.Msg($"[GAMEPAD DIAG] L1={ls} R1={rs} DUp={du} DDown={dd} DLeft={dl} DRight={dr} LStickY={ly:F2} | _gamepadL1Held={_gamepadL1Held} navOpen={_navigationHandler.IsListOpen} autoWalk={_navigationHandler.IsAutoWalking}");
                 }
+            }
+
+            // Mod menu — L1+L3 to toggle, then consume all gamepad input while open.
+            if (gp.leftShoulder.isPressed && gp.leftStickButton.wasPressedThisFrame)
+            {
+                DebugLogger.LogInput("L1+L3", "ModMenuToggle");
+                _modMenuHandler.Toggle();
+                return;
+            }
+            if (_modMenuHandler.IsOpen)
+            {
+                _modMenuHandler.ProcessGamepad(gp);
+                return;
             }
 
             // Battle pause menu — L1/R1 for tier cycling.

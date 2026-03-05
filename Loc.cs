@@ -78,7 +78,7 @@ namespace SO2RAccess
             Add("mod_loaded",   "SO2RAccess loaded. Press F1 for help.");
             Add("debug_on",     "Debug mode enabled.");
             Add("debug_off",    "Debug mode disabled.");
-            Add("help",         "Keyboard: F1 Help. NumPad 5 open or close navigation list. NumPad 8 and 2 move up and down. NumPad 4 and 6 change category. NumPad 1 walk to selected item or cancel walk. F12 toggle debug mode. Gamepad: hold L1 to open navigation, D-pad up and down for category, left and right for items. Push left stick up to walk.");
+            Add("help",         "Keyboard: F1 Help. F4 Mod settings. NumPad 5 open or close navigation list. NumPad 8 and 2 move up and down. NumPad 4 and 6 change category. NumPad 1 walk to selected item or cancel walk. F12 toggle debug mode. Gamepad: hold L1 to open navigation, D-pad up and down for category, left and right for items. Push left stick up to walk. L1 plus L3 for mod settings.");
 
             // Title menu
             Add("title_press_any_button",      "Title screen. Press any button to start.");
@@ -129,6 +129,9 @@ namespace SO2RAccess
             // Dialogue / NPC text boxes
             Add("dialogue_no_name",   "{0}");
             Add("dialogue_with_name", "{0}: {1}");
+            Add("dialogue_speaker_only", "{0}");
+            Add("dialogue_mode_full",      "Dialogue mode: full text");
+            Add("dialogue_mode_name_only", "Dialogue mode: name only when voiced");
 
             // Tutorial boxes
             Add("tutorial_page",          "Tutorial. {0}. {1}");
@@ -407,6 +410,26 @@ namespace SO2RAccess
             Add("gameover_retry",       "Retry");
             Add("gameover_title",       "Title");
 
+            // Mod settings menu (F4 / L1+L3)
+            Add("mod_menu_open",                    "Mod settings menu.");
+            Add("mod_menu_close",                   "Settings saved. Menu closed.");
+            Add("mod_menu_item",                    "{0}: {1}. Item {2} of {3}.");
+            Add("mod_menu_changed",                 "{0}: {1}.");
+            Add("mod_menu_on",                      "On");
+            Add("mod_menu_off",                     "Off");
+            Add("mod_menu_label_save_sound",        "Save sound");
+            Add("mod_menu_label_save_volume",       "Save sound volume");
+            Add("mod_menu_label_dodge_sound",       "Dodge sound");
+            Add("mod_menu_label_dodge_volume",      "Dodge sound volume");
+            Add("mod_menu_label_proximity_sound",   "Enemy proximity sound");
+            Add("mod_menu_label_proximity_volume",  "Enemy proximity sound volume");
+            Add("mod_menu_label_dialogue_mode",     "Dialogue mode");
+            Add("mod_menu_dialogue_full",           "Full text");
+            Add("mod_menu_dialogue_name_only",      "Name only when voiced");
+            Add("mod_menu_label_ally_health",       "Ally health warnings");
+            Add("mod_menu_label_ally_ailment",      "Ally status ailments");
+            Add("mod_menu_label_player_damage",     "Player damage dealt");
+
             // Battle target (L2 target change mode)
             Add("battle_target_hp_pct",         "HP {0}%.");
             Add("battle_target_hp_exact",       "HP {0} of {1}.");
@@ -458,6 +481,13 @@ namespace SO2RAccess
 
             // Battle menu — items without description
             Add("battle_menu_items_basic",          "{0} x{1}. {2} of {3}.");
+
+            // Battle status announcements (during active combat)
+            Add("battle_status_hp_below_50",        "{0}, health below 50 percent.");
+            Add("battle_status_hp_below_25",        "{0}, health critical.");
+            Add("battle_status_ko",                 "{0}, knocked out.");
+            Add("battle_status_ailment",            "{0}, {1}.");
+            Add("battle_status_damage_dealt",       "{0} damage.");
 
             // Battle menu — tactics/strategy
             Add("battle_menu_tactics_heading",      "Strategy.");
