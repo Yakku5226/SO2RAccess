@@ -2,6 +2,7 @@ using HarmonyLib;
 using Il2CppGame;
 using MelonLoader;
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -31,6 +32,11 @@ namespace SO2RAccess
         // Equip item list — used by the hook to read currentIndex and total count.
         private static UIListSelectorBase _equipItemListBase = null;
         private static bool _equipItemListActive = false;
+
+        // Elemental resistance panel — shown by Triangle button.
+        // Data cached from UIElementalGroupPresenter.Set hook; announced when panel
+        // visibility transitions from hidden to shown (polled in UpdateEquipSelector).
+        private static string _cachedElementalAnnouncement = null;
 
         /// <summary>
         /// Populates _equipSlotCategoryNames with the friendly names for each equipment slot.
@@ -79,6 +85,7 @@ namespace SO2RAccess
                         _equipItemListActive = false;
                         _equipSlotListBase = null;
                         _equipItemListBase = null;
+                        _cachedElementalAnnouncement = null;
                     });
 
                 if (!shouldPoll)
@@ -113,6 +120,21 @@ namespace SO2RAccess
                 // Only poll the slot list while the item list is not shown.
                 if (!_equipItemListActive)
                     UpdateEquipSlotList();
+
+                // Announce elemental resistances on Triangle press.
+                // The panel's gameObject and CanvasGroup are NOT reliable visibility
+                // indicators (activeSelf is always false, myCanvasGroup is null).
+                // Instead, detect the Triangle button press directly and announce
+                // the cached data from the UIElementalGroupPresenter.Set hook.
+                var gim = GameInputManager.Instance;
+                if (gim != null && gim.IsDown(GameInputManager.InputAction.Triangle))
+                {
+                    if (!string.IsNullOrEmpty(_cachedElementalAnnouncement))
+                    {
+                        ScreenReader.Say(_cachedElementalAnnouncement);
+                        DebugLogger.LogState("CampEquip: Triangle pressed, announced elemental.");
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -125,6 +147,7 @@ namespace SO2RAccess
                 _equipItemListBase = null;
                 _equipItemListActive = false;
                 _equipSlotCategoryNames = null;
+                _cachedElementalAnnouncement = null;
             }
         }
 
@@ -156,6 +179,12 @@ namespace SO2RAccess
                     return;
                 }
 
+                // First-activation logic: resets index to force re-announcement.
+                // WARNING: This resets _equipSlotLastIndex to -1, which overwrites any
+                // stale-seed from CampWindow_Open_Postfix. The Open postfix MUST set
+                // _equipSlotWasActive = true alongside the index seed to skip this block.
+                // Without that, highlighting "Equip" on the root menu triggers a spurious
+                // slot announcement. See SubScreenState.cs class docs for the full pattern.
                 if (!_equipSlotWasActive)
                 {
                     _equipSlotWasActive = true;
@@ -199,6 +228,76 @@ namespace SO2RAccess
             }
         }
 
+        // Element names by index position in the elemental data list.
+        // Order matches ElementID enum (starting from EARTH=1): Earth, Water, Fire, Wind,
+        // Lightning, Star, Negative, Light, Dark.
+        private static readonly string[] _elementNameKeys =
+        {
+            "element_earth", "element_water", "element_fire", "element_wind",
+            "element_lightning", "element_star", "element_negative",
+            "element_light", "element_dark"
+        };
+
+        /// <summary>
+        /// Postfix for UIElementalGroupPresenter.Set(List&lt;UIElementalData&gt;).
+        /// Fires when the elemental resistance panel updates — triggered by Triangle
+        /// button in the equip screen. Announces each element's resistance status.
+        /// Only non-INVALID resistances are announced.
+        /// </summary>
+        private static void ElementalGroupPresenter_Set_Postfix(
+            Il2CppSystem.Collections.Generic.List<UIElementalData> dataList)
+        {
+            // Gate: only cache when the equip screen is active.
+            if (_equipSelector == null) return;
+            if (_lastRootMenuItemName != "Equip") return;
+
+            try
+            {
+                if (dataList == null || dataList.Count == 0)
+                {
+                    _cachedElementalAnnouncement = Loc.Get("camp_equip_elemental_none");
+                    return;
+                }
+
+                var parts = new List<string>();
+
+                for (int i = 0; i < dataList.Count; i++)
+                {
+                    var entry = dataList[i];
+                    if (entry == null) continue;
+                    if (entry.type == ElementResistanceType.INVALID) continue;
+
+                    string elemName = (i < _elementNameKeys.Length)
+                        ? Loc.Get(_elementNameKeys[i])
+                        : $"Element {i + 1}";
+
+                    string key = entry.type switch
+                    {
+                        ElementResistanceType.DOUBLE  => "camp_equip_elemental_weak",
+                        ElementResistanceType.HALF    => "camp_equip_elemental_half",
+                        ElementResistanceType.DISABLE => "camp_equip_elemental_immune",
+                        ElementResistanceType.ABSORB  => "camp_equip_elemental_absorb",
+                        _ => null
+                    };
+
+                    if (key != null)
+                        parts.Add(Loc.Get(key, elemName));
+                }
+
+                if (parts.Count > 0)
+                    _cachedElementalAnnouncement = Loc.Get("camp_equip_elemental_heading") + " " + string.Join(". ", parts) + ".";
+                else
+                    _cachedElementalAnnouncement = Loc.Get("camp_equip_elemental_none");
+
+                DebugLogger.LogGameValue("CampEquip.elemental",
+                    $"count={dataList.Count} resistances={parts.Count} (cached)");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"CampMenuHandler.ElementalGroupPresenter_Set_Postfix: {ex.Message}");
+            }
+        }
+
         /// <summary>
         /// Postfix for UIItemInformationPresenter.Set(UIItemInformationData, ...).
         /// Fires whenever the item information panel is updated — which happens each time
@@ -223,6 +322,14 @@ namespace SO2RAccess
                 _itemCachedFactorInfo = data.itemFactorInformation ?? "";
             }
 
+            // Forward description/effect to ShopHandler when shop is open.
+            if (ShopHandler.IsShopOpen && data != null)
+            {
+                ShopHandler.CacheItemInfo(
+                    data.itemInformation,
+                    data.itemEffectInformation);
+            }
+
             // Gate: only process equip announcements when the equip screen is open.
             if (_equipSelector == null) return;
             if (_lastRootMenuItemName != "Equip") return;
@@ -230,7 +337,7 @@ namespace SO2RAccess
             try
             {
                 if (!_equipSelector.gameObject.activeInHierarchy) return;
-                if (!_equipItemListActive) return;
+                if (_equipSelector.currentState != UICampEquipSelector.State.Item) return;
                 if (data == null) return;
 
                 string name        = data.itemName             ?? "";
@@ -245,9 +352,9 @@ namespace SO2RAccess
 
                 var sb = new StringBuilder();
 
-                if (!string.IsNullOrEmpty(name))        sb.Append(name).Append(". ");
-                if (!string.IsNullOrEmpty(description)) sb.Append(description).Append(". ");
-                if (!string.IsNullOrEmpty(effectInfo))  sb.Append(effectInfo).Append(". ");
+                if (!string.IsNullOrEmpty(name))        AppendSentence(sb, name);
+                if (!string.IsNullOrEmpty(description)) AppendSentence(sb, description);
+                if (!string.IsNullOrEmpty(effectInfo))  AppendSentence(sb, effectInfo);
 
                 // Announce the five combat stats shown in the stat comparison panel.
                 // statusParameterData holds character stats with this item equipped.
@@ -264,7 +371,7 @@ namespace SO2RAccess
                 if (!string.IsNullOrEmpty(factorName))
                     sb.Append(Loc.Get("camp_equip_factor", factorName)).Append(". ");
                 if (!string.IsNullOrEmpty(factorInfo))
-                    sb.Append(factorInfo).Append(". ");
+                    AppendSentence(sb, factorInfo);
 
                 // Append position in the list if the count is available.
                 if (_equipItemListBase != null)

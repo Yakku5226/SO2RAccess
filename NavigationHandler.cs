@@ -138,6 +138,12 @@ namespace SO2RAccess
         /// </summary>
         private bool _autoWalkIsCounter;
 
+        /// <summary>
+        /// Category index of the current auto-walk target.
+        /// Used to add compass direction hints for exit-type targets on arrival.
+        /// </summary>
+        private int _autoWalkCategoryIndex;
+
         /// <summary>Reusable NavMeshPath object — allocated once, reused for every path calculation.</summary>
         private NavMeshPath _navPath;
 
@@ -406,6 +412,13 @@ namespace SO2RAccess
 
             if (!_isAutoWalking) return;
 
+            // Cancel auto-walk if a dialogue, event, notification, or menu appeared.
+            if (!IsFieldFree())
+            {
+                CancelAutoWalk();
+                return;
+            }
+
             try
             {
                 var fm = FieldManager.Instance;
@@ -436,18 +449,51 @@ namespace SO2RAccess
                     // Face the target.
                     player.transform.rotation = Quaternion.LookRotation(targetDir, Vector3.up);
 
-                    if (_autoWalkTransform == null)
+                    // Only NPCs use proximity-lock (they wander, so the player
+                    // follows until manually cancelled). All other targets with
+                    // a LiveTransform (chests, save points, markers) fully stop
+                    // on arrival — same as static exits.
+                    bool useProximityLock = _autoWalkTransform != null
+                        && _autoWalkCategoryIndex == CAT_NPC;
+
+                    if (!useProximityLock)
                     {
-                        // Static target (exit, static marker) — fully stop.
+                        // Non-NPC target — fully stop.
                         _isAutoWalking       = false;
                         _staticIsApproaching = false;
                         _pathCorners         = null;
-                        AnnounceArrival(Loc.Get("nav_autowalk_arrived", _autoWalkLabel));
-                        DebugLogger.LogState($"NAV auto-walk arrived (static) at '{_autoWalkLabel}'.");
+
+                        // Snap the player close to the target so the game's
+                        // interaction check succeeds immediately on button press.
+                        const float InteractDist = 1.0f;
+                        if (targetDist > InteractDist && _autoWalkTransform != null)
+                        {
+                            player.transform.position = new Vector3(
+                                _autoWalkTarget.x - targetDir.x * InteractDist,
+                                playerPos.y,
+                                _autoWalkTarget.z - targetDir.z * InteractDist);
+                        }
+
+                        // For exit-type targets, add compass direction so the player
+                        // knows which way to walk to pass through the exit.
+                        string arrivalMsg;
+                        if (IsExitCategory(_autoWalkCategoryIndex))
+                        {
+                            string compass = GetCompassDirection(playerPos, _autoWalkTarget);
+                            arrivalMsg = Loc.Get("nav_autowalk_arrived_exit",
+                                _autoWalkLabel, compass);
+                        }
+                        else
+                        {
+                            arrivalMsg = Loc.Get("nav_autowalk_arrived", _autoWalkLabel);
+                        }
+
+                        AnnounceArrival(arrivalMsg);
+                        DebugLogger.LogState($"NAV auto-walk arrived at '{_autoWalkLabel}'.");
                         return;
                     }
 
-                    // Moving target (NPC) — proximity-lock mode.
+                    // NPC — proximity-lock mode (follow until manually cancelled).
                     if (!_autoWalkArrived)
                     {
                         _autoWalkArrived     = true;
@@ -501,7 +547,7 @@ namespace SO2RAccess
                             else
                             {
                                 ScreenReader.Say(Loc.Get("nav_autowalk_lost_path", _autoWalkLabel));
-                                CancelAutoWalk(false);
+                                CancelAutoWalk();
                                 return;
                             }
                         }

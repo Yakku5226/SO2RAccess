@@ -148,15 +148,15 @@ namespace SO2RAccess
             // Field navigation — Phase 2 list
             Add("nav_not_in_field",   "Not in a field area.");
             Add("nav_no_items",       "No items found.");
-            Add("nav_open",           "Navigation. {0}. {1}, {2} units.");
+            Add("nav_open",           "Navigation. {0}. {1}, {2} meters.");
             Add("nav_close",          "Navigation closed.");
-            Add("nav_item",           "{0}, {1} units.");
-            Add("nav_category",       "{0}. {1}, {2} units.");
+            Add("nav_item",           "{0}, {1} meters.");
+            Add("nav_category",       "{0}. {1}, {2} meters.");
             Add("nav_category_empty",   "{0}. None.");
             Add("nav_autowalk_start",      "Walking to {0}.");
             Add("nav_autowalk_arrived",    "Arrived at {0}.");
+            Add("nav_autowalk_arrived_exit","Arrived at {0}. Exit is to the {1}.");
             Add("nav_autowalk_arrived_npc","Arrived at {0}. Press action button to interact. NumPad 1 or L1 to stop following.");
-            Add("nav_autowalk_cancelled",  "Auto-walk cancelled.");
             Add("nav_autowalk_unreachable","Cannot reach {0}.");
             Add("nav_autowalk_no_navmesh", "No navigation data available.");
             Add("nav_autowalk_lost_path",  "Lost path to {0}.");
@@ -246,6 +246,14 @@ namespace SO2RAccess
             Add("camp_equip_stat_avoidance", "Avoidance: {0}");
             Add("camp_equip_factor",         "Factor: {0}");
             Add("camp_equip_position",       "{0} of {1}.");
+
+            // Camp menu — equip elemental resistances (Triangle button)
+            Add("camp_equip_elemental_heading",  "Elemental resistances.");
+            Add("camp_equip_elemental_weak",     "{0}: weak");
+            Add("camp_equip_elemental_half",     "{0}: resistant");
+            Add("camp_equip_elemental_immune",   "{0}: immune");
+            Add("camp_equip_elemental_absorb",   "{0}: absorb");
+            Add("camp_equip_elemental_none",     "No elemental resistances.");
 
             // Camp menu — root battle skill sub-screen (Camp → BattleSkill)
             // Detailed tactical readout: Name, MP, Type, Target, Element, Range, Effect, Description, Level.
@@ -360,13 +368,38 @@ namespace SO2RAccess
             Add("shop_menu_item",       "{0}, {1} of {2}.");
             Add("shop_buy_heading",     "Buy.");
             Add("shop_sell_heading",    "Sell.");
-            Add("shop_item_buy",        "{0}. {1} Fol. {2} of {3}.");
-            Add("shop_item_sell",       "{0}. Sell: {1} Fol. Own: {2}. {3} of {4}.");
+            Add("shop_item_buy",        "{0}. {1} Fol. {2}{3} of {4}.");
+            Add("shop_item_sell",       "{0}. Sell: {1} Fol. Own: {2}. {3}{4} of {5}.");
             Add("shop_item_quantity",   "Quantity: {0}. Total: {1} Fol.");
+
+            // Shop item category names
+            Add("shop_cat_sword",       "Sword");
+            Add("shop_cat_twin_sword",  "Dual Swords");
+            Add("shop_cat_wand",        "Wand");
+            Add("shop_cat_knuckle",     "Knuckle");
+            Add("shop_cat_punch",       "Fists");
+            Add("shop_cat_book",        "Book");
+            Add("shop_cat_whip",        "Whip");
+            Add("shop_cat_gun_disk",    "Gun and Disc");
+            Add("shop_cat_stungun",     "Stun Gun");
+            Add("shop_cat_rod",         "Rod");
+            Add("shop_cat_helmet",      "Helmet");
+            Add("shop_cat_shield",      "Shield");
+            Add("shop_cat_armor",       "Armor");
+            Add("shop_cat_greave",      "Greave");
+            Add("shop_cat_accessory",   "Accessory");
 
             // Item acquisition popups (treasure chests, quest rewards, etc.)
             Add("overflow_item",            "{0}");
             Add("overflow_item_multi",      "{0} x{1}");
+
+            // Equipment wizard (auto-equip popup for new gear)
+            Add("equip_wizard_heading",         "Equipment Wizard");
+            Add("equip_wizard_change",          "{0}: {1} to {2}");
+            Add("equip_wizard_menu_yes",        "Yes");
+            Add("equip_wizard_menu_no",         "No");
+            Add("equip_wizard_menu_reject_all", "Reject All");
+            Add("equip_wizard_position",        "{0}, {1} of {2}.");
 
             // Battle results
             Add("battle_result_heading",    "Battle complete.");

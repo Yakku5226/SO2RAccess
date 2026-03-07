@@ -91,7 +91,6 @@ namespace SO2RAccess
         private static void FormationInfoPresenter_Set_Postfix(
             string formationName, string effectDescription)
         {
-            if (!_formationState.WasActive) return;
             if (_formationSelector == null) return;
             if (_lastRootMenuItemName != "Formation") return;
 
@@ -135,7 +134,6 @@ namespace SO2RAccess
         /// </summary>
         private static void SkillInfoPresenter_Set_Postfix(UISkillInformationData data)
         {
-            if (!_skillState.WasActive) return;
             if (_skillSelector == null) return;
             if (_lastRootMenuItemName != "Skill") return;
             if (data == null) return;
@@ -178,7 +176,7 @@ namespace SO2RAccess
                 var sb = new StringBuilder();
 
                 if (!string.IsNullOrEmpty(name))
-                    sb.Append(name).Append(". ");
+                    AppendSentence(sb, name);
                 if (level > 0)
                 {
                     sb.Append(Loc.Get("camp_skill_level", level));

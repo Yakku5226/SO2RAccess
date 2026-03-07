@@ -7,6 +7,23 @@ namespace SO2RAccess
     /// Consolidates the repeated _wasActive / _suppressHeading / _lastIndex pattern
     /// into a single reusable object. Not suitable for hook-driven screens (BattleSkill,
     /// Status) or for nested child selectors within a sub-screen.
+    ///
+    /// IMPORTANT — NESTED CHILD SELECTORS:
+    /// This class handles the OUTER sub-screen selector only. If the sub-screen has
+    /// nested child selectors with their own manual _xxxWasActive / _xxxLastIndex
+    /// tracking (e.g. equip slot list inside the equip sub-screen), those child
+    /// trackers are NOT managed by this class. When stale-seeding in the Open postfix:
+    ///   1. Call SuppressNextHeading() or SeedOnOpen() on this SubScreenState (outer).
+    ///   2. ALSO seed the child's _xxxLastIndex to its current value.
+    ///   3. ALSO set the child's _xxxWasActive = true.
+    /// If step 3 is missed, the child's first-activation logic will reset its
+    /// seeded index to -1, causing a spurious announcement when the root menu
+    /// cursor merely highlights the sub-screen's root item (before user confirms).
+    /// See CampMenuHandler.cs CampWindow_Open_Postfix equip stale-seed for example.
+    ///
+    /// PREFERRED PATTERN for new child selectors: skip manual _wasActive tracking
+    /// entirely and just compare idx == _xxxLastIndex (see UpdateBattleSkillEquipSlotList).
+    /// This avoids the stale-seed pitfall because there's no first-activation reset.
     /// </summary>
     internal sealed class SubScreenState
     {

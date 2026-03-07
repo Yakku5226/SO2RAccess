@@ -38,7 +38,7 @@
 **Phase:** Phase 3 — Feature Implementation
 **Currently working on:** Phase 3 features
 **Blocked by:** Nothing — framework fully working in-game
-**Last completed:** Battle command menu handler (Triangle menu) — items, spells, target, tactics (2026-03-03)
+**Last completed:** Equip elemental resistances panel — Triangle button announces elemental resistances (weak/resistant/immune/absorb) via cached hook data + input detection. Fixed stale-seed bug for equip slot list. Added stale-seed documentation for future sub-screens (2026-03-07)
 
 ## Codebase Analysis Progress
 
@@ -152,7 +152,7 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Double period fix: AppendSentence strips trailing periods from game text
   - Hook: UIItemInformationPresenter.Set caches effect/factor data for polling
 
-- **Post-battle result announcements** (`BattleResultHandler.cs`) — PENDING RETEST (descriptions + bonuses added)
+- **Post-battle result announcements** (`BattleResultHandler.cs`) ✓ RETESTED (2026-03-05)
   - Announces SP and BSP totals after EXP/Fol
   - Level-ups include per-character BSP gained and learned battle skills
   - Learned skills now announce with description: "Learned Fire Bolt: Unleashes a fiery projectile."
@@ -182,8 +182,11 @@ Without this list, mod keys WILL conflict with game controls. -->
 
 - **Shop menu announcements** (`ShopHandler.cs`) ✓ TESTED
   - "Shop." when shop opens, root menu reads Buy/Sell/Cancel with position
-  - Item browsing reads name + Fol price + position (buy and sell modes)
+  - Item browsing reads name + Fol price + description + position (buy and sell modes)
   - Quantity selection reads count + total Fol on change
+  - Item details: description, equipment category, non-zero stats (ATK/DEF/INT/STM/LCK/POW/GUTS/HIT/EVD/CRT), factor effects
+  - Descriptions sourced from UIItemInformationPresenter.Set hook (game doesn't populate itemDescription on shop list data)
+  - Equipment stats from ParameterManager.GetItemParameter(itemID), factors from GetFactorParameter/GetFactorMessage
 
 - **Item acquisition popups** (`NotificationHandler.cs`) ✓ TESTED
   - Treasure chest and quest reward popups now read aloud
@@ -237,6 +240,19 @@ Without this list, mod keys WILL conflict with game controls. -->
   - All selectors have activeInHierarchy=True permanently — peek-based detection required
   - 4 hooks: SpellInfoData, EffectRange, UseDescription, OperationInfo
   - Tactics operation selector also matched in IdentifyPhase (may be pushed onto stack separately)
+
+- **Battle status announcements** (`BattleStatusHandler.cs`) — PARTIALLY TESTED (damage dealt + ally HP warnings confirmed working; ailments need more game progress)
+  - Ally health below 50%: "[Name], health below 50 percent." (queued, non-interrupting) ✓ TESTED
+  - Ally health below 25%: "[Name], health critical." (queued) ✓ TESTED
+  - Ally knocked out: "[Name], knocked out." (queued) ✓ TESTED
+  - Ally negative status ailment: "[Name], [ailment]." (queued, e.g. "Claude, Poison.") — PENDING (needs more game progress)
+  - Player damage dealt: "[N] damage." per hit by the controlled character (queued) ✓ TESTED
+  - HP threshold tracking: only announces downward transitions (not on healing)
+  - Ailment tracking: per-ally set, cleared on removal so re-application announces again
+  - Hooks: BattleCharacter.DoCollisionReceiveAction (CallerCount 2, prefix+postfix), CharacterParameter.SetBuffDebuffState (CallerCount 19, postfix)
+  - CRASH FIX: original DoDamage hook used ref DamageResult (IL2CPP value type) which corrupted Harmony trampolines. Replaced with DoCollisionReceiveAction — attacker obtained via attackCollision.OwnerCharacter.
+  - All 3 features toggled independently in mod settings menu (F4 / L1+L3)
+  - Settings: AllyHealthWarningEnabled, AllyStatusAilmentEnabled, PlayerDamageDealtEnabled (all default On)
 
 - **Battle pause menu** (`BattlePauseHandler.cs`) ✓ TESTED
   - "Battle status." announced when pause menu opens (Start/Options during battle)
@@ -386,6 +402,29 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Assist Formation: polls UICampAssistSettingSelector (Equip slots + character picker) — NOT TESTED (needs more party members)
   - Tactics: polls UICampOperationSelector (character + operation states), hook for operation info ✓ TESTED
 
+- **Equipment Wizard handler** (`EquipWizardHandler.cs`) — PENDING TEST (needs equipment wizard trigger)
+  - New polling handler: FindObjectOfType<UISystemWindow>, polls IsShowingEquipWizard
+  - Announces heading + description text + equipment comparison (old → new for changed slots)
+  - Yes/No/Reject All menu navigation with position
+  - Tracks equipWizardDataIndex for multi-character wizard advances
+  - Loc keys added: equip_wizard_heading, equip_wizard_change, equip_wizard_position, menu options
+
+- **First-item fix across all camp menus** (2026-03-07) — PENDING TEST
+  - Root cause: Harmony hooks fire during game's Update, but polling flags gating them are set in
+    OnLateUpdate — always one frame too late for the first item in any list.
+  - Fix: replaced stale polling flags with live game state reads or removed redundant gates.
+  - Files changed: CampMenuHandler.Equip.cs, CampMenuHandler.Formation.cs,
+    CampMenuHandler.BattleSkill.cs, CampMenuHandler.Party.cs
+  - Equip first item confirmed working by user. Other menus pending test.
+
+- **Double-period fix** (2026-03-07) — PENDING TEST
+  - Game text fields (item names, descriptions, skill names) often end with periods.
+    Manual `.Append(". ")` created double periods. Fixed by using AppendSentence() helper
+    which strips trailing periods before appending ". ".
+  - Files changed: CampMenuHandler.Equip.cs, CampMenuHandler.Party.cs,
+    CampMenuHandler.Formation.cs, CampMenuHandler.BattleSkill.cs
+  - Equip item names confirmed fixed by user. Other menus pending test.
+
 ## In-Progress Features
 
 - **Field Navigation — Phase 2 (audio list + auto-run)** (`NavigationHandler.cs`) ✓ COMPLETE AND TESTED
@@ -485,7 +524,58 @@ Without this list, mod keys WILL conflict with game controls. -->
 - [x] Operations → Tactics (character list): announces character + current tactic ✓
 - [ ] Operations → Tactics (operation picker): announces operation name + description
 
+## Dialogue Voice Mode Toggle — TESTED (2026-03-07)
+
+Voice detection fix: replaced broken PlayVoice Harmony hook (native IL2CPP calls
+bypass managed stubs) with polling UIConversationSelector.currentVoiceController.IsPlaying().
+
+- [x] F2 toggles dialogue voice mode
+- [x] NameOnlyWhenVoiced: voiced cutscene lines announce speaker name only
+- [x] NameOnlyWhenVoiced: unvoiced lines read full text
+- [x] AlwaysReadFull: all lines read name + text regardless
+
+## Pending Tests (Battle Status Announcements) — ALL TESTED (2026-03-05)
+
+- [x] Enter battle, take damage until ally drops below 50% HP — hear "[Name], health below 50 percent." ✓
+- [x] Continue taking damage below 25% — hear "[Name], health critical." ✓
+- [x] Ally gets knocked out — hear "[Name], knocked out." ✓
+- [x] Ally healed above 50%, then damaged below 50% again — hear warning again (threshold resets on heal) ✓
+- [x] Ally gets poisoned or paralyzed — hear "[Name], Poison." or "[Name], Paralyze." ✓
+- [x] Same ailment re-applied after wearing off — hear announcement again ✓
+- [x] Attack an enemy as the player character — hear "[N] damage." per hit ✓
+- [x] Multi-hit combo — damage announcements queue without interrupting each other ✓
+- [x] Open mod settings (F4), find "Ally health warnings" — toggle Off, verify no HP warnings in battle ✓
+- [x] Toggle "Ally status ailments" Off — verify no ailment announcements ✓
+- [x] Toggle "Player damage dealt" Off — verify no damage numbers announced ✓
+- [x] All three settings persist in settings.json after game restart ✓
+
+## Pending Tests (Mod Settings Menu) — MOSTLY TESTED (2026-03-05)
+
+- [x] F4 opens menu, hear "Mod settings menu. Save sound: On. Item 1 of 10." ✓ (10 items, not 7 — 3 battle settings added)
+- [x] Up/Down arrow keys navigate items, hear label, value, and position ✓ (tested via gamepad)
+- [x] Left/Right on toggle item flips On/Off ✓
+- [x] Left/Right on volume item changes by 10% (0% to 100%) ✓
+- [x] Left/Right on dialogue mode cycles Full text / Name only when voiced ✓
+- [x] Escape or F4 again closes menu, hear "Settings saved. Menu closed." ✓ (tested via gamepad B button)
+- [x] Gamepad: L1+L3 opens menu ✓
+- [x] Gamepad: D-pad Up/Down navigates, D-pad Left/Right changes values ✓
+- [x] Gamepad: Circle/B closes menu ✓
+- [x] Settings persist after closing and reopening menu ✓
+- [x] Settings persist in settings.json after game restart ✓
+- [x] Nav overlay does NOT activate while mod menu is open ✓ (nav opened before menu, menu took over)
+- [x] Game input is blocked while mod menu is open (no character movement, no other menus) ✓ (fixed: SuppressAllGameInput flag on GameInputManager hooks)
+
 ## Known Issues / Future Work
+
+- **Bug: Enemy proximity sound ignores mod settings** — FIXED & CONFIRMED (2026-03-05):
+  Fix: added enabled check + per-frame volume sync. Changed sound to Enemynearby.wav. Tested working.
+
+- **Bug: Game crashes when player uses a battle skill** — FIXED (2026-03-05):
+  DoDamage hook had `ref DamageResult` parameter — DamageResult is an IL2CPP value type
+  (`sealed class : Il2CppSystem.ValueType`) which corrupted Harmony's trampoline marshaling.
+  Fix: replaced with DoCollisionReceiveAction hook (CallerCount 2, no ref value types).
+  Attacker obtained via `attackCollision.OwnerCharacter` instead of direct parameter.
+  **Rule: NEVER hook IL2CPP methods with `ref` value type parameters (extends Il2CppSystem.ValueType).**
 
 - **Bug: Battle skill menu triggers stale announcement on next camp open** — FIXED:
   All sub-screen gates now preserve their `_xxxWasActive` and `_xxxLastIndex` state when
@@ -533,6 +623,22 @@ Without this list, mod keys WILL conflict with game controls. -->
 - **Gamepad nav menu** — IMPLEMENTED AND TESTED. L1 hold-to-open with D-pad navigation.
   See Key Bindings (Mod) section above for full control scheme.
 
+- **Auto-walk exit compass direction** — IMPLEMENTED AND TESTED (2026-03-07): When auto-walking
+  to an exit-type target (Exits, Stairs, Doors, Warp Points), the arrival message now includes a
+  camera-relative compass direction so the player knows which way to walk to pass through the exit.
+  E.g. "Arrived at Building entrance to Arlia. Exit is to the North East." Directions are computed
+  relative to the camera orientation (North = stick forward/up), not world axes.
+
+- **Bug: First item not announced in camp sub-screen lists** — FIXED (2026-03-07):
+  Harmony hooks fire during game's Update (before MelonLoader OnLateUpdate), but the polling
+  flags gating them were only set in OnLateUpdate — always one frame too late. Fixed by
+  replacing stale flags with live game state reads. Applied to: equip items, formation,
+  skills, battle skills (leveling + setting), tactics operations. Equip confirmed working.
+
+- **Bug: Double periods in equip item names and other game text** — FIXED (2026-03-07):
+  Game text fields already end with periods. Manual `.Append(". ")` created "Swift sword.. "
+  Fixed by using AppendSentence() helper across all hooks that handle raw game text.
+
 - **Bug: Enhance menu shows wrong data when switching between CombatPoint/BattleSkillPoint** — FIXED:
   When navigating between CombatPoint and BattleSkillPoint within the Enhance sub-menu, both passed
   the same IsEnhanceBattleSkillMenu() gate, so _battleSkillWasActive stayed true and inner selectors
@@ -574,6 +680,7 @@ Stale-open check helper consolidation. Key changes:
 
 ### Keyboard
 - F1: Help
+- F2: Toggle dialogue voice mode (full text / name only when voiced)
 - NumPad 5: Open/close navigation list (also cancels auto-walk)
 - NumPad 8 / 2: Navigate up/down in nav list
 - NumPad 4 / 6: Switch category in nav list
@@ -603,7 +710,42 @@ Stale-open check helper consolidation. Key changes:
 - **Source:** YouTube clip trimmed from 5s to 15s
 - **User has a specific use in mind** — to be implemented in a future session
 
-### Current work (2026-03-04)
+### Current work (2026-03-07)
+- Equipment Wizard handler: new EquipWizardHandler.cs — polls UISystemWindow.IsShowingEquipWizard,
+  announces heading + description + equipment comparison + Yes/No/Reject All menu. Pending test.
+- First-item fix: all camp menu hooks now use live game state reads instead of stale polling flags.
+  Equip confirmed working. Formation, skills, battle skills, tactics pending test.
+- Double-period fix: AppendSentence() applied to all raw game text in hook string builders.
+  Equip confirmed. Other menus pending test.
+- FieldState.IsFieldFree() hardened: added PauseManager.IsPause + EventManager.IsRunning checks
+  - Dialogues, cutscenes, notifications, tutorials now block nav menu from opening
+  - Auto-walk cancels immediately when any of these trigger mid-walk
+  - All handlers using IsFieldFree() benefit (navigation + enemy proximity)
+- Navigation distance label changed from "units" to "meters" (Unity 1 unit = 1 meter)
+
+### Current work (2026-03-05)
+- BattleStatusHandler: battle status announcements ✓
+  - New file: BattleStatusHandler.cs (~310 lines)
+  - Hook: BattleCharacter.DoCollisionReceiveAction (CallerCount 2, prefix+postfix) — HP tracking + damage dealt
+  - Hook: CharacterParameter.SetBuffDebuffState (CallerCount 19, postfix) — status ailment detection
+  - CRASH FIX: DoDamage had ref DamageResult (IL2CPP ValueType) that crashed Harmony trampolines; replaced with DoCollisionReceiveAction + attackCollision.OwnerCharacter for attacker
+  - Ally HP below 50%, below 25%, knocked out — queued announcements, downward transitions only
+  - Ally negative status ailments (poison, paralyze, petrify, confusion, silence, faint, death, stop, swallowed, controlled)
+  - Player-controlled character damage dealt — announces damage amount per hit
+  - All announcements use SayQueued (non-interrupting queue)
+  - 3 new ModSettings toggles: AllyHealthWarningEnabled, AllyStatusAilmentEnabled, PlayerDamageDealtEnabled
+  - 3 new mod menu items added to ModMenuHandler
+  - 5 new Loc strings + 3 menu label strings
+- ModMenuHandler: screen-reader-driven mod settings menu ✓
+  - New file: ModMenuHandler.cs (~250 lines)
+  - Keyboard: F4 to open/close, arrow keys to navigate/change, Escape to close
+  - Gamepad: L1+L3 to open/close, D-pad to navigate/change, Circle to close
+  - 10 settings: 3 sound toggles, 3 volume sliders (10% steps), dialogue voice mode, 3 battle announcement toggles
+  - All input blocked while menu open (keyboard + gamepad)
+  - Auto-saves to settings.json on close
+  - Loc keys added, help text updated
+
+### Previous work (2026-03-04)
 - SubScreenState helper: stale-open check consolidation ✓
   - New file: SubScreenState.cs
   - 9 sub-screens refactored to use helper

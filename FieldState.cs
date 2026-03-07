@@ -1,4 +1,5 @@
 using System;
+using Il2CppCommon;
 using Il2CppGame;
 
 namespace SO2RAccess
@@ -10,8 +11,10 @@ namespace SO2RAccess
     public static class FieldState
     {
         /// <summary>
-        /// Returns true if the player is on the field with no menus blocking.
-        /// Checks: FieldManager exists, player exists, camp and shop are closed.
+        /// Returns true if the player is on the field with no menus, dialogues,
+        /// events, or notifications blocking.
+        /// Checks: FieldManager exists, player exists, game not paused,
+        /// no event running, camp and shop are closed.
         /// </summary>
         public static bool IsFieldFree()
         {
@@ -19,6 +22,16 @@ namespace SO2RAccess
             {
                 if (FieldManager.Instance == null) return false;
                 if (FieldManager.Instance.GetControlPlayer() == null) return false;
+
+                // Game-level pause covers dialogues, notifications, tutorials,
+                // and any UI that freezes field gameplay.
+                if (PauseManager.Instance != null && PauseManager.Instance.IsPause)
+                    return false;
+
+                // Event system covers cutscenes, scripted scenes, and NPC events.
+                if (EventManager.Instance != null && EventManager.Instance.IsRunning)
+                    return false;
+
                 if (CampMenuHandler.IsCampOpen) return false;
                 if (ShopHandler.IsShopOpen) return false;
                 return true;

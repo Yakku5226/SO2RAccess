@@ -1008,18 +1008,42 @@ namespace SO2RAccess
         /// Sorts items by distance and removes those unreachable via NavMesh.
         /// Items with IsCounterNpc=true skip the reachability check (they are
         /// behind counters but the game still allows interaction).
+        /// If ALL items would be filtered out, the NavMesh is likely broken at the
+        /// player's position (disconnected island / gap). In that case, keep
+        /// everything — showing extra items is better than showing nothing.
         /// </summary>
         private void SortAndFilterUnreachable(List<NavItem> items, Vector3 playerPos)
         {
             items.Sort((a, b) => a.Distance.CompareTo(b.Distance));
+
+            var unreachableIndices = new List<int>();
             for (int i = items.Count - 1; i >= 0; i--)
             {
                 if (items[i].IsCounterNpc) continue;
                 if (!IsReachable(playerPos, items[i].Position))
-                {
-                    DebugLogger.LogState($"NAV: filtered unreachable '{items[i].Label}' at dist={items[i].Distance:F1}");
-                    items.RemoveAt(i);
-                }
+                    unreachableIndices.Add(i);
+            }
+
+            // If every non-counter item would be removed, the player is likely on a
+            // disconnected NavMesh fragment — skip filtering entirely.
+            int nonCounterCount = 0;
+            for (int i = 0; i < items.Count; i++)
+                if (!items[i].IsCounterNpc) nonCounterCount++;
+
+            if (unreachableIndices.Count > 0 && unreachableIndices.Count >= nonCounterCount)
+            {
+                DebugLogger.LogState(
+                    $"NAV: all {unreachableIndices.Count} non-counter items unreachable — " +
+                    "NavMesh gap suspected, skipping reachability filter");
+                return;
+            }
+
+            // Remove genuinely unreachable items (indices already in descending order).
+            foreach (int i in unreachableIndices)
+            {
+                DebugLogger.LogState(
+                    $"NAV: filtered unreachable '{items[i].Label}' at dist={items[i].Distance:F1}");
+                items.RemoveAt(i);
             }
         }
 

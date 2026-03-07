@@ -58,6 +58,7 @@ namespace SO2RAccess
         private BattleMenuHandler _battleMenuHandler;
         private BattleStatusHandler _battleStatusHandler;
         private ModMenuHandler _modMenuHandler;
+        private EquipWizardHandler _equipWizardHandler;
 
         // Gamepad nav overlay — L1 hold-to-open state.
         private bool _gamepadL1Held;
@@ -69,6 +70,8 @@ namespace SO2RAccess
         private const float DpadRepeatInitial = 0.4f;
         private const float DpadRepeatInterval = 0.15f;
         private const float StickUpThreshold = 0.5f;
+        /// <summary>Left stick magnitude above which auto-walk is cancelled (player takes over).</summary>
+        private const float StickCancelThreshold = 0.3f;
 
         #endregion
 
@@ -126,6 +129,7 @@ namespace SO2RAccess
             _battleMenuHandler = new BattleMenuHandler();
             _battleStatusHandler = new BattleStatusHandler();
             _modMenuHandler = new ModMenuHandler();
+            _equipWizardHandler = new EquipWizardHandler();
         }
 
         private IEnumerator AnnounceStartupDelayed()
@@ -155,6 +159,7 @@ namespace SO2RAccess
         public override void OnLateUpdate()
         {
             if (!_gameReady) return;
+            DialogueHandler.ProcessPendingDialogue();
             _navigationHandler.LateUpdate();
         }
 
@@ -181,7 +186,7 @@ namespace SO2RAccess
             MelonLogger.Msg($"Scene loaded: {sceneName}");
             DebugLogger.LogState($"Scene changed to: {sceneName}");
             _gameReady = false;
-            _navigationHandler?.CancelAutoWalk(announce: false);
+            _navigationHandler?.CancelAutoWalk();
             _campMenuHandler?.OnSceneChanged();
             _shopHandler?.OnSceneChanged();
             _enemyProximityHandler?.OnSceneChanged();
@@ -191,6 +196,7 @@ namespace SO2RAccess
             _battlePauseHandler?.OnSceneChanged();
             _battleMenuHandler?.OnSceneChanged();
             _battleStatusHandler?.OnSceneChanged();
+            _equipWizardHandler?.OnSceneChanged();
 
             // Apply patches once — safe to call on every scene load, handlers guard against duplicates.
             _titleHandler.ApplyPatches(_harmony);
@@ -214,6 +220,7 @@ namespace SO2RAccess
             _battlePauseHandler.ApplyPatches(_harmony);
             _battleMenuHandler.ApplyPatches(_harmony);
             _battleStatusHandler.ApplyPatches(_harmony);
+            _equipWizardHandler.ApplyPatches(_harmony);
         }
 
         /// <summary>
@@ -365,6 +372,20 @@ namespace SO2RAccess
                 return true;
             }
 
+            // Movement keys cancel auto-walk silently — player takes manual control.
+            if (_navigationHandler.IsAutoWalking)
+            {
+                if (kb[Key.W].wasPressedThisFrame || kb[Key.A].wasPressedThisFrame ||
+                    kb[Key.S].wasPressedThisFrame || kb[Key.D].wasPressedThisFrame ||
+                    kb[Key.UpArrow].wasPressedThisFrame || kb[Key.DownArrow].wasPressedThisFrame ||
+                    kb[Key.LeftArrow].wasPressedThisFrame || kb[Key.RightArrow].wasPressedThisFrame)
+                {
+                    DebugLogger.LogInput("MovementKey", "CancelAutoWalk");
+                    _navigationHandler.CancelAutoWalk();
+                    // Don't return true — let the game process the movement input normally.
+                }
+            }
+
             return false;
         }
 
@@ -448,6 +469,18 @@ namespace SO2RAccess
                     _battlePauseHandler.TierDown();
                 }
                 return; // Don't process L1 nav overlay while pause is open
+            }
+
+            // Left stick cancels auto-walk silently — player takes manual control.
+            if (_navigationHandler.IsAutoWalking && !gp.leftShoulder.isPressed)
+            {
+                float stickMag = gp.leftStick.ReadValue().magnitude;
+                if (stickMag > StickCancelThreshold)
+                {
+                    DebugLogger.LogInput("LStick", "CancelAutoWalk");
+                    _navigationHandler.CancelAutoWalk();
+                    // Don't return — let the game process the stick input normally.
+                }
             }
 
             bool l1Pressed = gp.leftShoulder.wasPressedThisFrame;
@@ -569,6 +602,7 @@ namespace SO2RAccess
             _battleTargetHandler.Update();
             _battlePauseHandler.Update();
             _battleMenuHandler.Update();
+            _equipWizardHandler.Update();
         }
 
         #endregion

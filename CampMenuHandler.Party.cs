@@ -393,7 +393,6 @@ namespace SO2RAccess
         private static void OperationInfoPresenter_Set_Postfix(
             string name, string description, string prefabPath)
         {
-            if (!_operationState.WasActive) return;
             if (_operationSelector == null) return;
             if (_lastRootMenuItemName != "Tactics") return;
 
@@ -409,9 +408,9 @@ namespace SO2RAccess
                 var sb = new StringBuilder();
 
                 if (!string.IsNullOrEmpty(name))
-                    sb.Append(name).Append(". ");
+                    AppendSentence(sb, name);
                 if (!string.IsNullOrEmpty(description))
-                    sb.Append(description).Append(". ");
+                    AppendSentence(sb, description);
 
                 // Read position and "currently set" flag from the selectListSelector.
                 if (_operationSelectListBase != null)

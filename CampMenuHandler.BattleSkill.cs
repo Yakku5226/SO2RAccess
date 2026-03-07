@@ -294,10 +294,9 @@ namespace SO2RAccess
             bool isEnhance = IsEnhanceBattleSkillMenu();
             if (!isRoot && !isEnhance) return;
 
-            bool levelingActive = _battleSkillWasActive && _battleSkillOuterSelector != null;
+            bool levelingActive = (isRoot || isEnhance) && _battleSkillOuterSelector != null;
 
             bool settingActive = isRoot &&
-                _battleSkillSettingState.WasActive &&
                 _battleSkillSettingSelector != null &&
                 _battleSkillSettingSelector.gameObject.activeInHierarchy;
 
@@ -841,7 +840,7 @@ namespace SO2RAccess
             int levelMax       = data.skillLevelMax;
             int consumeMP      = data.consumeMP;
 
-            if (!string.IsNullOrEmpty(name))        sb.Append(name).Append(". ");
+            if (!string.IsNullOrEmpty(name))        AppendSentence(sb, name);
             if (levelMax > 0)
             {
                 sb.Append(Loc.Get("camp_battleskill_level", data.skillLevel, levelMax));

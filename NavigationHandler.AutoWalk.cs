@@ -65,10 +65,11 @@ namespace SO2RAccess
                 return;
             }
 
-            _autoWalkTarget      = item.Position;
-            _autoWalkLabel       = item.Label;
-            _autoWalkTransform   = item.LiveTransform; // may be null for exits
-            _autoWalkIsCounter   = item.IsCounterNpc;
+            _autoWalkTarget        = item.Position;
+            _autoWalkLabel         = item.Label;
+            _autoWalkTransform     = item.LiveTransform; // may be null for exits
+            _autoWalkIsCounter     = item.IsCounterNpc;
+            _autoWalkCategoryIndex = _currentCategoryIndex;
             _isAutoWalking       = true;
             _autoWalkArrived     = false;
             _staticIsApproaching = true;
@@ -108,22 +109,23 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Cancels an active auto-walk and optionally announces the cancellation.
-        /// Called by NumPad 5 during walking, or automatically on scene change.
+        /// Cancels an active auto-walk silently.
+        /// Called by manual input, scene change, or when the field becomes busy.
+        /// No announcement — the "Arrived" message handles successful completion,
+        /// and manual cancellation needs no confirmation (player initiated it).
         /// </summary>
-        public void CancelAutoWalk(bool announce = true)
+        public void CancelAutoWalk()
         {
             if (!_isAutoWalking) return;
-            _isAutoWalking       = false;
-            _autoWalkArrived     = false;
-            _autoWalkIsCounter   = false;
-            _autoWalkTransform   = null;
+            _isAutoWalking         = false;
+            _autoWalkArrived       = false;
+            _autoWalkIsCounter     = false;
+            _autoWalkCategoryIndex = 0;
+            _autoWalkTransform     = null;
             _staticIsApproaching = false; // re-enable normal animation resets
             _pathCorners         = null;
             _pathCornerIndex     = 0;
             _pathRecalcTimer     = 0f;
-            if (announce)
-                ScreenReader.Say(Loc.Get("nav_autowalk_cancelled"));
             DebugLogger.LogState("NAV auto-walk cancelled.");
         }
 
@@ -146,6 +148,61 @@ namespace SO2RAccess
             {
                 ScreenReader.Say(arrivalText);
             }
+        }
+
+        /// <summary>
+        /// Returns true if the given category index is an exit-type target
+        /// (exits, stairs, doors, warps) where a compass direction hint is useful.
+        /// </summary>
+        private static bool IsExitCategory(int categoryIndex) =>
+            categoryIndex == CAT_EXIT  || categoryIndex == CAT_STAIRS ||
+            categoryIndex == CAT_DOOR  || categoryIndex == CAT_WARP;
+
+        /// <summary>
+        /// Computes a camera-relative compass direction string (e.g. "North", "South East")
+        /// from the player toward the target. "North" means the direction the camera faces
+        /// (i.e. pushing the stick forward/up), "East" means to the right on screen, etc.
+        /// This ensures directions match the player's controller input regardless of
+        /// how the game world is oriented.
+        /// </summary>
+        private static string GetCompassDirection(Vector3 playerPos, Vector3 targetPos)
+        {
+            float dx = targetPos.x - playerPos.x;
+            float dz = targetPos.z - playerPos.z;
+
+            // Project onto camera-relative axes so "North" = camera forward = stick up.
+            var cam = Camera.main;
+            if (cam != null)
+            {
+                Vector3 camFwd = cam.transform.forward;
+                camFwd.y = 0f;
+                camFwd.Normalize();
+                Vector3 camRight = cam.transform.right;
+                camRight.y = 0f;
+                camRight.Normalize();
+
+                // forward component = how far "North" (camera forward) the exit is
+                float fwd   = dx * camFwd.x   + dz * camFwd.z;
+                // right component = how far "East" (camera right) the exit is
+                float right = dx * camRight.x  + dz * camRight.z;
+
+                dx = right;
+                dz = fwd;
+            }
+
+            // Angle in degrees: 0 = North (forward), 90 = East (right)
+            float angle = Mathf.Atan2(dx, dz) * Mathf.Rad2Deg;
+            if (angle < 0f) angle += 360f;
+
+            // 8 compass directions, each spanning 45 degrees
+            if (angle < 22.5f  || angle >= 337.5f) return "North";
+            if (angle < 67.5f)  return "North East";
+            if (angle < 112.5f) return "East";
+            if (angle < 157.5f) return "South East";
+            if (angle < 202.5f) return "South";
+            if (angle < 247.5f) return "South West";
+            if (angle < 292.5f) return "West";
+            return "North West";
         }
 
         /// <summary>

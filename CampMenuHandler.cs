@@ -164,6 +164,8 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(UIOperationListItemData).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UITalentPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UITalentData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIElementalGroupPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIElementalData).TypeHandle);
 
                 harmony.Patch(
                     AccessTools.Method(typeof(UICampWindow),
@@ -183,6 +185,15 @@ namespace SO2RAccess
                         }),
                     postfix: new HarmonyMethod(typeof(CampMenuHandler),
                         nameof(ItemInfoPresenter_Set_Postfix))
+                );
+
+                // UIElementalGroupPresenter.Set fires when the elemental resistance panel
+                // updates (CallerCount 8 — hookable). Announces resistances on Triangle press.
+                harmony.Patch(
+                    AccessTools.Method(typeof(UIElementalGroupPresenter), "Set",
+                        new Type[] { typeof(Il2CppSystem.Collections.Generic.List<UIElementalData>) }),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(ElementalGroupPresenter_Set_Postfix))
                 );
 
                 // UIBattleSkillInformationPresenter.Set fires on every skill navigation
@@ -431,6 +442,25 @@ namespace SO2RAccess
             _lastIndex = -1;
             _wasActive = false;
 
+            // --- STALE-SEED GUIDE FOR FUTURE SUB-SCREENS ---
+            // ALL sub-screen selectors have activeInHierarchy=True permanently.
+            // The root menu selector ALSO stays active when inside a sub-screen.
+            // Sub-screens are gated by _lastRootMenuItemName, which passes as soon as
+            // the root menu cursor highlights the item — BEFORE the user confirms.
+            //
+            // To prevent spurious announcements when merely highlighting a root item:
+            //   1. Call _xxxState.Reset() to clear the SubScreenState.
+            //   2. If the selector is already active (stale), call SuppressNextHeading()
+            //      or SeedOnOpen() to suppress the heading on first CheckEntry.
+            //   3. If the sub-screen has NESTED CHILD selectors with their own manual
+            //      _xxxWasActive / _xxxLastIndex tracking, ALSO seed those:
+            //        - Set _xxxLastIndex = childSelector.currentIndex
+            //        - Set _xxxWasActive = true  ← CRITICAL, prevents first-activation reset
+            //   4. Preferred pattern for NEW child selectors: skip _xxxWasActive entirely,
+            //      just compare idx == _xxxLastIndex. See UpdateBattleSkillEquipSlotList.
+            //      This avoids the stale-seed pitfall altogether.
+            // ---
+
             _itemSelector = __instance.itemSelector;
             _itemListSelectorBase = null;
             _itemState.Reset();
@@ -442,6 +472,7 @@ namespace SO2RAccess
             _equipSlotWasActive = false;
             _equipItemListBase = null;
             _equipItemListActive = false;
+            _cachedElementalAnnouncement = null;
 
             if (_menuSelector != null)
                 DebugLogger.LogState("CampMenu: menu selector cached.");
@@ -498,8 +529,14 @@ namespace SO2RAccess
             {
                 DebugLogger.LogState("CampMenu: equip selector cached.");
 
-                // Seed child slot index so highlighting "Equip" on root menu
-                // doesn't trigger a spurious slot announcement.
+                // STALE-SEED for nested child selector.
+                // The equip sub-screen has a child slot list with its own _equipSlotWasActive
+                // and _equipSlotLastIndex tracking. We must seed BOTH the SubScreenState (outer)
+                // AND the child's tracking variables. If _equipSlotWasActive is left false,
+                // UpdateEquipSlotList's first-activation logic resets _equipSlotLastIndex to -1,
+                // causing a spurious slot announcement when the root menu cursor merely
+                // highlights "Equip" (before the user presses confirm to enter).
+                // See SubScreenState.cs class docs for the full pattern.
                 try
                 {
                     if (_equipSelector.gameObject.activeInHierarchy)
@@ -511,6 +548,9 @@ namespace SO2RAccess
                         {
                             _equipSlotListBase = slotBase;
                             _equipSlotLastIndex = slotBase.currentIndex;
+                            // Mark child slot list as already active so its first-activation
+                            // logic in UpdateEquipSlotList doesn't reset the seeded index.
+                            _equipSlotWasActive = true;
                         }
                         DebugLogger.LogState($"CampEquip: stale on open, seeded slotIdx={_equipSlotLastIndex}.");
                     }

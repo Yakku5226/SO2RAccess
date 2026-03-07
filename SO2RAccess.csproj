@@ -61,6 +61,10 @@
       <HintPath>E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\MelonLoader\Il2CppAssemblies\UnityEngine.UI.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\MelonLoader\Il2CppAssemblies\UnityEngine.UIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.AIModule">
       <HintPath>E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\MelonLoader\Il2CppAssemblies\UnityEngine.AIModule.dll</HintPath>
       <Private>false</Private>

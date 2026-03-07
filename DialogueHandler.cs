@@ -1,4 +1,5 @@
 using HarmonyLib;
+using Il2CppCommon;
 using Il2CppGame;
 using MelonLoader;
 using System;
@@ -36,6 +37,15 @@ namespace SO2RAccess
         #region Fields
 
         private bool _patchesApplied = false;
+
+        // Deferred dialogue announcement — waits 1 frame then polls voice state.
+        private static string _pendingMessage;
+        private static string _pendingName;
+        private static string _pendingVoiceID;
+        private static int _pendingFrame = -1;
+
+        // Cached reference to the conversation selector for polling voice state.
+        private static UIConversationSelector _cachedSelector;
 
         /// <summary>
         /// Runtime map: FieldNpcCharacter instance ID → resolved dialogue display name.
@@ -130,27 +140,27 @@ namespace SO2RAccess
                 if (!string.IsNullOrEmpty(cleanName))
                     TryRecordNpcName(cleanName);
 
-                // In NameOnlyWhenVoiced mode, voiced lines announce just the speaker name
-                // so the game's voice audio can carry the dialogue without overlap.
-                // voiceID is never empty — cutscene voices use "sc#####_###" format,
-                // while unvoiced NPC field chat uses "NPC_*" format.
-                bool isVoiced = !string.IsNullOrEmpty(voiceID)
-                    && voiceID.StartsWith("sc", StringComparison.OrdinalIgnoreCase);
-                bool nameOnly = isVoiced
-                    && !string.IsNullOrEmpty(cleanName)
-                    && ModSettings.DialogueVoiceMode == DialogueVoiceMode.NameOnlyWhenVoiced;
+                // If voice mode is AlwaysReadFull, announce immediately — no need to
+                // wait for PlayVoice since we always read full text regardless.
+                if (ModSettings.DialogueVoiceMode != DialogueVoiceMode.NameOnlyWhenVoiced)
+                {
+                    string announcement = string.IsNullOrEmpty(cleanName)
+                        ? Loc.Get("dialogue_no_name", cleanMessage)
+                        : Loc.Get("dialogue_with_name", cleanName, cleanMessage);
+                    ScreenReader.Say(announcement);
+                    DebugLogger.LogGameValue("Dialogue",
+                        $"name='{cleanName}' voiced=N/A voiceID='{voiceID ?? ""}' mode={ModSettings.DialogueVoiceMode} msg='{cleanMessage}'");
+                    return;
+                }
 
-                string announcement;
-                if (nameOnly)
-                    announcement = Loc.Get("dialogue_speaker_only", cleanName);
-                else if (string.IsNullOrEmpty(cleanName))
-                    announcement = Loc.Get("dialogue_no_name", cleanMessage);
-                else
-                    announcement = Loc.Get("dialogue_with_name", cleanName, cleanMessage);
-
-                ScreenReader.Say(announcement);
-                DebugLogger.LogGameValue("Dialogue",
-                    $"name='{cleanName}' voiced={isVoiced} voiceID='{voiceID ?? ""}' mode={ModSettings.DialogueVoiceMode} msg='{cleanMessage}'");
+                // NameOnlyWhenVoiced mode: defer announcement by 1 frame to give the
+                // game's PlayVoice call a chance to fire (it runs after SetMessage in
+                // the same native call chain). ProcessPendingDialogue() in OnLateUpdate
+                // will check whether PlayVoice fired and announce accordingly.
+                _pendingMessage = cleanMessage;
+                _pendingName    = cleanName;
+                _pendingVoiceID = voiceID;
+                _pendingFrame   = Time.frameCount;
             }
             catch (Exception ex)
             {
@@ -162,6 +172,59 @@ namespace SO2RAccess
         #endregion
 
         #region Helpers
+
+        /// <summary>
+        /// Called from Main.OnLateUpdate. If a deferred dialogue announcement is
+        /// pending and at least 1 frame has passed (giving PlayVoice a chance to
+        /// fire), announces the dialogue — name-only if voice played, full text
+        /// otherwise.
+        /// </summary>
+        public static void ProcessPendingDialogue()
+        {
+            if (_pendingMessage == null) return;
+            if (Time.frameCount <= _pendingFrame) return; // wait 1 frame
+
+            string msg  = _pendingMessage;
+            string name = _pendingName;
+            string vid  = _pendingVoiceID;
+
+            // Clear pending state before announcing.
+            _pendingMessage = null;
+            _pendingName    = null;
+            _pendingVoiceID = null;
+
+            // Poll the game's voice state — by this frame PlayVoice has already
+            // been called natively and the controller is actively playing audio.
+            bool voiced = false;
+            try
+            {
+                if (_cachedSelector == null)
+                    _cachedSelector = UnityEngine.Object.FindObjectOfType<UIConversationSelector>();
+                if (_cachedSelector != null)
+                {
+                    SeController vc = _cachedSelector.currentVoiceController;
+                    voiced = vc != null && vc.IsPlaying();
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"DialogueHandler: voice poll error: {ex.Message}");
+            }
+
+            bool nameOnly = voiced && !string.IsNullOrEmpty(name);
+
+            string announcement;
+            if (nameOnly)
+                announcement = Loc.Get("dialogue_speaker_only", name);
+            else if (string.IsNullOrEmpty(name))
+                announcement = Loc.Get("dialogue_no_name", msg);
+            else
+                announcement = Loc.Get("dialogue_with_name", name, msg);
+
+            ScreenReader.Say(announcement);
+            DebugLogger.LogGameValue("Dialogue",
+                $"name='{name}' voiced={voiced} voiceID='{vid ?? ""}' mode={ModSettings.DialogueVoiceMode} msg='{msg}'");
+        }
 
         private static string StripTags(string text) => TextUtil.StripTags(text);
 
