@@ -181,6 +181,9 @@ namespace SO2RAccess
             Add("nav_save_recovery",   "Recovery save point");
             Add("nav_save_recovery_n", "Recovery save point {0}");
 
+            // Navigation — world map locations
+            Add("nav_location_dungeon",  "{0} (Dungeon)");
+
             // Navigation — enemies
             Add("nav_enemy_named",   "{0}, {1}");
             Add("nav_enemy_typed",   "{0} enemy");

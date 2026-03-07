@@ -54,11 +54,12 @@ namespace SO2RAccess
         private const int CAT_DOOR         = 8;
         private const int CAT_WARP         = 9;
         private const int CAT_INTERACTABLE = 10;
-        private const int CAT_COUNT        = 11;
+        private const int CAT_LOCATION    = 11;
+        private const int CAT_COUNT       = 12;
 
         private static readonly string[] _categoryNames =
             { "NPCs", "Chests", "Exits", "Markers", "Events", "Save Points", "Enemies",
-              "Stairs", "Doors", "Warp Points", "Interactables" };
+              "Stairs", "Doors", "Warp Points", "Interactables", "Locations" };
 
         /// <summary>
         /// Manual overrides for FieldmapID destination names.
@@ -107,6 +108,33 @@ namespace SO2RAccess
         /// the arrival announcement would interrupt.
         /// </summary>
         private const float ArrivalRecentWindow = 0.5f;
+
+        /// <summary>Seconds between stuck checks during world map auto-walk.</summary>
+        private const float WorldmapStuckCheckInterval = 3f;
+
+        /// <summary>
+        /// Minimum distance the player must move during a stuck check interval
+        /// to be considered making progress. Below this, auto-walk is cancelled.
+        /// </summary>
+        private const float WorldmapStuckMinMove = 2f;
+
+        /// <summary>Max distance to show chests on the world map.</summary>
+        private const float WorldmapChestMaxDistance = 200f;
+
+        /// <summary>Max distance to show enemies on the world map.</summary>
+        private const float WorldmapEnemyMaxDistance = 150f;
+
+        /// <summary>
+        /// Arrival radius for world map targets (larger than field because
+        /// world map symbols and objects are bigger).
+        /// </summary>
+        private const float WorldmapArrivalRadius = 15f;
+
+        /// <summary>
+        /// Number of CalcHeight samples along the line from player to target
+        /// for ocean barrier detection on the world map.
+        /// </summary>
+        private const int WorldmapCalcHeightSamples = 10;
 
         #endregion
 
@@ -444,7 +472,8 @@ namespace SO2RAccess
                     ? new Vector3(targetDx / targetDist, 0f, targetDz / targetDist)
                     : Vector3.forward;
 
-                if (targetDist <= AutoWalkArrivalRadius)
+                float arrivalRadius = _isWorldmap ? WorldmapArrivalRadius : AutoWalkArrivalRadius;
+                if (targetDist <= arrivalRadius)
                 {
                     // Face the target.
                     player.transform.rotation = Quaternion.LookRotation(targetDir, Vector3.up);
@@ -514,6 +543,72 @@ namespace SO2RAccess
                 // --- Approach phase ---
                 _autoWalkArrived     = false;
                 _staticIsApproaching = true;
+
+                // World map: use per-frame WorldmapFindPath from real player
+                // position. The A* pathfinder gives a single next-step waypoint
+                // that avoids terrain obstacles. Stored waypoints are not used
+                // because coordinate wrapping shifts positions each frame.
+                if (_isWorldmap)
+                {
+                    // Stuck detection: cancel if no progress over interval.
+                    _wmStuckTimer += Time.deltaTime;
+                    if (_wmStuckTimer >= WorldmapStuckCheckInterval)
+                    {
+                        float movedDx = playerPos.x - _wmLastStuckCheckPos.x;
+                        float movedDz = playerPos.z - _wmLastStuckCheckPos.z;
+                        float movedSq = movedDx * movedDx + movedDz * movedDz;
+                        if (movedSq < WorldmapStuckMinMove * WorldmapStuckMinMove)
+                        {
+                            DebugLogger.LogState(
+                                $"NAV worldmap: stuck (moved {Mathf.Sqrt(movedSq):F1} in " +
+                                $"{WorldmapStuckCheckInterval}s). Cancelling.");
+                            ScreenReader.Say(Loc.Get("nav_autowalk_unreachable", _autoWalkLabel));
+                            CancelAutoWalk();
+                            return;
+                        }
+                        _wmLastStuckCheckPos = playerPos;
+                        _wmStuckTimer = 0f;
+                    }
+
+                    // Ask the A* pathfinder for the next step toward the target.
+                    Vector3 moveDir = targetDir; // fallback: straight toward target
+                    var pf = GetWorldmapPathFinder();
+                    if (pf != null)
+                    {
+                        try
+                        {
+                            Vector3 from = playerPos;
+                            Vector3 to = _autoWalkTarget;
+                            if (pf.WorldmapFindPath(ref from, ref to) &&
+                                pf.routeCount > 0 && pf.routes != null)
+                            {
+                                Vector3 nextStep = pf.routes[0];
+                                float nsDx = nextStep.x - playerPos.x;
+                                float nsDz = nextStep.z - playerPos.z;
+                                float nsDist = Mathf.Sqrt(nsDx * nsDx + nsDz * nsDz);
+                                if (nsDist > 0.1f)
+                                    moveDir = new Vector3(nsDx / nsDist, 0f, nsDz / nsDist);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.LogState($"NAV worldmap FindPath: {ex.Message}");
+                        }
+                    }
+
+                    float step = _autoWalkSpeed * Time.deltaTime;
+                    float nx = playerPos.x + moveDir.x * step;
+                    float nz = playerPos.z + moveDir.z * step;
+                    float ny = Mathf.Lerp(playerPos.y, _autoWalkTarget.y, 0.15f);
+                    player.transform.position = new Vector3(nx, ny, nz);
+
+                    Quaternion moveRot = Quaternion.LookRotation(moveDir, Vector3.up);
+                    player.transform.rotation = Quaternion.RotateTowards(
+                        player.transform.rotation, moveRot, AutoWalkTurnSpeed * Time.deltaTime);
+                    return;
+                }
+
+                // --- Field map: waypoint-based approach ---
 
                 // Safety check: if path data is missing, cancel.
                 if (_pathCorners == null || _pathCorners.Length == 0)
@@ -602,23 +697,25 @@ namespace SO2RAccess
                     wpDist = Mathf.Sqrt(wpDx * wpDx + wpDz * wpDz);
                 }
 
-                // Direction toward the current waypoint.
-                Vector3 moveDir = wpDist > 0.01f
-                    ? new Vector3(wpDx / wpDist, 0f, wpDz / wpDist)
-                    : Vector3.forward;
+                {
+                    // Direction toward the current waypoint.
+                    Vector3 moveDir = wpDist > 0.01f
+                        ? new Vector3(wpDx / wpDist, 0f, wpDz / wpDist)
+                        : Vector3.forward;
 
-                // Move toward the waypoint.
-                float step = _autoWalkSpeed * Time.deltaTime;
-                float nx   = playerPos.x + moveDir.x * step;
-                float nz   = playerPos.z + moveDir.z * step;
-                // Interpolate Y toward the waypoint's Y for smooth terrain following.
-                float ny   = Mathf.Lerp(playerPos.y, waypoint.y, 0.15f);
-                player.transform.position = new Vector3(nx, ny, nz);
+                    // Move toward the waypoint.
+                    float step = _autoWalkSpeed * Time.deltaTime;
+                    float nx   = playerPos.x + moveDir.x * step;
+                    float nz   = playerPos.z + moveDir.z * step;
+                    // Interpolate Y toward the waypoint's Y for smooth terrain following.
+                    float ny   = Mathf.Lerp(playerPos.y, waypoint.y, 0.15f);
+                    player.transform.position = new Vector3(nx, ny, nz);
 
-                // Rotate to face the direction of travel.
-                Quaternion moveRot = Quaternion.LookRotation(moveDir, Vector3.up);
-                player.transform.rotation = Quaternion.RotateTowards(
-                    player.transform.rotation, moveRot, AutoWalkTurnSpeed * Time.deltaTime);
+                    // Rotate to face the direction of travel.
+                    Quaternion moveRot = Quaternion.LookRotation(moveDir, Vector3.up);
+                    player.transform.rotation = Quaternion.RotateTowards(
+                        player.transform.rotation, moveRot, AutoWalkTurnSpeed * Time.deltaTime);
+                }
             }
             catch (Exception ex)
             {
@@ -708,21 +805,37 @@ namespace SO2RAccess
 
                 Vector3    playerPos = player.transform.position;
                 FieldmapID mapID     = fm.currentFieldmapID;
+                _isWorldmap = fm.IsWorldmap();
+                if (_isWorldmap)
+                    ClearWorldmapCache();
 
                 DebugLogger.LogState(
-                    $"NAV scan start. map={mapID} " +
+                    $"NAV scan start. map={mapID} worldmap={_isWorldmap} " +
                     $"playerPos=({playerPos.x:F1},{playerPos.y:F1},{playerPos.z:F1})");
 
-                BuildNpcs(playerPos, mapID);
-                BuildChests(playerPos);
-                BuildExits(playerPos);
-                BuildMarkers(fm.FieldLocationPointList, playerPos);
-                BuildEvents(playerPos);
-                BuildSavePoints(fm.FieldSavePointList, playerPos);
-                BuildEnemies(playerPos);
-                BuildStairs(fm.FieldStairsList, playerPos);
-                BuildDoors(fm.FieldDoorList, playerPos);
-                BuildWarpPoints(fm, playerPos);
+                if (_isWorldmap)
+                {
+                    // World map: locations (from game data), nearby chests/enemies only.
+                    // Skip NPCs, exits, markers, events, save points, stairs, doors,
+                    // warps — these are either absent or redundant with Locations.
+                    BuildWorldmapLocations(playerPos, fm.WorldmapID);
+                    BuildChests(playerPos);
+                    BuildEnemies(playerPos);
+                }
+                else
+                {
+                    // Field map: full scan as before.
+                    BuildNpcs(playerPos, mapID);
+                    BuildChests(playerPos);
+                    BuildExits(playerPos);
+                    BuildMarkers(fm.FieldLocationPointList, playerPos);
+                    BuildEvents(playerPos);
+                    BuildSavePoints(fm.FieldSavePointList, playerPos);
+                    BuildEnemies(playerPos);
+                    BuildStairs(fm.FieldStairsList, playerPos);
+                    BuildDoors(fm.FieldDoorList, playerPos);
+                    BuildWarpPoints(fm, playerPos);
+                }
 
                 int totalItems = 0;
                 for (int i = 0; i < CAT_COUNT; i++) totalItems += _categories[i].Count;
@@ -738,7 +851,8 @@ namespace SO2RAccess
                     $"stairs={_categories[CAT_STAIRS].Count} " +
                     $"doors={_categories[CAT_DOOR].Count} " +
                     $"warps={_categories[CAT_WARP].Count} " +
-                    $"interactables={_categories[CAT_INTERACTABLE].Count}");
+                    $"interactables={_categories[CAT_INTERACTABLE].Count} " +
+                    $"locations={_categories[CAT_LOCATION].Count}");
 
                 if (totalItems == 0)
                 {

@@ -38,7 +38,7 @@
 **Phase:** Phase 3 — Feature Implementation
 **Currently working on:** Phase 3 features
 **Blocked by:** Nothing — framework fully working in-game
-**Last completed:** Equip elemental resistances panel — Triangle button announces elemental resistances (weak/resistant/immune/absorb) via cached hook data + input detection. Fixed stale-seed bug for equip slot list. Added stale-seed documentation for future sub-screens (2026-03-07)
+**Last completed:** World map navigation — CalcHeight ocean barrier filtering, distance caps, Locations category from game database, per-frame WorldmapFindPath auto-walk with stuck detection. See docs/worldmap-pathfinding.md for full technical documentation (2026-03-07)
 
 ## Codebase Analysis Progress
 
@@ -430,7 +430,7 @@ Without this list, mod keys WILL conflict with game controls. -->
 - **Field Navigation — Phase 2 (audio list + auto-run)** (`NavigationHandler.cs`) ✓ COMPLETE AND TESTED
   - F5: open/close navigation list; also cancels auto-run if active
   - NumPad 8/2: navigate up/down within category
-  - NumPad 4/6: switch category (NPCs, Chests, Exits, Markers, Events, Save Points, Enemies, Stairs, Doors, Warp Points)
+  - NumPad 4/6: switch category (NPCs, Chests, Exits, Markers, Events, Save Points, Enemies, Stairs, Doors, Warp Points, Locations)
   - NumPad 5: auto-run to selected item; press again to stop following
   - Items sorted by distance (closest first) within each category
   - Party members filtered (dist < 2 units)
@@ -628,6 +628,19 @@ bypass managed stubs) with polling UIConversationSelector.currentVoiceController
   camera-relative compass direction so the player knows which way to walk to pass through the exit.
   E.g. "Arrived at Building entrance to Arlia. Exit is to the North East." Directions are computed
   relative to the camera orientation (North = stick forward/up), not world axes.
+
+- **World map navigation** — IMPLEMENTED AND TESTED (2026-03-07):
+  - World map has no Unity NavMesh — uses game's custom A* pathfinder instead
+  - Reachability: CalcHeight path sampling (10 points along line to target) detects ocean barriers
+  - Distance caps: chests max 200m, enemies max 150m (reduces 50+ items to nearby handful)
+  - Locations category: cities/dungeons from ConstWorldmapSymbolParameter, scenario-progress filtered
+  - Location names resolved via localityID -> GetLocalityParameter -> localityNameID -> TextManager
+  - No reachability filter on locations (false negatives would hide targets permanently for blind users)
+  - Auto-walk: per-frame WorldmapFindPath (game's A* pathfinder), navigates around terrain
+  - Stuck detection: cancels if player moves < 2 units in 3 seconds
+  - Coordinate wrapping handled: fresh positions each frame (stored waypoints go stale)
+  - Arrival radius: 15m (vs 1.8m for field maps) due to larger world map objects
+  - Full technical documentation: docs/worldmap-pathfinding.md
 
 - **Bug: First item not announced in camp sub-screen lists** — FIXED (2026-03-07):
   Harmony hooks fire during game's Update (before MelonLoader OnLateUpdate), but the polling

@@ -74,6 +74,13 @@ namespace SO2RAccess
             _autoWalkArrived     = false;
             _staticIsApproaching = true;
 
+            // Initialize world map stuck detection.
+            if (_isWorldmap)
+            {
+                _wmStuckTimer        = 0f;
+                _wmLastStuckCheckPos = playerPos;
+            }
+
             // Close the list — the player is now running, not browsing.
             _isOpen = false;
             for (int i = 0; i < CAT_COUNT; i++) _categories[i].Clear();
@@ -126,6 +133,7 @@ namespace SO2RAccess
             _pathCorners         = null;
             _pathCornerIndex     = 0;
             _pathRecalcTimer     = 0f;
+            _isWorldmap          = false;
             DebugLogger.LogState("NAV auto-walk cancelled.");
         }
 
@@ -155,8 +163,9 @@ namespace SO2RAccess
         /// (exits, stairs, doors, warps) where a compass direction hint is useful.
         /// </summary>
         private static bool IsExitCategory(int categoryIndex) =>
-            categoryIndex == CAT_EXIT  || categoryIndex == CAT_STAIRS ||
-            categoryIndex == CAT_DOOR  || categoryIndex == CAT_WARP;
+            categoryIndex == CAT_EXIT     || categoryIndex == CAT_STAIRS ||
+            categoryIndex == CAT_DOOR     || categoryIndex == CAT_WARP   ||
+            categoryIndex == CAT_LOCATION;
 
         /// <summary>
         /// Computes a camera-relative compass direction string (e.g. "North", "South East")
@@ -213,6 +222,10 @@ namespace SO2RAccess
         /// </summary>
         private bool IsReachable(Vector3 playerPos, Vector3 targetPos)
         {
+            // World map: use CalcHeight path sampling to detect ocean barriers.
+            if (_isWorldmap)
+                return WorldmapIsReachableViaCalcHeight(playerPos, targetPos);
+
             try
             {
                 if (!NavMesh.SamplePosition(playerPos, out NavMeshHit playerHit,
@@ -258,6 +271,9 @@ namespace SO2RAccess
         private bool CalculateAndStorePath(Vector3 playerPos, Vector3 targetPos,
             bool allowPartial = false)
         {
+            // World map has no NavMesh — use the game's A* pathfinder instead.
+            if (_isWorldmap) return WorldmapCalculateAndStorePath(playerPos, targetPos);
+
             if (!NavMesh.SamplePosition(playerPos, out NavMeshHit playerHit,
                     NavMeshSampleRadius, NavMesh.AllAreas))
                 return false;
