@@ -38,7 +38,7 @@
 **Phase:** Phase 3 — Feature Implementation
 **Currently working on:** Phase 3 features
 **Blocked by:** Nothing — framework fully working in-game
-**Last completed:** World map navigation — CalcHeight ocean barrier filtering, distance caps, Locations category from game database, per-frame WorldmapFindPath auto-walk with stuck detection. See docs/worldmap-pathfinding.md for full technical documentation (2026-03-07)
+**Last completed:** World map fast travel menu accessibility — WorldMapHandler polls UIWorldMapWindow/UIWorldMapFastTravelSelector for location, sub-area, and fast travel point names. Tab changes (City/Dungeon) announced. Unavailable items marked. (2026-03-07)
 
 ## Codebase Analysis Progress
 
@@ -641,6 +641,13 @@ bypass managed stubs) with polling UIConversationSelector.currentVoiceController
   - Coordinate wrapping handled: fresh positions each frame (stored waypoints go stale)
   - Arrival radius: 15m (vs 1.8m for field maps) due to larger world map objects
   - Full technical documentation: docs/worldmap-pathfinding.md
+
+- **World map fast travel menu** — IMPLEMENTED AND TESTED (2026-03-07):
+  - WorldMapHandler.cs: polling-based (same pattern as shop/camp — native-only navigation)
+  - Detects UIWorldMapWindow via FindObjectOfType, polls IsOpened for open/close
+  - Three-level hierarchy: Location (cities/dungeons with tabs) → Sub-areas → Fast travel points
+  - Point selector uses two data types: UIWorldMapLocationListItemData (sub-areas) and UIWorldMapLocationListItemFastTravelData (destinations) — both handled via dual TryCast
+  - Unavailable items announced with suffix. Tab changes (City/Dungeon) announced.
 
 - **Bug: First item not announced in camp sub-screen lists** — FIXED (2026-03-07):
   Harmony hooks fire during game's Update (before MelonLoader OnLateUpdate), but the polling

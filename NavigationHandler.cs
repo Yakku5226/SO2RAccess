@@ -508,7 +508,7 @@ namespace SO2RAccess
                         string arrivalMsg;
                         if (IsExitCategory(_autoWalkCategoryIndex))
                         {
-                            string compass = GetCompassDirection(playerPos, _autoWalkTarget);
+                            string compass = GetCompassDirection(playerPos, _autoWalkTarget, _isWorldmap);
                             arrivalMsg = Loc.Get("nav_autowalk_arrived_exit",
                                 _autoWalkLabel, compass);
                         }

@@ -184,6 +184,12 @@ namespace SO2RAccess
             // Navigation — world map locations
             Add("nav_location_dungeon",  "{0} (Dungeon)");
 
+            // World map fast travel menu
+            Add("worldmap_open",         "Fast travel.");
+            Add("worldmap_tab_city",     "Cities.");
+            Add("worldmap_tab_dungeon",  "Dungeons.");
+            Add("worldmap_unavailable",  "{0}, unavailable");
+
             // Navigation — enemies
             Add("nav_enemy_named",   "{0}, {1}");
             Add("nav_enemy_typed",   "{0} enemy");

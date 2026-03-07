@@ -57,6 +57,7 @@ namespace SO2RAccess
         private BattlePauseHandler _battlePauseHandler;
         private BattleMenuHandler _battleMenuHandler;
         private BattleStatusHandler _battleStatusHandler;
+        private WorldMapHandler _worldMapHandler;
         private ModMenuHandler _modMenuHandler;
         private EquipWizardHandler _equipWizardHandler;
 
@@ -127,6 +128,7 @@ namespace SO2RAccess
             _battleTargetHandler = new BattleTargetHandler();
             _battlePauseHandler = new BattlePauseHandler();
             _battleMenuHandler = new BattleMenuHandler();
+            _worldMapHandler = new WorldMapHandler();
             _battleStatusHandler = new BattleStatusHandler();
             _modMenuHandler = new ModMenuHandler();
             _equipWizardHandler = new EquipWizardHandler();
@@ -197,6 +199,7 @@ namespace SO2RAccess
             _battleMenuHandler?.OnSceneChanged();
             _battleStatusHandler?.OnSceneChanged();
             _equipWizardHandler?.OnSceneChanged();
+            _worldMapHandler?.OnSceneChanged();
 
             // Apply patches once — safe to call on every scene load, handlers guard against duplicates.
             _titleHandler.ApplyPatches(_harmony);
@@ -603,6 +606,7 @@ namespace SO2RAccess
             _battlePauseHandler.Update();
             _battleMenuHandler.Update();
             _equipWizardHandler.Update();
+            _worldMapHandler.Update();
         }
 
         #endregion

@@ -168,36 +168,42 @@ namespace SO2RAccess
             categoryIndex == CAT_LOCATION;
 
         /// <summary>
-        /// Computes a camera-relative compass direction string (e.g. "North", "South East")
-        /// from the player toward the target. "North" means the direction the camera faces
-        /// (i.e. pushing the stick forward/up), "East" means to the right on screen, etc.
-        /// This ensures directions match the player's controller input regardless of
-        /// how the game world is oriented.
+        /// Computes a compass direction string (e.g. "North", "South East")
+        /// from the player toward the target.
+        /// When <paramref name="worldRelative"/> is false (default, used on field maps),
+        /// directions are camera-relative: "North" = camera forward = stick up.
+        /// When true (used on the world map), directions are world-relative:
+        /// "North" = Z+, "East" = X+, matching the fixed map orientation.
         /// </summary>
-        private static string GetCompassDirection(Vector3 playerPos, Vector3 targetPos)
+        private static string GetCompassDirection(Vector3 playerPos, Vector3 targetPos,
+            bool worldRelative = false)
         {
             float dx = targetPos.x - playerPos.x;
             float dz = targetPos.z - playerPos.z;
 
-            // Project onto camera-relative axes so "North" = camera forward = stick up.
-            var cam = Camera.main;
-            if (cam != null)
+            if (!worldRelative)
             {
-                Vector3 camFwd = cam.transform.forward;
-                camFwd.y = 0f;
-                camFwd.Normalize();
-                Vector3 camRight = cam.transform.right;
-                camRight.y = 0f;
-                camRight.Normalize();
+                // Project onto camera-relative axes so "North" = camera forward = stick up.
+                var cam = Camera.main;
+                if (cam != null)
+                {
+                    Vector3 camFwd = cam.transform.forward;
+                    camFwd.y = 0f;
+                    camFwd.Normalize();
+                    Vector3 camRight = cam.transform.right;
+                    camRight.y = 0f;
+                    camRight.Normalize();
 
-                // forward component = how far "North" (camera forward) the exit is
-                float fwd   = dx * camFwd.x   + dz * camFwd.z;
-                // right component = how far "East" (camera right) the exit is
-                float right = dx * camRight.x  + dz * camRight.z;
+                    // forward component = how far "North" (camera forward) the exit is
+                    float fwd   = dx * camFwd.x   + dz * camFwd.z;
+                    // right component = how far "East" (camera right) the exit is
+                    float right = dx * camRight.x  + dz * camRight.z;
 
-                dx = right;
-                dz = fwd;
+                    dx = right;
+                    dz = fwd;
+                }
             }
+            // else: world-relative — use raw dx/dz where Z+ = North, X+ = East.
 
             // Angle in degrees: 0 = North (forward), 90 = East (right)
             float angle = Mathf.Atan2(dx, dz) * Mathf.Rad2Deg;
