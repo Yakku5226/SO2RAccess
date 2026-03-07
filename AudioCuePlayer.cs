@@ -36,6 +36,16 @@ namespace SO2RAccess
         private static float _dodgeSoundCachedVolume = -1f;
         private static bool _dodgeSoundLoaded;
 
+        // File-based private action notification sound.
+        private static byte[] _paSoundRawWav;
+        private static int _paSoundDataOffset;
+        private static int _paSoundDataLength;
+        private static short _paSoundBitsPerSample;
+        private static IntPtr _paSoundPtr = IntPtr.Zero;
+        private static int _paSoundPtrSize;
+        private static float _paSoundCachedVolume = -1f;
+        private static bool _paSoundLoaded;
+
         // File-based save sound — stores the raw WAV file bytes and the
         // byte offset of the PCM data region within it. Volume adjustment
         // creates a copy with scaled samples rather than rebuilding the
@@ -227,6 +237,86 @@ namespace SO2RAccess
         public static bool IsSaveSoundLoaded => _saveSoundLoaded;
 
         /// <summary>
+        /// Loads a WAV file from disk for the private action notification cue.
+        /// </summary>
+        public static void LoadPrivateActionSound(string path)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    MelonLogger.Warning($"AudioCuePlayer: private action sound not found: {path}");
+                    return;
+                }
+
+                if (!TryParseWav(path, out byte[] fileBytes, out int dataOffset,
+                        out int dataLength, out short bitsPerSample))
+                    return;
+
+                _paSoundRawWav = fileBytes;
+                _paSoundDataOffset = dataOffset;
+                _paSoundDataLength = dataLength;
+                _paSoundBitsPerSample = bitsPerSample;
+                _paSoundCachedVolume = -1f;
+                _paSoundLoaded = true;
+
+                int sampleCount = dataLength / (bitsPerSample / 8);
+                MelonLogger.Msg($"AudioCuePlayer: private action sound loaded ({fileBytes.Length} bytes, {sampleCount} samples, {bitsPerSample}-bit).");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"AudioCuePlayer.LoadPrivateActionSound failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Returns true if the private action sound WAV was loaded successfully.
+        /// </summary>
+        public static bool IsPrivateActionSoundLoaded => _paSoundLoaded;
+
+        /// <summary>
+        /// Plays the private action notification cue at the current ModSettings volume.
+        /// </summary>
+        public static void PlayPrivateActionCue()
+        {
+            if (!_paSoundLoaded || _paSoundRawWav == null)
+                return;
+
+            try
+            {
+                float volume = ModSettings.PrivateActionSoundVolume;
+                if (volume < 0.001f) return;
+
+                if (Math.Abs(volume - _paSoundCachedVolume) > 0.001f)
+                {
+                    byte[] adjusted = (byte[])_paSoundRawWav.Clone();
+                    ScalePcmSamples(adjusted, _paSoundDataOffset,
+                        _paSoundDataLength, _paSoundBitsPerSample, volume);
+
+                    if (_paSoundPtr != IntPtr.Zero)
+                        Marshal.FreeHGlobal(_paSoundPtr);
+
+                    _paSoundPtrSize = adjusted.Length;
+                    _paSoundPtr = Marshal.AllocHGlobal(_paSoundPtrSize);
+                    Marshal.Copy(adjusted, 0, _paSoundPtr, _paSoundPtrSize);
+                    _paSoundCachedVolume = volume;
+
+                    DebugLogger.LogState($"PA WAV built: {_paSoundPtrSize} bytes at volume {volume:F2}");
+                }
+
+                if (_paSoundPtr != IntPtr.Zero)
+                {
+                    PlaySoundPtr(_paSoundPtr, IntPtr.Zero,
+                        SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"AudioCuePlayer.PlayPrivateActionCue failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Cleans up audio data.
         /// </summary>
         public static void Shutdown()
@@ -250,6 +340,14 @@ namespace SO2RAccess
                 _saveSoundPtr = IntPtr.Zero;
             }
             _saveSoundLoaded = false;
+
+            _paSoundRawWav = null;
+            if (_paSoundPtr != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(_paSoundPtr);
+                _paSoundPtr = IntPtr.Zero;
+            }
+            _paSoundLoaded = false;
 
             _initialized = false;
         }

@@ -43,13 +43,16 @@ namespace SO2RAccess
                 return;
             }
 
-            // Counter NPCs (shops, inns, guilds) may be behind barriers, so
-            // accept a partial NavMesh path — the player walks as close as possible.
+            // Accept a partial NavMesh path when the target is behind a barrier
+            // (counter NPCs) or on a different floor (significant Y difference means
+            // separate NavMesh surfaces connected only by stairs/ramps — the player
+            // walks as far as the current floor allows, typically toward the stairs).
+            bool differentFloor = Mathf.Abs(item.Position.y - playerPos.y) > FloorChangeThreshold;
             bool pathFound;
             try
             {
                 pathFound = CalculateAndStorePath(playerPos, item.Position,
-                    allowPartial: item.IsCounterNpc);
+                    allowPartial: item.IsCounterNpc || differentFloor);
             }
             catch (Exception ex)
             {

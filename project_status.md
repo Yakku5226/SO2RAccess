@@ -38,7 +38,7 @@
 **Phase:** Phase 3 — Feature Implementation
 **Currently working on:** Phase 3 features
 **Blocked by:** Nothing — framework fully working in-game
-**Last completed:** World map fast travel menu accessibility — WorldMapHandler polls UIWorldMapWindow/UIWorldMapFastTravelSelector for location, sub-area, and fast travel point names. Tab changes (City/Dungeon) announced. Unavailable items marked. (2026-03-07)
+**Last completed:** Private action notification — PrivateActionHandler detects PA-enabled towns via ParameterManager.GetLocalityParameter(FieldmapID).IsPrivateAction and plays a sound cue + screen reader announcement ("Private action available. Press Square.") once per town visit. Volume slider in mod settings menu (0% = off). (2026-03-07)
 
 ## Codebase Analysis Progress
 
@@ -170,6 +170,9 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Duplicate enemy names numbered (e.g. "Lizardaxe 1", "Lizardaxe 2")
   - Detection: SetControlPlayerTarget hook (CallerCount 7) + polling as backup
   - Spectacles is the ONLY see-through mechanism (no Analyze spell in this game)
+  - R2 ally switching: announces controlled ally name, HP, MP, buffs/debuffs ✓ TESTED
+  - Polls controlPlayerIndex; ControlPlayerChangeMode (state 6) detects first R2 press
+  - Index silently seeded at battle start to avoid unwanted announcement
 
 - **Camp equip sub-screen announcements** (`CampMenuHandler.cs`) ✓ TESTED
   - Slot list reads category before item name: "Weapon: Swift sword, 1 of 7."
@@ -642,6 +645,14 @@ bypass managed stubs) with polling UIConversationSelector.currentVoiceController
   - Arrival radius: 15m (vs 1.8m for field maps) due to larger world map objects
   - Full technical documentation: docs/worldmap-pathfinding.md
 
+- **Floor change announcements** — IMPLEMENTED AND TESTED (2026-03-07):
+  - Polls player Y position each frame in CheckFloorChange()
+  - Announces "Went upstairs." / "Went downstairs." when Y changes by 2+ units
+  - 1.5 second cooldown prevents rapid-fire on long staircases
+  - Resets on map change to avoid false triggers between areas
+  - Auto-walk now accepts partial NavMesh paths for targets on different floors
+    (Y difference > 2 units) instead of saying "Cannot reach"
+
 - **World map fast travel menu** — IMPLEMENTED AND TESTED (2026-03-07):
   - WorldMapHandler.cs: polling-based (same pattern as shop/camp — native-only navigation)
   - Detects UIWorldMapWindow via FindObjectOfType, polls IsOpened for open/close
@@ -664,6 +675,12 @@ bypass managed stubs) with polling UIConversationSelector.currentVoiceController
   the same IsEnhanceBattleSkillMenu() gate, so _battleSkillWasActive stayed true and inner selectors
   were never re-cached. Combat skills showed missing level/BP on first visit; battle skills showed
   the last combat skill's BP cost. Fix: track _lastBattleSkillMenuItem and re-cache when it changes.
+
+- **Private action notification** — IMPLEMENTED AND TESTED (2026-03-07):
+  - PrivateActionHandler.cs: polls ParameterManager.GetLocalityParameter(FieldmapID).IsPrivateAction
+  - Plays PrivateAction.wav + screen reader "Private action available. Press Square." once per town visit
+  - Volume slider in mod settings menu (0% = off, default 70%)
+  - Game has NO native audio cue for PA availability — purely visual icon only
 
 ## Code Cleanup (2026-03-01)
 
@@ -731,6 +748,10 @@ Stale-open check helper consolidation. Key changes:
 - **User has a specific use in mind** — to be implemented in a future session
 
 ### Current work (2026-03-07)
+- R2 ally switching in battle: BattleTargetHandler now announces controlled ally on R2 press ✓ TESTED
+  - Polls controlPlayerIndex + ControlPlayerChangeMode state (6) for first-press detection
+  - Announces: name, HP (exact), MP (exact), active buffs/debuffs
+  - Index silently seeded at battle start to avoid unwanted announcement
 - Equipment Wizard handler: new EquipWizardHandler.cs — polls UISystemWindow.IsShowingEquipWizard,
   announces heading + description + equipment comparison + Yes/No/Reject All menu. Pending test.
 - First-item fix: all camp menu hooks now use live game state reads instead of stale polling flags.

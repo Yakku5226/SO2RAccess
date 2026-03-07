@@ -30,10 +30,18 @@ namespace SO2RAccess
         // Tracks whether we were in target change mode last frame.
         private bool _wasInTargetChangeMode;
 
+        // Ally control player switching (R2).
+        private int _lastControlPlayerIndex = -1;
+        private bool _controlPlayerSeeded;
+
         // Debounce: the hook and polling share this to avoid double announcements.
         private static IntPtr _lastAnnouncedPtr = IntPtr.Zero;
 
         private const int BATTLE_STATE_TARGET_CHANGE = 5;
+        private const int BATTLE_STATE_CONTROL_PLAYER_CHANGE = 6;
+
+        // Tracks whether we were in control player change mode last frame.
+        private bool _wasInControlPlayerChangeMode;
 
         /// <summary>
         /// Applies Harmony postfix on SetControlPlayerTarget for target change detection.
@@ -51,6 +59,8 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(CharacterParameter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(BattleManager).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(BattleEnemy).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(BattlePlayer).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(BattlePlayerParameter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIBattlePauseSelector).TypeHandle);
 
                 // Hook SetControlPlayerTarget — CallerCount(7), fires when target changes.
@@ -114,11 +124,14 @@ namespace SO2RAccess
                 var bm = BattleManager.Instance;
                 if (bm == null)
                 {
-                    if (_lastTargetPtr != IntPtr.Zero)
+                    if (_lastTargetPtr != IntPtr.Zero || _controlPlayerSeeded)
                     {
                         _lastTargetPtr = IntPtr.Zero;
                         _lastAnnouncedPtr = IntPtr.Zero;
                         _wasInTargetChangeMode = false;
+                        _lastControlPlayerIndex = -1;
+                        _controlPlayerSeeded = false;
+                        _wasInControlPlayerChangeMode = false;
                     }
                     return;
                 }
@@ -161,6 +174,46 @@ namespace SO2RAccess
                 }
 
                 _wasInTargetChangeMode = inTargetChangeMode;
+
+                // --- Ally control player switching (R2) ---
+                bool inControlChangeMode = stateMachine != null
+                    && stateMachine.currentState == BATTLE_STATE_CONTROL_PLAYER_CHANGE;
+
+                int ctrlIdx = bm.controlPlayerIndex;
+
+                // Seed the index on first battle frame without announcing.
+                if (!_controlPlayerSeeded)
+                {
+                    _controlPlayerSeeded = true;
+                    _lastControlPlayerIndex = ctrlIdx;
+                }
+                else if (ctrlIdx != _lastControlPlayerIndex)
+                {
+                    // Index changed — new ally selected.
+                    _lastControlPlayerIndex = ctrlIdx;
+                    var playerList = bm.BattlePlayerList;
+                    if (playerList != null && ctrlIdx >= 0 && ctrlIdx < playerList.Count)
+                    {
+                        var ally = playerList[ctrlIdx];
+                        if (ally != null)
+                            AnnounceControlPlayer(ally);
+                    }
+                }
+                else if (inControlChangeMode && !_wasInControlPlayerChangeMode
+                         && ctrlIdx >= 0)
+                {
+                    // Just entered ControlPlayerChangeMode but index is the same
+                    // (first R2 press highlights current character). Force announce.
+                    var playerList = bm.BattlePlayerList;
+                    if (playerList != null && ctrlIdx < playerList.Count)
+                    {
+                        var ally = playerList[ctrlIdx];
+                        if (ally != null)
+                            AnnounceControlPlayer(ally);
+                    }
+                }
+
+                _wasInControlPlayerChangeMode = inControlChangeMode;
             }
             catch (Exception ex)
             {
@@ -176,6 +229,9 @@ namespace SO2RAccess
             _lastTargetPtr = IntPtr.Zero;
             _lastAnnouncedPtr = IntPtr.Zero;
             _wasInTargetChangeMode = false;
+            _lastControlPlayerIndex = -1;
+            _controlPlayerSeeded = false;
+            _wasInControlPlayerChangeMode = false;
         }
 
         /// <summary>
@@ -252,6 +308,34 @@ namespace SO2RAccess
             ScreenReader.Say(message);
             DebugLogger.LogState($"BattleTarget: {displayName} HP={hp}/{hpMax} Dur={dur}/{durMax}" +
                 $" leader={leaderStr ?? "none"} status={statusStr ?? "none"}");
+        }
+
+        /// <summary>
+        /// Announces ally info when the player switches the controlled character
+        /// via R2: name, HP, MP, and any active buffs/debuffs.
+        /// </summary>
+        private static void AnnounceControlPlayer(BattleCharacter ally)
+        {
+            var charParam = ally.BattleCharacterParameter?.CharacterParameter;
+            if (charParam == null) return;
+
+            string name = BattleStatusHandler.ResolveAllyName(ally);
+            int hp = charParam.HitPoint;
+            int hpMax = charParam.HitPointMax;
+            int mp = charParam.MentalPoint;
+            int mpMax = charParam.MentalPointMax;
+
+            string statusStr = ResolveBuffDebuffs(charParam);
+
+            string message;
+            if (!string.IsNullOrEmpty(statusStr))
+                message = Loc.Get("battle_ally_switch_status", name, hp, hpMax, mp, mpMax, statusStr);
+            else
+                message = Loc.Get("battle_ally_switch", name, hp, hpMax, mp, mpMax);
+
+            ScreenReader.Say(message);
+            DebugLogger.LogState($"BattleTarget: Control player → {name} HP={hp}/{hpMax} MP={mp}/{mpMax}" +
+                $" status={statusStr ?? "none"}");
         }
 
         #region Helpers

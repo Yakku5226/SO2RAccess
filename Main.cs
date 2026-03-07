@@ -60,6 +60,7 @@ namespace SO2RAccess
         private WorldMapHandler _worldMapHandler;
         private ModMenuHandler _modMenuHandler;
         private EquipWizardHandler _equipWizardHandler;
+        private PrivateActionHandler _privateActionHandler;
 
         // Gamepad nav overlay — L1 hold-to-open state.
         private bool _gamepadL1Held;
@@ -100,6 +101,9 @@ namespace SO2RAccess
             string saveWavPath = Path.Combine(soundsDir, "Save_sound.wav");
             AudioCuePlayer.LoadSaveSound(saveWavPath);
 
+            string paWavPath = Path.Combine(soundsDir, "PrivateAction.wav");
+            AudioCuePlayer.LoadPrivateActionSound(paWavPath);
+
             Loc.Initialize();
             InitializeHandlers();
             MelonCoroutines.Start(AnnounceStartupDelayed());
@@ -132,6 +136,7 @@ namespace SO2RAccess
             _battleStatusHandler = new BattleStatusHandler();
             _modMenuHandler = new ModMenuHandler();
             _equipWizardHandler = new EquipWizardHandler();
+            _privateActionHandler = new PrivateActionHandler();
         }
 
         private IEnumerator AnnounceStartupDelayed()
@@ -200,6 +205,7 @@ namespace SO2RAccess
             _battleStatusHandler?.OnSceneChanged();
             _equipWizardHandler?.OnSceneChanged();
             _worldMapHandler?.OnSceneChanged();
+            _privateActionHandler?.OnSceneChanged();
 
             // Apply patches once — safe to call on every scene load, handlers guard against duplicates.
             _titleHandler.ApplyPatches(_harmony);
@@ -607,6 +613,7 @@ namespace SO2RAccess
             _battleMenuHandler.Update();
             _equipWizardHandler.Update();
             _worldMapHandler.Update();
+            _privateActionHandler.Update();
         }
 
         #endregion

@@ -136,6 +136,18 @@ namespace SO2RAccess
         /// </summary>
         private const int WorldmapCalcHeightSamples = 10;
 
+        /// <summary>
+        /// Minimum Y-position change (in world units) to count as a floor transition.
+        /// Typical floor height in the game is ~4 units.
+        /// </summary>
+        private const float FloorChangeThreshold = 2.0f;
+
+        /// <summary>
+        /// Minimum seconds between floor change announcements to avoid rapid-fire
+        /// triggers while on long staircases or ramps.
+        /// </summary>
+        private const float FloorChangeCooldown = 1.5f;
+
         #endregion
 
         #region State
@@ -199,6 +211,10 @@ namespace SO2RAccess
         // Map name announcement: track current fieldmap to detect area changes.
         private FieldmapID _lastFieldmapID = FieldmapID.INVALID;
         private bool _fieldmapInitialized;
+
+        // Floor change detection: track player Y to announce stair transitions.
+        private float _lastPlayerY = float.NaN;
+        private float _floorChangeCooldownTimer;
 
         /// <summary>Whether the navigation list is currently open.</summary>
         public bool IsListOpen => _isOpen;
@@ -437,6 +453,7 @@ namespace SO2RAccess
         public void Update()
         {
             CheckFieldmapChange();
+            CheckFloorChange();
 
             if (!_isAutoWalking) return;
 
@@ -491,6 +508,32 @@ namespace SO2RAccess
                         _isAutoWalking       = false;
                         _staticIsApproaching = false;
                         _pathCorners         = null;
+
+                        // World map locations: enter directly by triggering the
+                        // nearest FieldMapjumpCollision. Auto-walk uses
+                        // transform.position which bypasses Unity trigger
+                        // colliders, so the normal walk-into-trigger entry
+                        // never fires. This gives the same result as a sighted
+                        // player walking into the town trigger zone.
+                        if (_isWorldmap && _autoWalkCategoryIndex == CAT_LOCATION)
+                        {
+                            if (TryEnterWorldmapLocation())
+                            {
+                                AnnounceArrival(Loc.Get("nav_autowalk_entering",
+                                    _autoWalkLabel));
+                                DebugLogger.LogState(
+                                    $"NAV auto-walk entering '{_autoWalkLabel}' via mapjump.");
+                            }
+                            else
+                            {
+                                AnnounceArrival(Loc.Get("nav_autowalk_enter_fail",
+                                    _autoWalkLabel));
+                                DebugLogger.LogState(
+                                    $"NAV auto-walk arrived at '{_autoWalkLabel}' " +
+                                    "but no mapjump found.");
+                            }
+                            return;
+                        }
 
                         // Snap the player close to the target so the game's
                         // interaction check succeeds immediately on button press.
@@ -918,12 +961,17 @@ namespace SO2RAccess
                     {
                         _fieldmapInitialized = false;
                         _lastFieldmapID = FieldmapID.INVALID;
+                        _lastPlayerY = float.NaN;
                     }
                     return;
                 }
 
                 FieldmapID current = fm.currentFieldmapID;
                 if (current == _lastFieldmapID) return;
+
+                // New map — reset floor tracking so we don't announce a floor change
+                // from the old map's Y position to the new map's Y position.
+                _lastPlayerY = float.NaN;
 
                 FieldmapID previous = _lastFieldmapID;
                 _lastFieldmapID = current;
@@ -948,6 +996,60 @@ namespace SO2RAccess
             catch (Exception ex)
             {
                 DebugLogger.LogState($"CheckFieldmapChange error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Monitors the player's Y position each frame. When it changes by more than
+        /// <see cref="FloorChangeThreshold"/>, announces "Went upstairs" or "Went downstairs".
+        /// Uses a cooldown to avoid rapid-fire announcements on long staircases.
+        /// Resets on fieldmap change (called from CheckFieldmapChange).
+        /// </summary>
+        private void CheckFloorChange()
+        {
+            if (_isWorldmap) return;
+
+            try
+            {
+                var fm = FieldManager.Instance;
+                if (fm == null) return;
+
+                var player = fm.GetControlPlayer();
+                if (player == null) return;
+
+                float currentY = player.transform.position.y;
+
+                // First reading — seed without announcing.
+                if (float.IsNaN(_lastPlayerY))
+                {
+                    _lastPlayerY = currentY;
+                    return;
+                }
+
+                // Tick down cooldown.
+                if (_floorChangeCooldownTimer > 0f)
+                {
+                    _floorChangeCooldownTimer -= Time.deltaTime;
+                    // Keep tracking Y during cooldown so the baseline stays current.
+                    _lastPlayerY = currentY;
+                    return;
+                }
+
+                float deltaY = currentY - _lastPlayerY;
+                if (Mathf.Abs(deltaY) >= FloorChangeThreshold)
+                {
+                    string key = deltaY > 0 ? "nav_floor_up" : "nav_floor_down";
+                    ScreenReader.Say(Loc.Get(key));
+                    DebugLogger.LogState(
+                        $"NAV floor change: Y {_lastPlayerY:F1} → {currentY:F1} " +
+                        $"(delta={deltaY:F1})");
+                    _lastPlayerY = currentY;
+                    _floorChangeCooldownTimer = FloorChangeCooldown;
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"CheckFloorChange error: {ex.Message}");
             }
         }
 

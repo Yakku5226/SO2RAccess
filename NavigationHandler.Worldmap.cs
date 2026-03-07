@@ -113,5 +113,65 @@ namespace SO2RAccess
         {
             _wmPathFinder = null;
         }
+
+        /// <summary>
+        /// Finds the nearest FieldMapjumpCollision to the auto-walk target and
+        /// triggers it to enter the location. On the world map, location entry
+        /// is handled by trigger colliders that fire OnTriggerEnter when the
+        /// player walks over them. Since auto-walk uses transform.position
+        /// (bypassing Unity physics triggers), we invoke ChangeFieldmap()
+        /// directly on the nearest matching collider.
+        /// Returns true if a mapjump was found and triggered.
+        /// </summary>
+        private bool TryEnterWorldmapLocation()
+        {
+            try
+            {
+                var collisions = UnityEngine.Object
+                    .FindObjectsOfType<FieldMapjumpCollision>();
+                if (collisions == null || collisions.Length == 0)
+                {
+                    DebugLogger.LogState(
+                        "NAV worldmap enter: no FieldMapjumpCollision objects found.");
+                    return false;
+                }
+
+                FieldMapjumpCollision nearest = null;
+                float nearestDist = float.MaxValue;
+
+                for (int i = 0; i < collisions.Length; i++)
+                {
+                    var c = collisions[i];
+                    if (c == null) continue;
+                    float dist = Vector3.Distance(
+                        c.transform.position, _autoWalkTarget);
+                    if (dist < nearestDist)
+                    {
+                        nearestDist = dist;
+                        nearest = c;
+                    }
+                }
+
+                if (nearest == null)
+                {
+                    DebugLogger.LogState(
+                        "NAV worldmap enter: no valid FieldMapjumpCollision.");
+                    return false;
+                }
+
+                DebugLogger.LogState(
+                    $"NAV worldmap enter: triggering mapjump " +
+                    $"dist={nearestDist:F1} fieldmap={nearest.fieldmapID} " +
+                    $"pos=({nearest.transform.position.x:F1}," +
+                    $"{nearest.transform.position.z:F1})");
+
+                return nearest.ChangeFieldmap();
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV worldmap enter error: {ex.Message}");
+                return false;
+            }
+        }
     }
 }

@@ -56,6 +56,9 @@ namespace SO2RAccess
         /// <summary>Whether damage dealt by the player-controlled character is announced.</summary>
         public static bool PlayerDamageDealtEnabled { get; set; } = true;
 
+        /// <summary>Volume of the private action notification sound (0.0 to 1.0). 0 = off.</summary>
+        public static float PrivateActionSoundVolume { get; set; } = 0.7f;
+
         #endregion
 
         #region Persistence
@@ -98,6 +101,7 @@ namespace SO2RAccess
                     AllyHealthWarningEnabled = data.AllyHealthWarningEnabled;
                     AllyStatusAilmentEnabled = data.AllyStatusAilmentEnabled;
                     PlayerDamageDealtEnabled = data.PlayerDamageDealtEnabled;
+                    PrivateActionSoundVolume = Math.Clamp(data.PrivateActionSoundVolume, 0f, 1f);
                 }
                 MelonLogger.Msg("ModSettings: loaded.");
             }
@@ -127,7 +131,8 @@ namespace SO2RAccess
                     DialogueVoiceMode = (int)DialogueVoiceMode,
                     AllyHealthWarningEnabled = AllyHealthWarningEnabled,
                     AllyStatusAilmentEnabled = AllyStatusAilmentEnabled,
-                    PlayerDamageDealtEnabled = PlayerDamageDealtEnabled
+                    PlayerDamageDealtEnabled = PlayerDamageDealtEnabled,
+                    PrivateActionSoundVolume = PrivateActionSoundVolume
                 };
 
                 var options = new JsonSerializerOptions { WriteIndented = true };
@@ -156,6 +161,7 @@ namespace SO2RAccess
             public bool AllyHealthWarningEnabled { get; set; } = true;
             public bool AllyStatusAilmentEnabled { get; set; } = true;
             public bool PlayerDamageDealtEnabled { get; set; } = true;
+            public float PrivateActionSoundVolume { get; set; } = 0.7f;
         }
 
         #endregion

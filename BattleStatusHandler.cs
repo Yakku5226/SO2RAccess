@@ -355,7 +355,7 @@ namespace SO2RAccess
         /// <summary>
         /// Resolves an ally's display name using multiple fallbacks.
         /// </summary>
-        private static string ResolveAllyName(BattleCharacter ally)
+        internal static string ResolveAllyName(BattleCharacter ally)
         {
             try
             {

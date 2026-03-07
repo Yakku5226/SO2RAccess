@@ -156,10 +156,14 @@ namespace SO2RAccess
             Add("nav_autowalk_start",      "Walking to {0}.");
             Add("nav_autowalk_arrived",    "Arrived at {0}.");
             Add("nav_autowalk_arrived_exit","Arrived at {0}. Exit is to the {1}.");
+            Add("nav_autowalk_entering",   "Entering {0}.");
+            Add("nav_autowalk_enter_fail", "Arrived near {0}. Could not enter automatically. Try fast travel instead.");
             Add("nav_autowalk_arrived_npc","Arrived at {0}. Press action button to interact. NumPad 1 or L1 to stop following.");
             Add("nav_autowalk_unreachable","Cannot reach {0}.");
             Add("nav_autowalk_no_navmesh", "No navigation data available.");
             Add("nav_autowalk_lost_path",  "Lost path to {0}.");
+            Add("nav_floor_up",            "Went upstairs.");
+            Add("nav_floor_down",          "Went downstairs.");
             Add("nav_chest_unopened",   "Unopened chest");
             Add("nav_chest_opened",     "Opened chest");
             Add("nav_chest_unopened_n", "Unopened chest {0}");
@@ -465,12 +469,16 @@ namespace SO2RAccess
             Add("mod_menu_label_dodge_volume",      "Dodge sound volume");
             Add("mod_menu_label_proximity_sound",   "Enemy proximity sound");
             Add("mod_menu_label_proximity_volume",  "Enemy proximity sound volume");
+            Add("mod_menu_label_pa_volume",         "Private action sound volume");
             Add("mod_menu_label_dialogue_mode",     "Dialogue mode");
             Add("mod_menu_dialogue_full",           "Full text");
             Add("mod_menu_dialogue_name_only",      "Name only when voiced");
             Add("mod_menu_label_ally_health",       "Ally health warnings");
             Add("mod_menu_label_ally_ailment",      "Ally status ailments");
             Add("mod_menu_label_player_damage",     "Player damage dealt");
+
+            // Private action notification
+            Add("pa_available",             "Private action available. Press Square.");
 
             // Battle target (L2 target change mode)
             Add("battle_target_hp_pct",         "HP {0}%.");
@@ -480,6 +488,10 @@ namespace SO2RAccess
             Add("battle_target_defeated",       "Defeated.");
             Add("battle_target_leader",         "Leader: {0}.");
             Add("battle_target_status",         "{0}.");
+
+            // Battle ally switch (R2 control player change)
+            Add("battle_ally_switch",           "{0}. HP {1} of {2}. MP {3} of {4}.");
+            Add("battle_ally_switch_status",    "{0}. HP {1} of {2}. MP {3} of {4}. {5}.");
 
             // Battle pause menu (Start/Options during battle)
             Add("battle_pause_heading",         "Battle status.");

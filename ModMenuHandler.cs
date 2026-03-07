@@ -272,6 +272,14 @@ namespace SO2RAccess
                     GetValue = () => $"{(int)(ModSettings.EnemyProximitySoundVolume * 100)}%",
                     Change = delta => { ModSettings.EnemyProximitySoundVolume = ClampVolume(ModSettings.EnemyProximitySoundVolume + delta * 0.1f); }
                 },
+                // Private action sound volume
+                new ModMenuItem
+                {
+                    LabelKey = "mod_menu_label_pa_volume",
+                    Type = ModMenuItemType.Volume,
+                    GetValue = () => $"{(int)(ModSettings.PrivateActionSoundVolume * 100)}%",
+                    Change = delta => { ModSettings.PrivateActionSoundVolume = ClampVolume(ModSettings.PrivateActionSoundVolume + delta * 0.1f); }
+                },
                 // Dialogue voice mode
                 new ModMenuItem
                 {
