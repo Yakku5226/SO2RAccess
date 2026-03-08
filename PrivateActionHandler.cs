@@ -6,7 +6,7 @@ namespace SO2RAccess
 {
     /// <summary>
     /// Detects when a private action is available in the current town and plays
-    /// an audio cue plus screen reader announcement. PAs in SO2R are a town-wide
+    /// an audio cue. PAs in SO2R are a town-wide
     /// mode triggered by pressing Square — not collision-based triggers.
     /// Availability is determined by the locality parameter's IsPrivateAction flag.
     /// </summary>
@@ -40,7 +40,6 @@ namespace SO2RAccess
             if (ModSettings.PrivateActionSoundVolume > 0.001f)
                 AudioCuePlayer.PlayPrivateActionCue();
 
-            ScreenReader.Say(Loc.Get("pa_available"));
             DebugLogger.LogState("PA notification: private action available.");
             _announced = true;
         }

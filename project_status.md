@@ -38,7 +38,7 @@
 **Phase:** Phase 3 — Feature Implementation
 **Currently working on:** Phase 3 features
 **Blocked by:** Nothing — framework fully working in-game
-**Last completed:** Private action notification — PrivateActionHandler detects PA-enabled towns via ParameterManager.GetLocalityParameter(FieldmapID).IsPrivateAction and plays a sound cue + screen reader announcement ("Private action available. Press Square.") once per town visit. Volume slider in mod settings menu (0% = off). (2026-03-07)
+**Last completed:** Database sub-menu accessibility — All 6 Database sub-screens now have full screen reader support: Tutorial, Enemy Picture Book, Item Picture Book, Fish Picture Book, Location Picture Book (list-based with browse + confirm detail), and Player Data (virtual cursor with Up/Down navigation through 24 stats across 3 categories: Battle Data, Collection Data, Other Data). Locked entries always announced. (2026-03-08)
 
 ## Codebase Analysis Progress
 
@@ -681,6 +681,17 @@ bypass managed stubs) with polling UIConversationSelector.currentVoiceController
   - Plays PrivateAction.wav + screen reader "Private action available. Press Square." once per town visit
   - Volume slider in mod settings menu (0% = off, default 70%)
   - Game has NO native audio cue for PA availability — purely visual icon only
+
+- **Database sub-menu accessibility** — IMPLEMENTED AND TESTED (2026-03-08):
+  - CampMenuHandler.Database.cs: partial class with all 6 Database sub-screen handlers
+  - Tutorial: browse with name/New/position, locked says "Locked", confirm reads title+description
+  - Enemy Picture Book: browse with name/position, locked says "Unknown enemy", confirm reads full stats (HP/EXP/Fol/drops/habitat/boss)
+  - Item Picture Book: browse with name/position, locked says "Unknown item", confirm reads name+description
+  - Fish Picture Book: browse with name/position, locked says "Unknown fish", confirm reads full details (rare/crown/shadow/habitat/caught/length)
+  - Location Picture Book: browse with name/position, locked says "Undiscovered", confirm reads name+discovered by+description
+  - Player Data: virtual cursor (no native list selector) — Up/Down steps through 24 stats across 3 categories (Battle Data, Collection Data, Other Data), no wrapping, no position indicator
+  - All gates use specific root menu item names (Tutorial, EnemyList, ItemPictureBook, FishPictureBook, Location, PlayerData)
+  - Stale-seed pattern prevents spurious announcements on camp open
 
 ## Code Cleanup (2026-03-01)
 

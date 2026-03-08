@@ -477,9 +477,6 @@ namespace SO2RAccess
             Add("mod_menu_label_ally_ailment",      "Ally status ailments");
             Add("mod_menu_label_player_damage",     "Player damage dealt");
 
-            // Private action notification
-            Add("pa_available",             "Private action available. Press Square.");
-
             // Battle target (L2 target change mode)
             Add("battle_target_hp_pct",         "HP {0}%.");
             Add("battle_target_hp_exact",       "HP {0} of {1}.");
@@ -548,6 +545,58 @@ namespace SO2RAccess
             Add("battle_menu_tactics_char",         "{0}. {1}. {2} of {3}.");
             Add("battle_menu_tactics_current",      "Currently set.");
             Add("battle_menu_position",             "{0} of {1}.");
+
+            // Database — Tutorial sub-screen
+            Add("db_tutorial_screen",       "Tutorial.");
+            Add("db_tutorial_locked",       "Locked. {0} of {1}.");
+            Add("db_tutorial_item",         "{0}. {1} of {2}.");
+            Add("db_tutorial_item_new",     "{0}, New. {1} of {2}.");
+            Add("db_tutorial_detail",       "{0}. {1}");
+
+            // Database — Enemy Picture Book
+            Add("db_enemy_screen",          "Enemy Picture Book.");
+            Add("db_enemy_locked",          "Unknown enemy. {0} of {1}.");
+            Add("db_enemy_item",            "{0}. {1} of {2}.");
+            Add("db_enemy_item_new",        "{0}, New. {1} of {2}.");
+            Add("db_enemy_boss",            "Boss.");
+            Add("db_enemy_hp",              "HP: {0}.");
+            Add("db_enemy_exp",             "EXP: {0}.");
+            Add("db_enemy_fol",             "{0} Fol.");
+            Add("db_enemy_drops",           "Drops: {0}.");
+            Add("db_enemy_habitat",         "Habitat: {0}.");
+
+            // Database — Item Picture Book
+            Add("db_item_screen",           "Item Picture Book.");
+            Add("db_item_locked",           "Unknown item. {0} of {1}.");
+            Add("db_item_item",             "{0}. {1} of {2}.");
+            Add("db_item_item_new",         "{0}, New. {1} of {2}.");
+
+            // Database — Fish Picture Book
+            Add("db_fish_screen",           "Fish Picture Book.");
+            Add("db_fish_locked",           "Unknown fish. {0} of {1}.");
+            Add("db_fish_item",             "{0}. {1} of {2}.");
+            Add("db_fish_item_new",         "{0}, New. {1} of {2}.");
+            Add("db_fish_rare",             "Rare.");
+            Add("db_fish_crown",            "Crown.");
+            Add("db_fish_shadow",           "Shadow: {0}.");
+            Add("db_fish_habitat",          "Habitat: {0}.");
+            Add("db_fish_caught",           "Caught: {0} times.");
+            Add("db_fish_max_length",       "Max length: {0}.");
+
+            // Database — Location Picture Book
+            Add("db_location_screen",           "Location Picture Book.");
+            Add("db_location_locked",           "Undiscovered. {0} of {1}.");
+            Add("db_location_item",             "{0}. {1} of {2}.");
+            Add("db_location_item_new",         "{0}, New. {1} of {2}.");
+            Add("db_location_discovered_by",    "Discovered by: {0}.");
+
+            // Database — Player Data (virtual cursor navigation)
+            Add("db_playerdata_screen",         "Player Data.");
+            Add("db_playerdata_stat",           "{0}.");
+            Add("db_playerdata_category_stat",  "{0}. {1}.");
+            Add("db_playerdata_battle",         "Battle Data");
+            Add("db_playerdata_collection",     "Collection Data");
+            Add("db_playerdata_other",          "Other Data");
         }
 
         #endregion

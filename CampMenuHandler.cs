@@ -167,6 +167,25 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(UIElementalGroupPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIElementalData).TypeHandle);
 
+                // Database sub-screens
+                RuntimeHelpers.RunClassConstructor(typeof(UICampTutorialListSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampTutorialListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICommonBookListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampEnemyPictureBookSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampEnemyPictureBookListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampEnemyPictureBookInformationData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampItemPictureBookSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampFishPictureBookSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampFishPictureBookListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIFishPictureBookInformationData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampLocationPictureBookSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampLocationPictureBookListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampLocationPictureBookInformationData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UITutorialInformationData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampPlayerDataSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampPlayerDataPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampPlayerDataItemPresenter).TypeHandle);
+
                 harmony.Patch(
                     AccessTools.Method(typeof(UICampWindow),
                         nameof(UICampWindow.Open)),
@@ -339,6 +358,12 @@ namespace SO2RAccess
             UpdatePartyFormationSelector();
             UpdateAssistSettingSelector();
             UpdateTacticsSelector();
+            UpdateTutorialSelector();
+            UpdateEnemyPictureBook();
+            UpdateItemPictureBook();
+            UpdateFishPictureBook();
+            UpdateLocationPictureBook();
+            UpdatePlayerData();
         }
 
         /// <summary>
@@ -694,6 +719,80 @@ namespace SO2RAccess
             {
                 MelonLogger.Warning("[CAMP] campWindow.operationSelector is null.");
             }
+
+            // --- Database sub-screens ---
+            // Picture book selectors have activeInHierarchy=true permanently (same stale bug).
+            // We eagerly get the UIListSelectorBase and seed the current index so that
+            // merely highlighting the Database sub-item on root menu doesn't trigger an announcement.
+            // The Update methods also gate on !_wasActive (root menu hidden) for extra safety.
+            _tutorialSelector = __instance.tutorialSelector;
+            _tutorialListBase = null;
+            _tutorialState.Reset();
+            if (_tutorialSelector != null)
+            {
+                DebugLogger.LogState("CampMenu: tutorial selector cached.");
+                StaleSeedPictureBook(_tutorialSelector, _tutorialState, ref _tutorialListBase, "CampTutorial");
+            }
+
+            _enemyPBSelector = __instance.enemyPictureBookSelector;
+            _enemyPBListBase = null;
+            _enemyPBState.Reset();
+            if (_enemyPBSelector != null)
+            {
+                DebugLogger.LogState("CampMenu: enemy picture book selector cached.");
+                StaleSeedPictureBook(_enemyPBSelector, _enemyPBState, ref _enemyPBListBase, "CampEnemyPB");
+            }
+
+            _itemPBSelector = __instance.itemPictureBookSelector;
+            _itemPBListBase = null;
+            _itemPBState.Reset();
+            if (_itemPBSelector != null)
+            {
+                DebugLogger.LogState("CampMenu: item picture book selector cached.");
+                StaleSeedPictureBook(_itemPBSelector, _itemPBState, ref _itemPBListBase, "CampItemPB");
+            }
+
+            _fishPBSelector = __instance.fishPictureBookSelector;
+            _fishPBListBase = null;
+            _fishPBState.Reset();
+            if (_fishPBSelector != null)
+            {
+                DebugLogger.LogState("CampMenu: fish picture book selector cached.");
+                StaleSeedPictureBook(_fishPBSelector, _fishPBState, ref _fishPBListBase, "CampFishPB");
+            }
+
+            _locationPBSelector = __instance.locationPictureBookSelector;
+            _locationPBListBase = null;
+            _locationPBState.Reset();
+            if (_locationPBSelector != null)
+            {
+                DebugLogger.LogState("CampMenu: location picture book selector cached.");
+                StaleSeedPictureBook(_locationPBSelector, _locationPBState, ref _locationPBListBase, "CampLocationPB");
+            }
+
+            _playerDataSelector = __instance.playerDataSelector;
+            _playerDataPresenter = _playerDataSelector?.playerDataPresenter;
+            _playerDataState.Reset();
+            _playerDataIndex = 0;
+            _playerDataLastIndex = 0;
+            if (_playerDataSelector != null)
+            {
+                DebugLogger.LogState("CampMenu: player data selector cached.");
+                try
+                {
+                    var go = (_playerDataSelector as UnityEngine.Component)?.gameObject;
+                    if (go != null && go.activeInHierarchy)
+                    {
+                        _playerDataState.SeedOnOpen(0);
+                        DebugLogger.LogState("CampPlayerData: stale on open, seeded index=0.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogState($"CampPlayerData: stale seed error: {ex.Message}");
+                    _playerDataState.SuppressNextHeading();
+                }
+            }
         }
 
         #endregion
@@ -721,6 +820,41 @@ namespace SO2RAccess
             catch (Exception ex)
             {
                 MelonLogger.Warning($"{logLabel} stale-check failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Eagerly casts a picture book selector to UIListSelectorBase and seeds
+        /// the SubScreenState with the current index. This prevents spurious
+        /// announcements when the selector is already active on camp open.
+        /// </summary>
+        private static void StaleSeedPictureBook(
+            Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase selector,
+            SubScreenState state,
+            ref UIListSelectorBase listBase,
+            string logLabel)
+        {
+            try
+            {
+                var go = (selector as UnityEngine.Component)?.gameObject;
+                if (go == null || !go.activeInHierarchy) return;
+
+                var baseSel = selector.TryCast<UIListSelectorBase>();
+                if (baseSel != null)
+                {
+                    listBase = baseSel;
+                    state.SeedOnOpen(baseSel.currentIndex);
+                    DebugLogger.LogState($"{logLabel}: stale on open, seeded index={state.LastIndex}.");
+                }
+                else
+                {
+                    state.SuppressNextHeading();
+                    DebugLogger.LogState($"{logLabel}: stale on open — heading suppressed (no base cast).");
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"{logLabel} stale-seed failed: {ex.Message}");
             }
         }
 
