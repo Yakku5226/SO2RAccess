@@ -400,8 +400,8 @@ Without this list, mod keys WILL conflict with game controls. -->
 
 - **Camp operations child screens** (`CampMenuHandler.cs`)
   - Operations root menu reads its items (Formation, Party Formation, Assist Formation, Tactics) ✓
-  - Formation: existing handler (gated on root item name "Formation") — NOT TESTED (needs more party members)
-  - Party Formation: polls UICampSelectCharacterSelector.GetCurrentIndex(), data from SetStatus hook — NOT TESTED (needs more party members)
+  - Formation: announces formation name, effect, sphere count, bonus details ✓ TESTED
+  - Party Formation: cursor tracking via cursorTarget position matching, per-slot data from SetData hook ✓ TESTED
   - Assist Formation: polls UICampAssistSettingSelector (Equip slots + character picker) — NOT TESTED (needs more party members)
   - Tactics: polls UICampOperationSelector (character + operation states), hook for operation info ✓ TESTED
 
@@ -521,7 +521,7 @@ Without this list, mod keys WILL conflict with game controls. -->
 ## Pending Tests (Operations Child Screens — need more party members)
 
 - [ ] Operations → Formation: announces formation name + effect on navigation
-- [ ] Operations → Party Formation: announces character name, level, position on navigation
+- [x] Operations → Party Formation: announces character name, level, HP/MP, role, position on navigation
 - [ ] Operations → Assist Formation (Equip): announces button slot + assigned character/skill
 - [ ] Operations → Assist Formation (Character picker): announces character names
 - [x] Operations → Tactics (character list): announces character + current tactic ✓
@@ -902,7 +902,7 @@ Stale-open check helper consolidation. Key changes:
 - Navigation: Doors (stone only) — DONE (pending dungeon test)
 - Navigation: Warp Points (panels, circles, platforms) — DONE (pending dungeon test)
 - Navigation: Flavor chat triggers (FieldFlavorChatCollision) — party banter spots
-- Operations child screens: Party Formation, Assist Formation, Formation — pending test (need more party members)
+- Operations child screens: Party Formation ✓, Formation ✓, Assist Formation — pending test (need more party members)
 - Camp sub-screen: skill learning (UICampSkillLearningSelector — complex, deferred)
 - Battle pause menu handler (detailed enemy info: element resistances, buffs, HP when spectacled)
 - Battle status announcements (player HP/MP during combat)

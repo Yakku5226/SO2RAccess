@@ -345,8 +345,11 @@ namespace SO2RAccess
 
             // Camp menu — formation sub-screen
             // Hook-driven: UICampFormationInformationPresenter.Set fires on every navigation.
-            Add("camp_formation_screen",    "Formation.");
-            Add("camp_formation_position",  "{0} of {1}.");
+            Add("camp_formation_screen",         "Formation.");
+            Add("camp_formation_position",       "{0} of {1}.");
+            Add("camp_formation_spheres",        "Spheres: {0}. {1} bonuses active.");
+            Add("camp_formation_bonus_enabled",  "{0}, active.");
+            Add("camp_formation_bonus_disabled", "{0}.");
 
             // Camp menu — skills sub-screen (field/IC skills, NOT battle skills)
             // Hook-driven: UISkillInformationPresenter.Set fires on every navigation.
@@ -355,8 +358,10 @@ namespace SO2RAccess
             Add("camp_skill_position",      "{0} of {1}.");
 
             // Camp menu — party formation sub-screen (character selection grid)
-            Add("camp_party_formation_screen", "Party formation.");
-            Add("camp_party_formation_char",   "{0}, Level {1}. {2}. {3} of {4}.");
+            Add("camp_party_formation_screen",      "Party formation.");
+            Add("camp_party_formation_char",        "{0}, Level {1}. HP {2}/{3}, MP {4}/{5}. {6}. {7} of {8}.");
+            Add("camp_party_formation_guest",       "Guest.");
+            Add("camp_party_formation_unavailable", "Unavailable.");
 
             // Camp menu — assist formation sub-screen (assign assist characters to buttons)
             Add("camp_assist_screen",          "Assist formation.");
@@ -476,6 +481,8 @@ namespace SO2RAccess
             Add("mod_menu_label_ally_health",       "Ally health warnings");
             Add("mod_menu_label_ally_ailment",      "Ally status ailments");
             Add("mod_menu_label_player_damage",     "Player damage dealt");
+            Add("mod_menu_label_gauge_volume",      "Bonus gauge sound volume");
+            Add("mod_menu_label_gauge_break_announce", "Bonus gauge break announcement");
 
             // Battle target (L2 target change mode)
             Add("battle_target_hp_pct",         "HP {0}%.");
@@ -532,6 +539,32 @@ namespace SO2RAccess
 
             // Battle menu — items without description
             Add("battle_menu_items_basic",          "{0} x{1}. {2} of {3}.");
+
+            // Bonus gauge (during active combat)
+            Add("bonus_gauge_break",                "Bonus level {0}, {1}.");
+            Add("bonus_buff_unknown",               "Unknown buff");
+            Add("bonus_buff_sphere_up",             "Sphere up");
+            Add("bonus_buff_guts_up",               "Guts up");
+            Add("bonus_buff_exp_up",                "EXP up");
+            Add("bonus_buff_mp_cost_cut",           "MP cost cut");
+            Add("bonus_buff_super_armer",           "Super armor");
+            Add("bonus_buff_atk_up",                "Attack up");
+            Add("bonus_buff_int_up",                "Intelligence up");
+            Add("bonus_buff_def_up",                "Defence up");
+            Add("bonus_buff_hit_up",                "Hit up");
+            Add("bonus_buff_avd_up",                "Avoidance up");
+            Add("bonus_buff_fol_up",                "Fol up");
+            Add("bonus_buff_sphere_mp_recover",     "MP recovery");
+            Add("bonus_buff_regist_abnormal",       "Abnormal resist");
+            Add("bonus_buff_item_all_range",        "Item range up");
+            Add("bonus_buff_item_recast_zero",      "Item recast zero");
+            Add("bonus_buff_enemy_element_disable", "Enemy elements disabled");
+            Add("bonus_buff_sphere_atk_up",         "Sphere attack up");
+            Add("bonus_buff_item_not_consume",      "Items not consumed");
+            Add("bonus_buff_hp_recover_ontime",     "HP recovery over time");
+            Add("bonus_buff_mp_recover_ontime",     "MP recovery over time");
+            Add("bonus_buff_atk_int_up_ontime",     "Attack and intelligence up over time");
+            Add("bonus_buff_crt_up",                "Critical up");
 
             // Battle status announcements (during active combat)
             Add("battle_status_hp_below_50",        "{0}, health below 50 percent.");

@@ -62,6 +62,13 @@ Patterns: `docs/ACCESSIBILITY_MODDING_GUIDE.md`
 4. Only use safe mod keys (game-api.md → "Safe Mod Keys")
 5. Large files (>500 lines): targeted search first (Grep/Glob), don't auto-read fully
 
+## Sound Notifications
+
+Play sounds to alert the user (who is blind and may not be watching the screen):
+- **Need user input:** `powershell -Command "(New-Object Media.SoundPlayer 'E:\StarOcean\Sounds\Dodge.wav').PlaySync()"`
+- **Task complete:** `powershell -Command "(New-Object Media.SoundPlayer 'E:\StarOcean\Sounds\PrivateAction.wav').PlaySync()"`
+- Do NOT commit sound files to git
+
 ## Session & Context Management
 
 - Feature done → suggest new conversation to save tokens. Update `project_status.md`.

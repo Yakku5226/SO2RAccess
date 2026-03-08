@@ -4,6 +4,7 @@ using MelonLoader;
 using System;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 
 namespace SO2RAccess
@@ -14,11 +15,12 @@ namespace SO2RAccess
 
         // Party formation sub-screen (selectCharacterSelector on UICampWindow)
         // UICampSelectCharacterSelector extends UISelectorBase (NOT UIListSelectorBase).
-        // Uses GetCurrentIndex() method instead of currentIndex property.
-        // Character data cached from UICampCharacterStatusPresenter.SetStatus hook.
+        // CANNOT poll GetCurrentIndex() — it requires currentSelectedPresenter which is
+        // always null from managed IL2CPP code. Navigation is fully native.
+        // Detection: compare cursor transform position to slot positions each frame.
         private static UICampSelectCharacterSelector _selectCharSelector = null;
         private static readonly SubScreenState _selectCharState = new SubScreenState();
-        private static Il2CppSystem.Collections.Generic.List<CampCharacterStatusParameterData> _selectCharDataList = null;
+        private static readonly Dictionary<int, CampCharacterStatusParameterData> _selectCharSlotData = new Dictionary<int, CampCharacterStatusParameterData>();
 
         #endregion
 
@@ -57,9 +59,9 @@ namespace SO2RAccess
 
         /// <summary>
         /// Polls the UICampSelectCharacterSelector for the party formation screen.
-        /// Announces "Party formation." when the screen opens.
-        /// Announces character name, level, position on navigation.
-        /// Character data is cached from UICampCharacterStatusPresenter.SetStatus hook.
+        /// Navigation is 100% native — no Harmony hooks fire during cursor movement.
+        /// Detection: compare cursor transform position to each character slot position
+        /// each frame to determine which slot is highlighted.
         /// </summary>
         private void UpdatePartyFormationSelector()
         {
@@ -73,40 +75,141 @@ namespace SO2RAccess
 
                 bool shouldPoll = _selectCharState.CheckEntry(
                     isActive,
-                    () => ScreenReader.Say(Loc.Get("camp_party_formation_screen")),
+                    () =>
+                    {
+                        ScreenReader.Say(Loc.Get("camp_party_formation_screen"));
+                    },
                     "CampPartyFormation");
 
                 if (!shouldPoll) return;
 
-                // Poll GetCurrentIndex() — not a UIListSelectorBase, so method call needed.
-                int idx = _selectCharSelector.GetCurrentIndex();
-                if (idx == _selectCharState.LastIndex) return;
-                _selectCharState.LastIndex = idx;
+                // Detect cursor slot via cursor target matching.
+                var cursorPresenter = _selectCharSelector.cursorPresenter;
+                var partyPresenter = _selectCharSelector.partyMemberPresenter;
+                if (cursorPresenter == null || partyPresenter == null) return;
 
-                if (_selectCharDataList == null || idx < 0 || idx >= _selectCharDataList.Count)
+                var slotList = partyPresenter.partyMemberPresenterList;
+                if (slotList == null || slotList.Count == 0) return;
+
+                // Try to get the current target via task objects.
+                UICursorTarget currentTarget = null;
+                var followTask = cursorPresenter.followTask;
+                if (followTask != null)
+                    currentTarget = followTask.target;
+                if (currentTarget == null)
+                {
+                    var moveTask = cursorPresenter.moveTask;
+                    if (moveTask != null)
+                        currentTarget = moveTask.cursorTarget;
+                }
+
+                int nearestIdx = -1;
+
+                if (currentTarget != null)
+                {
+                    // Pointer comparison: match target to slot's cursorTarget.
+                    for (int i = 0; i < slotList.Count; i++)
+                    {
+                        var slot = slotList[i];
+                        if (slot == null) continue;
+                        if (!slot.gameObject.activeInHierarchy) continue;
+                        var slotTarget = slot.cursorTarget;
+                        if (slotTarget != null && slotTarget.Pointer == currentTarget.Pointer)
+                        {
+                            nearestIdx = i;
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    // Fallback: compare cursor position to each slot's cursorTarget
+                    // position (static anchors, not animated slot positions).
+                    var cursorGo = cursorPresenter.gameObject;
+                    if (cursorGo == null) return;
+                    var cursorPos = cursorGo.transform.position;
+
+                    float nearestDist = float.MaxValue;
+                    for (int i = 0; i < slotList.Count; i++)
+                    {
+                        var slot = slotList[i];
+                        if (slot == null) continue;
+                        if (!slot.gameObject.activeInHierarchy) continue;
+                        var slotTarget = slot.cursorTarget;
+                        if (slotTarget == null) continue;
+                        var targetRt = slotTarget.myRectTransform;
+                        if (targetRt == null) continue;
+                        var targetPos = targetRt.position;
+                        float dist = UnityEngine.Vector3.Distance(cursorPos, targetPos);
+                        if (dist < nearestDist)
+                        {
+                            nearestDist = dist;
+                            nearestIdx = i;
+                        }
+                    }
+                }
+
+                if (nearestIdx < 0) return;
+                if (nearestIdx == _selectCharState.LastIndex) return;
+                _selectCharState.LastIndex = nearestIdx;
+
+                // Announce the character at the detected slot.
+                if (!_selectCharSlotData.TryGetValue(nearestIdx, out var charData) || charData == null)
                     return;
-
-                var charData = _selectCharDataList[idx];
-                if (charData == null) return;
 
                 string name = charData.characterName ?? "";
                 int level = charData.level;
-                string position = charData.positionText ?? "";
-                int total = _selectCharDataList.Count;
+                int hp = charData.hp;
+                int maxHp = charData.maxHp;
+                int mp = charData.mp;
+                int maxMp = charData.maxMp;
+
+                // Count active slots for position display.
+                int total = 0;
+                for (int i = 0; i < slotList.Count; i++)
+                {
+                    var s = slotList[i];
+                    if (s != null && s.gameObject != null && s.gameObject.activeInHierarchy)
+                        total++;
+                }
+
+                string role = charData.characterPosition switch
+                {
+                    UIDefine.CharacterPosition.Leader => "Leader",
+                    UIDefine.CharacterPosition.Battle => "Battle",
+                    UIDefine.CharacterPosition.Sub    => "Reserve",
+                    UIDefine.CharacterPosition.Assist => "Assist",
+                    _                                 => charData.positionText ?? ""
+                };
 
                 DebugLogger.LogGameValue("CampPartyFormation.char",
-                    $"name='{name}' lv={level} pos='{position}' ({idx + 1}/{total})");
+                    $"name='{name}' lv={level} hp={hp}/{maxHp} mp={mp}/{maxMp} role={role} ({nearestIdx + 1}/{total})");
 
-                ScreenReader.Say(Loc.Get("camp_party_formation_char",
-                    name, level, position, idx + 1, total));
+                var sb = new StringBuilder();
+                sb.Append(Loc.Get("camp_party_formation_char",
+                    name, level, hp, maxHp, mp, maxMp, role, nearestIdx + 1, total));
+
+                if (charData.isGuest)
+                    sb.Append(" ").Append(Loc.Get("camp_party_formation_guest"));
+                if (!charData.canDecisioned)
+                    sb.Append(" ").Append(Loc.Get("camp_party_formation_unavailable"));
+
+                ScreenReader.Say(sb.ToString().Trim());
             }
             catch (Exception ex)
             {
                 MelonLogger.Warning($"CampMenuHandler.UpdatePartyFormationSelector: {ex.Message}");
-                _selectCharSelector = null;
-                _selectCharState.Reset();
-                _selectCharDataList = null;
             }
+        }
+
+        /// <summary>
+        /// Re-announces the currently selected character after data changes
+        /// (e.g. user toggled battle/reserve or changed leader).
+        /// Forces the cursor poll to re-announce by resetting LastIndex.
+        /// </summary>
+        private static void ForceReannounceCurrentSlot()
+        {
+            _selectCharState.LastIndex = -1;
         }
 
         /// <summary>
@@ -364,8 +467,8 @@ namespace SO2RAccess
 
         /// <summary>
         /// Postfix for UICampCharacterStatusPresenter.SetStatus(List&lt;CampCharacterStatusParameterData&gt;).
-        /// Fires when the party formation screen populates the character status list.
-        /// Caches the data list so UpdatePartyFormationSelector can read character info by index.
+        /// Fires when the party formation screen updates character status.
+        /// Triggers re-announcement so the user hears updated data after changes.
         /// </summary>
         private static void CharacterStatusPresenter_SetStatus_Postfix(
             Il2CppSystem.Collections.Generic.List<CampCharacterStatusParameterData> dataList)
@@ -375,12 +478,43 @@ namespace SO2RAccess
 
             try
             {
-                _selectCharDataList = dataList;
-                DebugLogger.LogState($"CampPartyFormation: cached {dataList.Count} character(s) from SetStatus.");
+                DebugLogger.LogState($"CampPartyFormation: SetStatus fired with {dataList.Count} character(s).");
+
+                // Force re-announcement of current slot so the user hears
+                // updated data (e.g. after toggling battle/reserve or changing leader).
+                ForceReannounceCurrentSlot();
             }
             catch (Exception ex)
             {
                 MelonLogger.Warning($"CampMenuHandler.CharacterStatusPresenter_SetStatus_Postfix: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Postfix for UICampPartyMemberPresenter.SetData(int index, UICampPartyMemberSelectItemData data).
+        /// Fires per-slot when a character is assigned to a party member slot.
+        /// Caches the character data keyed by slot index for reliable slot→data mapping.
+        /// </summary>
+        private static void PartyMemberPresenter_SetData_Postfix(
+            int index, UICampPartyMemberSelectItemData data)
+        {
+            if (_lastRootMenuItemName != "PartyFormation") return;
+            if (data == null) return;
+
+            try
+            {
+                var charData = data.statusParameterData;
+                if (charData == null) return;
+
+                _selectCharSlotData[index] = charData;
+
+                DebugLogger.LogState($"CampPartyFormation: SetData slot {index} = '{charData.characterName}'.");
+
+                ForceReannounceCurrentSlot();
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"CampMenuHandler.PartyMemberPresenter_SetData_Postfix: {ex.Message}");
             }
         }
 

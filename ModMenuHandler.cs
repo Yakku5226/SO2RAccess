@@ -319,6 +319,22 @@ namespace SO2RAccess
                     Type = ModMenuItemType.Toggle,
                     GetValue = () => Loc.Get(ModSettings.PlayerDamageDealtEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.PlayerDamageDealtEnabled = !ModSettings.PlayerDamageDealtEnabled; }
+                },
+                // Bonus gauge sound volume
+                new ModMenuItem
+                {
+                    LabelKey = "mod_menu_label_gauge_volume",
+                    Type = ModMenuItemType.Volume,
+                    GetValue = () => $"{(int)(ModSettings.BonusGaugeSoundVolume * 100)}%",
+                    Change = delta => { ModSettings.BonusGaugeSoundVolume = ClampVolume(ModSettings.BonusGaugeSoundVolume + delta * 0.1f); }
+                },
+                // Bonus gauge break announcement toggle
+                new ModMenuItem
+                {
+                    LabelKey = "mod_menu_label_gauge_break_announce",
+                    Type = ModMenuItemType.Toggle,
+                    GetValue = () => Loc.Get(ModSettings.BonusGaugeBreakAnnouncementEnabled ? "mod_menu_on" : "mod_menu_off"),
+                    Change = _ => { ModSettings.BonusGaugeBreakAnnouncementEnabled = !ModSettings.BonusGaugeBreakAnnouncementEnabled; }
                 }
             };
         }

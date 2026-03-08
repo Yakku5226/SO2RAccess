@@ -61,6 +61,7 @@ namespace SO2RAccess
         private ModMenuHandler _modMenuHandler;
         private EquipWizardHandler _equipWizardHandler;
         private PrivateActionHandler _privateActionHandler;
+        private BonusGaugeHandler _bonusGaugeHandler;
 
         // Gamepad nav overlay — L1 hold-to-open state.
         private bool _gamepadL1Held;
@@ -104,6 +105,9 @@ namespace SO2RAccess
             string paWavPath = Path.Combine(soundsDir, "PrivateAction.wav");
             AudioCuePlayer.LoadPrivateActionSound(paWavPath);
 
+            string gaugeFillWavPath = Path.Combine(soundsDir, "GaugeFill.wav");
+            AudioCuePlayer.LoadGaugeFillSound(gaugeFillWavPath);
+
             Loc.Initialize();
             InitializeHandlers();
             MelonCoroutines.Start(AnnounceStartupDelayed());
@@ -137,6 +141,7 @@ namespace SO2RAccess
             _modMenuHandler = new ModMenuHandler();
             _equipWizardHandler = new EquipWizardHandler();
             _privateActionHandler = new PrivateActionHandler();
+            _bonusGaugeHandler = new BonusGaugeHandler();
         }
 
         private IEnumerator AnnounceStartupDelayed()
@@ -206,6 +211,7 @@ namespace SO2RAccess
             _equipWizardHandler?.OnSceneChanged();
             _worldMapHandler?.OnSceneChanged();
             _privateActionHandler?.OnSceneChanged();
+            _bonusGaugeHandler?.OnSceneChanged();
 
             // Apply patches once — safe to call on every scene load, handlers guard against duplicates.
             _titleHandler.ApplyPatches(_harmony);
@@ -230,6 +236,7 @@ namespace SO2RAccess
             _battleMenuHandler.ApplyPatches(_harmony);
             _battleStatusHandler.ApplyPatches(_harmony);
             _equipWizardHandler.ApplyPatches(_harmony);
+            _bonusGaugeHandler.ApplyPatches(_harmony);
         }
 
         /// <summary>
@@ -614,6 +621,7 @@ namespace SO2RAccess
             _equipWizardHandler.Update();
             _worldMapHandler.Update();
             _privateActionHandler.Update();
+            _bonusGaugeHandler.Update();
         }
 
         #endregion

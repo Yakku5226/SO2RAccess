@@ -59,6 +59,12 @@ namespace SO2RAccess
         /// <summary>Volume of the private action notification sound (0.0 to 1.0). 0 = off.</summary>
         public static float PrivateActionSoundVolume { get; set; } = 0.7f;
 
+        /// <summary>Volume of the bonus gauge fill sound (0.0 to 1.0). 0 = off.</summary>
+        public static float BonusGaugeSoundVolume { get; set; } = 0.7f;
+
+        /// <summary>Whether the bonus gauge break level/buff announcement is enabled.</summary>
+        public static bool BonusGaugeBreakAnnouncementEnabled { get; set; } = true;
+
         #endregion
 
         #region Persistence
@@ -102,6 +108,8 @@ namespace SO2RAccess
                     AllyStatusAilmentEnabled = data.AllyStatusAilmentEnabled;
                     PlayerDamageDealtEnabled = data.PlayerDamageDealtEnabled;
                     PrivateActionSoundVolume = Math.Clamp(data.PrivateActionSoundVolume, 0f, 1f);
+                    BonusGaugeSoundVolume = Math.Clamp(data.BonusGaugeSoundVolume, 0f, 1f);
+                    BonusGaugeBreakAnnouncementEnabled = data.BonusGaugeBreakAnnouncementEnabled;
                 }
                 MelonLogger.Msg("ModSettings: loaded.");
             }
@@ -132,7 +140,9 @@ namespace SO2RAccess
                     AllyHealthWarningEnabled = AllyHealthWarningEnabled,
                     AllyStatusAilmentEnabled = AllyStatusAilmentEnabled,
                     PlayerDamageDealtEnabled = PlayerDamageDealtEnabled,
-                    PrivateActionSoundVolume = PrivateActionSoundVolume
+                    PrivateActionSoundVolume = PrivateActionSoundVolume,
+                    BonusGaugeSoundVolume = BonusGaugeSoundVolume,
+                    BonusGaugeBreakAnnouncementEnabled = BonusGaugeBreakAnnouncementEnabled
                 };
 
                 var options = new JsonSerializerOptions { WriteIndented = true };
@@ -162,6 +172,8 @@ namespace SO2RAccess
             public bool AllyStatusAilmentEnabled { get; set; } = true;
             public bool PlayerDamageDealtEnabled { get; set; } = true;
             public float PrivateActionSoundVolume { get; set; } = 0.7f;
+            public float BonusGaugeSoundVolume { get; set; } = 0.7f;
+            public bool BonusGaugeBreakAnnouncementEnabled { get; set; } = true;
         }
 
         #endregion

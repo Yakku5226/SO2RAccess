@@ -86,10 +86,12 @@ namespace SO2RAccess
         /// <summary>
         /// Postfix for UICampFormationInformationPresenter.Set(...).
         /// Fires whenever the formation information panel updates — on each navigation
-        /// in the formation list. Announces formation name, effect description, and position.
+        /// in the formation list. Announces formation name, effect description, sphere count,
+        /// bonus count, individual bonus descriptions, and position.
         /// </summary>
         private static void FormationInfoPresenter_Set_Postfix(
-            string formationName, string effectDescription)
+            string formationName, string effectDescription, int currentSphereValue,
+            int enableCount, Il2CppSystem.Collections.Generic.List<UIBonusBuffDescriptionData> bonusDescriptionList)
         {
             if (_formationSelector == null) return;
             if (_lastRootMenuItemName != "Formation") return;
@@ -97,7 +99,7 @@ namespace SO2RAccess
             try
             {
                 DebugLogger.LogGameValue("CampFormation.info",
-                    $"name='{formationName}' effect='{effectDescription}'");
+                    $"name='{formationName}' effect='{effectDescription}' spheres={currentSphereValue} enabled={enableCount}");
 
                 var sb = new StringBuilder();
 
@@ -105,6 +107,27 @@ namespace SO2RAccess
                     AppendSentence(sb, formationName);
                 if (!string.IsNullOrEmpty(effectDescription))
                     AppendSentence(sb, effectDescription);
+
+                // Sphere count and active bonus count.
+                AppendSentence(sb, Loc.Get("camp_formation_spheres",
+                    currentSphereValue, enableCount));
+
+                // Individual bonus descriptions.
+                if (bonusDescriptionList != null)
+                {
+                    for (int i = 0; i < bonusDescriptionList.Count; i++)
+                    {
+                        var bonus = bonusDescriptionList[i];
+                        if (bonus == null) continue;
+                        string desc = bonus.description ?? "";
+                        if (string.IsNullOrEmpty(desc)) continue;
+
+                        if (bonus.enable)
+                            AppendSentence(sb, Loc.Get("camp_formation_bonus_enabled", desc));
+                        else
+                            AppendSentence(sb, Loc.Get("camp_formation_bonus_disabled", desc));
+                    }
+                }
 
                 // Read position from the selector (cast to UIListSelectorBase).
                 var baseSel = _formationSelector.TryCast<UIListSelectorBase>();

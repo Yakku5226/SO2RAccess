@@ -293,6 +293,15 @@ namespace SO2RAccess
                         nameof(CharacterStatusPresenter_SetStatus_Postfix))
                 );
 
+                // UICampPartyMemberPresenter.SetData fires per-slot when a character is
+                // assigned to a party member slot (CallerCount 2). Caches per-slot data.
+                harmony.Patch(
+                    AccessTools.Method(typeof(UICampPartyMemberPresenter), "SetData",
+                        new Type[] { typeof(int), typeof(UICampPartyMemberSelectItemData) }),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(PartyMemberPresenter_SetData_Postfix))
+                );
+
                 // UICampOperationInformationPresenter.Set fires when the tactics operation
                 // info panel updates (CallerCount 1). Announces operation name + description.
                 harmony.Patch(
@@ -671,7 +680,7 @@ namespace SO2RAccess
             // --- Party Formation ---
             _selectCharSelector = __instance.selectCharacterSelector;
             _selectCharState.Reset();
-            _selectCharDataList = null;
+            _selectCharSlotData.Clear();
 
             if (_selectCharSelector != null)
             {
