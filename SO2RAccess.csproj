@@ -69,6 +69,10 @@
       <HintPath>E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\MelonLoader\Il2CppAssemblies\UnityEngine.AIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R\MelonLoader\Il2CppAssemblies\UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <!-- After build: copy DLL to game Mods folder -->

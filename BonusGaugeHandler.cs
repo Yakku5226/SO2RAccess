@@ -30,6 +30,8 @@ namespace SO2RAccess
 
         // Pre-break buff snapshot for detecting newly granted buff.
         private static readonly Dictionary<BonusBuffType, float> _preBreakValues = new();
+        // Pre-break level to detect spurious BreakBonusGauge calls (e.g. initialization).
+        private static int _preBreakLevel = -1;
 
         /// <summary>Gap between repeated beeps in seconds.</summary>
         private const float GaugeFillRepeatGap = 0.15f;
@@ -128,6 +130,20 @@ namespace SO2RAccess
                 _wasInBattle = true;
                 _lastLevel = bm.sphereBonusBuffLevel;
                 _announcedThresholds.Clear();
+
+                // Seed thresholds based on current ratio so we don't replay
+                // sounds for gauge progress that happened before this battle
+                // (stale data from previous battle persists on BattleManager).
+                try
+                {
+                    float seedRatio = bm.GetBattleSphereBonusCurrentLevelRatio();
+                    int seedPct = (int)(seedRatio * 100f);
+                    if (seedPct >= 25) _announcedThresholds.Add(25);
+                    if (seedPct >= 50) _announcedThresholds.Add(50);
+                    if (seedPct >= 75) _announcedThresholds.Add(75);
+                    DebugLogger.LogState($"BonusGauge: battle entered, level={_lastLevel}, ratio={seedRatio:F2}, seeded {_announcedThresholds.Count} thresholds.");
+                }
+                catch { }
             }
 
             // Skip if gauge sound disabled (volume at 0).
@@ -173,6 +189,10 @@ namespace SO2RAccess
         {
             try
             {
+                // Capture level before break to detect spurious calls
+                // (e.g. game calls BreakBonusGauge during initialization).
+                _preBreakLevel = __instance.sphereBonusBuffLevel;
+
                 // Mark all thresholds as announced to prevent duplicate sounds
                 // if polling runs in the same frame.
                 _announcedThresholds.Add(25);
@@ -191,6 +211,8 @@ namespace SO2RAccess
                     }
                     catch { }
                 }
+
+                DebugLogger.LogState($"BonusGauge.BreakPrefix: preLevel={_preBreakLevel}, preBuffCount={_preBreakValues.Count}");
             }
             catch (Exception ex)
             {
@@ -205,9 +227,21 @@ namespace SO2RAccess
         {
             try
             {
+                int postLevel = __instance.sphereBonusBuffLevel;
+
                 // Reset thresholds for the new level.
                 _announcedThresholds.Clear();
-                _lastLevel = __instance.sphereBonusBuffLevel;
+                _lastLevel = postLevel;
+
+                // Spurious call check: if the level didn't increase, this is
+                // an initialization/reset call, not an actual gauge break.
+                if (postLevel <= _preBreakLevel)
+                {
+                    DebugLogger.LogState($"BonusGauge.BreakPostfix: spurious (preLevel={_preBreakLevel}, postLevel={postLevel}), skipping.");
+                    return;
+                }
+
+                DebugLogger.LogState($"BonusGauge.BreakPostfix: real break! preLevel={_preBreakLevel} → postLevel={postLevel}");
 
                 // Play 4 beeps for break.
                 if (ModSettings.BonusGaugeSoundVolume >= 0.01f
@@ -218,8 +252,6 @@ namespace SO2RAccess
 
                 // Screen reader announcement.
                 if (!ModSettings.BonusGaugeBreakAnnouncementEnabled) return;
-
-                int level = __instance.sphereBonusBuffLevel;
 
                 // Find newly added buff by comparing with pre-break snapshot.
                 BonusBuffType newBuff = BonusBuffType.INVALID;
@@ -241,8 +273,8 @@ namespace SO2RAccess
                     ? Loc.Get($"bonus_buff_{newBuff.ToString().ToLower()}")
                     : Loc.Get("bonus_buff_unknown");
 
-                ScreenReader.SayQueued(Loc.Get("bonus_gauge_break", level, buffName));
-                DebugLogger.LogState($"BonusGauge break: level={level}, buff={newBuff}");
+                ScreenReader.SayQueued(Loc.Get("bonus_gauge_break", postLevel, buffName));
+                DebugLogger.LogState($"BonusGauge break announced: level={postLevel}, buff={newBuff}");
             }
             catch (Exception ex)
             {
@@ -284,6 +316,7 @@ namespace SO2RAccess
         {
             _wasInBattle = false;
             _lastLevel = -1;
+            _preBreakLevel = -1;
             _announcedThresholds.Clear();
             _preBreakValues.Clear();
         }

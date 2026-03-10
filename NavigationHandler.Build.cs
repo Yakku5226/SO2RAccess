@@ -29,6 +29,20 @@ namespace SO2RAccess
             /// the game allows interaction over the counter.
             /// </summary>
             public bool      IsCounterNpc;
+            /// <summary>
+            /// Reference to the FieldEventCollision for event targets.
+            /// Used to call StartEvent() directly when the NavMesh path
+            /// ends short of the trigger zone (transform.position bypasses
+            /// Unity physics, so OnTriggerEnter never fires).
+            /// Null for non-event targets.
+            /// </summary>
+            public FieldEventCollision EventRef;
+            /// <summary>
+            /// Collider bounds of the event trigger zone. Used to verify
+            /// the player is near the trigger edge before calling StartEvent().
+            /// Null if unavailable or for non-event targets.
+            /// </summary>
+            public Bounds?   TriggerBounds;
         }
 
         #endregion
@@ -45,6 +59,7 @@ namespace SO2RAccess
         private void BuildNpcs(Vector3 playerPos, FieldmapID mapID)
         {
             _categories[CAT_NPC].Clear();
+            _categories[CAT_EVENT].Clear(); // PA NPCs go here; BuildEvents appends later
 
             var npcParams = TryGetNpcParams(mapID);
             DebugLogger.LogState(
@@ -56,6 +71,7 @@ namespace SO2RAccess
 
             var npcItems = new List<NavItem>();
             var interactItems = new List<NavItem>();
+            var paItems = new List<NavItem>();
             foreach (var npc in found)
             {
                 if (npc == null) continue;
@@ -66,30 +82,74 @@ namespace SO2RAccess
                 Vector3 pos  = npc.transform.position;
                 float   dist = Vector3.Distance(playerPos, pos);
 
-                if (dist < 2.0f) continue; // party members walk alongside the player
+                // Skip player character and party members — not interactable on field
+                if (npc.TryCast<FieldPlayer>() != null) continue;
+                if (npc.TryCast<FieldFollowCharacter>() != null) continue;
 
-                string label = ResolveNpcName(npc, npcParams);
+                string label = ResolveNpcName(npc, npcParams, out string codeName);
                 bool isCounter = IsFunctionalNpcType(npc.npcType);
                 bool isInteractable = IsInteractableNpcType(npc.npcType);
+
+                // Private action NPCs have code names starting with "pa_"
+                bool isPrivateAction = codeName != null
+                    && codeName.StartsWith("pa_", StringComparison.OrdinalIgnoreCase);
+
+                // For PA NPCs, extract the character name from the code name
+                // (e.g. "pa_04_c_001_01_RENA" → "Rena") because the dialogue-
+                // derived name may be the wrong character (the first speaker).
+                string paLabel = null;
+                if (isPrivateAction)
+                {
+                    string paName = ParseNpcCodeName(codeName);
+                    paLabel = string.IsNullOrEmpty(paName)
+                        ? Loc.Get("nav_event_pa")
+                        : $"{Loc.Get("nav_event_pa")} ({paName})";
+                }
+
                 var item = new NavItem
                 {
-                    Label         = label,
+                    Label         = isPrivateAction
+                        ? paLabel
+                        : label,
                     Distance      = dist,
                     Position      = pos,
                     LiveTransform = npc.transform,
                     IsCounterNpc  = isCounter,
                 };
-                DebugLogger.LogGameValue(isInteractable ? "NAV:INTERACT" : "NAV:NPC",
-                    $"[{label}] type={npc.npcType} dist={dist:F1} pos={pos}");
 
-                if (isInteractable)
-                    interactItems.Add(item);
+                // Log game interaction distances for diagnostics
+                try
+                {
+                    float contactDist = npc.ContactDistance;
+                    DebugLogger.LogGameValue("NAV:NPC:CONTACT",
+                        $"[{label}] contactDistance={contactDist:F2} codeName={codeName}");
+                }
+                catch
+                {
+                    DebugLogger.LogGameValue("NAV:NPC:CONTACT",
+                        $"[{label}] contactDistance=READ_ERROR codeName={codeName}");
+                }
+
+                if (isPrivateAction)
+                {
+                    DebugLogger.LogGameValue("NAV:EVENT",
+                        $"[{item.Label}] (PA NPC) dist={dist:F1} pos={pos}");
+                    paItems.Add(item);
+                }
                 else
-                    npcItems.Add(item);
+                {
+                    DebugLogger.LogGameValue(isInteractable ? "NAV:INTERACT" : "NAV:NPC",
+                        $"[{label}] type={npc.npcType} dist={dist:F1} pos={pos}");
+                    if (isInteractable)
+                        interactItems.Add(item);
+                    else
+                        npcItems.Add(item);
+                }
             }
 
             SortAndFilterUnreachable(npcItems, playerPos);
             SortAndFilterUnreachable(interactItems, playerPos);
+            SortAndFilterUnreachable(paItems, playerPos);
 
             // Number any NPCs that still carry the generic "NPC" label.
             int npcNum = 1;
@@ -105,6 +165,7 @@ namespace SO2RAccess
 
             _categories[CAT_NPC].AddRange(npcItems);
             _categories[CAT_INTERACTABLE].AddRange(interactItems);
+            _categories[CAT_EVENT].AddRange(paItems);
         }
 
         /// <summary>
@@ -122,8 +183,35 @@ namespace SO2RAccess
         /// </summary>
         private static string ResolveNpcName(
             FieldNpcCharacter npc,
-            Il2CppSystem.Collections.Generic.List<ConstNpcParameter> npcParams)
+            Il2CppSystem.Collections.Generic.List<ConstNpcParameter> npcParams,
+            out string resolvedCodeName)
         {
+            resolvedCodeName = null;
+
+            // Always try to resolve the code name via position matching,
+            // even if we already know the display name from dialogue.
+            if (npcParams != null && npcParams.Count > 0)
+            {
+                try
+                {
+                    Vector3 spawn = npc.InitialPosition;
+                    for (int i = 0; i < npcParams.Count; i++)
+                    {
+                        var param = npcParams[i];
+                        if (param == null) continue;
+                        if (Vector3.Distance(spawn, param.Position) < 2.0f)
+                        {
+                            resolvedCodeName = param.Name;
+                            break;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogState($"NAV: ResolveNpcName codeName lookup error: {ex.Message}");
+                }
+            }
+
             // Resolve the NPC's functional category up front — used to qualify dialogue names.
             // e.g. NpcType.SHOP_EQUIPMENT → "Equipment shop", NpcType.NPC → "NPC"
             string category = GetNpcCategory(npc.npcType);
@@ -138,44 +226,24 @@ namespace SO2RAccess
                 return qualified;
             }
 
-            if (npcParams != null && npcParams.Count > 0)
+            if (!string.IsNullOrEmpty(resolvedCodeName))
             {
-                try
+                // Prefer a real name learned from dialogue (persists across sessions).
+                if (DialogueHandler.PersistentNpcNames.TryGetValue(
+                        resolvedCodeName, out string persistedName))
                 {
-                    Vector3 spawn = npc.InitialPosition;
-                    for (int i = 0; i < npcParams.Count; i++)
-                    {
-                        var param = npcParams[i];
-                        if (param == null) continue;
-                        if (Vector3.Distance(spawn, param.Position) < 2.0f)
-                        {
-                            string codeName = param.Name;
-                            if (!string.IsNullOrEmpty(codeName))
-                            {
-                                // Prefer a real name learned from dialogue (persists across sessions).
-                                if (DialogueHandler.PersistentNpcNames.TryGetValue(
-                                        codeName, out string persistedName))
-                                {
-                                    string qualified = QualifyNpcName(persistedName, category);
-                                    DebugLogger.LogState(
-                                        $"NAV: NPC '{codeName}' → '{qualified}' (persistent)");
-                                    return qualified;
-                                }
-
-                                string readable = ParseNpcCodeName(codeName);
-                                if (!string.IsNullOrEmpty(readable))
-                                {
-                                    DebugLogger.LogState(
-                                        $"NAV: NPC '{codeName}' → '{readable}'");
-                                    return readable;
-                                }
-                            }
-                        }
-                    }
+                    string qualified = QualifyNpcName(persistedName, category);
+                    DebugLogger.LogState(
+                        $"NAV: NPC '{resolvedCodeName}' → '{qualified}' (persistent)");
+                    return qualified;
                 }
-                catch (Exception ex)
+
+                string readable = ParseNpcCodeName(resolvedCodeName);
+                if (!string.IsNullOrEmpty(readable))
                 {
-                    DebugLogger.LogState($"NAV: ResolveNpcName error: {ex.Message}");
+                    DebugLogger.LogState(
+                        $"NAV: NPC '{resolvedCodeName}' → '{readable}'");
+                    return readable;
                 }
             }
 
@@ -384,7 +452,8 @@ namespace SO2RAccess
         /// </summary>
         private void BuildEvents(Vector3 playerPos)
         {
-            _categories[CAT_EVENT].Clear();
+            // NOTE: do not clear CAT_EVENT here — BuildNpcs may have already
+            // added private-action NPCs to this category earlier in the scan.
 
             var found = UnityEngine.Object.FindObjectsOfType<FieldEventCollision>();
             if (found == null) return;
@@ -436,12 +505,25 @@ namespace SO2RAccess
                             label = Loc.Get("nav_event_side");
                     }
 
+                    Bounds? triggerBounds = null;
+                    try
+                    {
+                        var col = evt.GetComponent<Collider>();
+                        if (col != null) triggerBounds = col.bounds;
+                    }
+                    catch (Exception colEx)
+                    {
+                        DebugLogger.LogState($"NAV:EVENT collider bounds: {colEx.Message}");
+                    }
+
                     items.Add(new NavItem
                     {
                         Label         = label,
                         Distance      = dist,
                         Position      = pos,
                         LiveTransform = null,
+                        EventRef      = evt,
+                        TriggerBounds = triggerBounds,
                     });
                 }
                 catch (Exception ex)
@@ -1174,16 +1256,42 @@ namespace SO2RAccess
             {
                 DebugLogger.LogState(
                     $"NAV: all {unreachableIndices.Count} non-counter items unreachable — " +
-                    "NavMesh gap suspected, skipping reachability filter");
-                return;
+                    "keeping them (auto-walk will report unreachable on attempt)");
+            }
+            else
+            {
+                // Remove genuinely unreachable items (indices already in descending order).
+                foreach (int i in unreachableIndices)
+                {
+                    DebugLogger.LogState(
+                        $"NAV: filtered unreachable '{items[i].Label}' at dist={items[i].Distance:F1}");
+                    items.RemoveAt(i);
+                }
             }
 
-            // Remove genuinely unreachable items (indices already in descending order).
-            foreach (int i in unreachableIndices)
+            // Label items on different floors with "(above)" or "(below)" so the user
+            // knows before selecting. Uses the same FloorChangeThreshold as auto-walk.
+            LabelFloorDifferences(items, playerPos);
+        }
+
+        /// <summary>
+        /// Appends "(above)" or "(below)" to item labels when the target is on a
+        /// different floor (Y difference exceeds FloorChangeThreshold).
+        /// Helps the user understand vertical positioning before attempting auto-walk.
+        /// </summary>
+        private void LabelFloorDifferences(List<NavItem> items, Vector3 playerPos)
+        {
+            for (int i = 0; i < items.Count; i++)
             {
-                DebugLogger.LogState(
-                    $"NAV: filtered unreachable '{items[i].Label}' at dist={items[i].Distance:F1}");
-                items.RemoveAt(i);
+                float yDiff = items[i].Position.y - playerPos.y;
+                if (Mathf.Abs(yDiff) > FloorChangeThreshold)
+                {
+                    var item = items[i];
+                    item.Label = Loc.Get(
+                        yDiff > 0 ? "nav_label_above" : "nav_label_below",
+                        item.Label);
+                    items[i] = item;
+                }
             }
         }
 

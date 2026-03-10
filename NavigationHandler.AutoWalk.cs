@@ -71,17 +71,27 @@ namespace SO2RAccess
             _autoWalkTarget        = item.Position;
             _autoWalkLabel         = item.Label;
             _autoWalkTransform     = item.LiveTransform; // may be null for exits
-            _autoWalkIsCounter     = item.IsCounterNpc;
+            _autoWalkIsCounter      = item.IsCounterNpc;
+            _autoWalkEventRef       = item.EventRef;
+            _autoWalkTriggerBounds  = item.TriggerBounds;
+            _autoWalkDifferentFloor = differentFloor;
             _autoWalkCategoryIndex = _currentCategoryIndex;
             _isAutoWalking       = true;
             _autoWalkArrived     = false;
             _staticIsApproaching = true;
+            _diagLogTimer        = 0f;
 
-            // Initialize world map stuck detection.
+            // Initialize stuck detection.
             if (_isWorldmap)
             {
                 _wmStuckTimer        = 0f;
                 _wmLastStuckCheckPos = playerPos;
+            }
+            else
+            {
+                _fieldStuckTimer            = 0f;
+                _fieldLastStuckCheckPos     = playerPos;
+                _fieldStuckRecalcAttempted  = false;
             }
 
             // Close the list — the player is now running, not browsing.
@@ -111,6 +121,11 @@ namespace SO2RAccess
                 DebugLogger.LogState($"NAV AutoWalkTo: run setup failed: {ex.Message}");
             }
 
+            // Cache all event trigger zones in the scene so we can detect
+            // when the player walks through them (transform.position bypasses
+            // Unity physics — OnTriggerEnter never fires).
+            CacheEventTriggers();
+
             ScreenReader.Say(Loc.Get("nav_autowalk_start", item.Label));
             DebugLogger.LogState(
                 $"NAV auto-walk started. target={item.Label} " +
@@ -129,14 +144,20 @@ namespace SO2RAccess
             if (!_isAutoWalking) return;
             _isAutoWalking         = false;
             _autoWalkArrived       = false;
-            _autoWalkIsCounter     = false;
+            _autoWalkIsCounter      = false;
+            _autoWalkEventRef       = null;
+            _autoWalkTriggerBounds  = null;
+            _autoWalkDifferentFloor = false;
             _autoWalkCategoryIndex = 0;
             _autoWalkTransform     = null;
             _staticIsApproaching = false; // re-enable normal animation resets
-            _pathCorners         = null;
-            _pathCornerIndex     = 0;
-            _pathRecalcTimer     = 0f;
-            _isWorldmap          = false;
+            _pathCorners                = null;
+            _pathCornerIndex            = 0;
+            _pathRecalcTimer            = 0f;
+            _fieldStuckTimer            = 0f;
+            _fieldStuckRecalcAttempted  = false;
+            _isWorldmap                 = false;
+            _cachedEventTriggers?.Clear();
             DebugLogger.LogState("NAV auto-walk cancelled.");
         }
 
@@ -169,6 +190,63 @@ namespace SO2RAccess
             categoryIndex == CAT_EXIT     || categoryIndex == CAT_STAIRS ||
             categoryIndex == CAT_DOOR     || categoryIndex == CAT_WARP   ||
             categoryIndex == CAT_LOCATION;
+
+        /// <summary>
+        /// Triggers the nearest FieldMapjumpCollision to the auto-walk target.
+        /// Field exits (building doors, town gates) use Unity collision triggers
+        /// that never fire when the player is moved via transform.position.
+        /// This calls ChangeFieldmap() directly — same approach as world map entry.
+        /// </summary>
+        private bool TryEnterFieldExit()
+        {
+            try
+            {
+                var collisions = UnityEngine.Object
+                    .FindObjectsOfType<FieldMapjumpCollision>();
+                if (collisions == null || collisions.Length == 0)
+                {
+                    DebugLogger.LogState(
+                        "NAV field exit: no FieldMapjumpCollision objects found.");
+                    return false;
+                }
+
+                FieldMapjumpCollision nearest = null;
+                float nearestDist = float.MaxValue;
+
+                for (int i = 0; i < collisions.Length; i++)
+                {
+                    var c = collisions[i];
+                    if (c == null) continue;
+                    float dist = Vector3.Distance(
+                        c.transform.position, _autoWalkTarget);
+                    if (dist < nearestDist)
+                    {
+                        nearestDist = dist;
+                        nearest = c;
+                    }
+                }
+
+                if (nearest == null)
+                {
+                    DebugLogger.LogState(
+                        "NAV field exit: no valid FieldMapjumpCollision.");
+                    return false;
+                }
+
+                DebugLogger.LogState(
+                    $"NAV field exit: triggering mapjump " +
+                    $"dist={nearestDist:F1} fieldmap={nearest.fieldmapID} " +
+                    $"pos=({nearest.transform.position.x:F1}," +
+                    $"{nearest.transform.position.z:F1})");
+
+                return nearest.ChangeFieldmap();
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV field exit error: {ex.Message}");
+                return false;
+            }
+        }
 
         /// <summary>
         /// Computes a compass direction string (e.g. "North", "South East")
@@ -229,6 +307,42 @@ namespace SO2RAccess
         /// <see cref="NavMeshSampleRadius"/> before path calculation.
         /// Returns true as a fallback if NavMesh is unavailable (scene has none).
         /// </summary>
+        /// <summary>
+        /// Samples the NavMesh at <paramref name="pos"/> with floor-awareness.
+        /// First tries the full <see cref="NavMeshSampleRadius"/>. If the result
+        /// snaps to a different floor (Y differs by more than
+        /// <see cref="FloorChangeThreshold"/>), retries with a tight radius (1.0)
+        /// to stay on the correct floor's NavMesh surface.
+        /// Returns false if no NavMesh point is found at all.
+        /// </summary>
+        private bool SampleNavMeshFloorAware(Vector3 pos, out NavMeshHit hit)
+        {
+            // First try with tight radius to prefer the correct floor.
+            if (NavMesh.SamplePosition(pos, out hit, 1.0f, NavMesh.AllAreas))
+            {
+                if (Mathf.Abs(hit.position.y - pos.y) <= FloorChangeThreshold)
+                    return true;
+            }
+
+            // Tight radius missed — try full radius.
+            if (!NavMesh.SamplePosition(pos, out hit, NavMeshSampleRadius, NavMesh.AllAreas))
+                return false;
+
+            // Log when the full-radius result is on a different elevation.
+            // Use the sampled NavMesh position as-is — CalculatePath will
+            // determine connectivity. Overriding Y creates a position off
+            // the NavMesh surface, causing PathInvalid false negatives.
+            if (Mathf.Abs(hit.position.y - pos.y) > FloorChangeThreshold)
+            {
+                DebugLogger.LogState(
+                    $"NAV: SampleNavMesh floor difference " +
+                    $"(requested Y={pos.y:F1}, sampled Y={hit.position.y:F1}). " +
+                    "Using sampled NavMesh position for pathfinding.");
+            }
+
+            return true;
+        }
+
         private bool IsReachable(Vector3 playerPos, Vector3 targetPos)
         {
             // World map: use CalcHeight path sampling to detect ocean barriers.
@@ -237,12 +351,10 @@ namespace SO2RAccess
 
             try
             {
-                if (!NavMesh.SamplePosition(playerPos, out NavMeshHit playerHit,
-                        NavMeshSampleRadius, NavMesh.AllAreas))
+                if (!SampleNavMeshFloorAware(playerPos, out NavMeshHit playerHit))
                     return true; // no NavMesh near player — fallback, don't filter
 
-                if (!NavMesh.SamplePosition(targetPos, out NavMeshHit targetHit,
-                        NavMeshSampleRadius, NavMesh.AllAreas))
+                if (!SampleNavMeshFloorAware(targetPos, out NavMeshHit targetHit))
                 {
                     DebugLogger.LogState(
                         $"NAV: IsReachable=false — target not on NavMesh " +
@@ -283,12 +395,10 @@ namespace SO2RAccess
             // World map has no NavMesh — use the game's A* pathfinder instead.
             if (_isWorldmap) return WorldmapCalculateAndStorePath(playerPos, targetPos);
 
-            if (!NavMesh.SamplePosition(playerPos, out NavMeshHit playerHit,
-                    NavMeshSampleRadius, NavMesh.AllAreas))
+            if (!SampleNavMeshFloorAware(playerPos, out NavMeshHit playerHit))
                 return false;
 
-            if (!NavMesh.SamplePosition(targetPos, out NavMeshHit targetHit,
-                    NavMeshSampleRadius, NavMesh.AllAreas))
+            if (!SampleNavMeshFloorAware(targetPos, out NavMeshHit targetHit))
                 return false;
 
             NavMesh.CalculatePath(playerHit.position, targetHit.position,
@@ -310,9 +420,106 @@ namespace SO2RAccess
             _pathCornerIndex = _pathCorners.Length > 1 ? 1 : 0;
             _pathRecalcTimer = 0f;
 
-            DebugLogger.LogState(
-                $"NAV path: {_pathCorners.Length} waypoints, status={_navPath.status}");
+            var sb = new System.Text.StringBuilder();
+            sb.Append($"NAV path: {_pathCorners.Length} waypoints, status={_navPath.status}");
+            for (int i = 0; i < _pathCorners.Length; i++)
+                sb.Append($" [{i}]=({_pathCorners[i].x:F1},{_pathCorners[i].y:F1},{_pathCorners[i].z:F1})");
+            DebugLogger.LogState(sb.ToString());
             return true;
+        }
+
+        /// <summary>
+        /// Caches all FieldEventCollision trigger zones in the current scene.
+        /// Called once at the start of each auto-walk. During movement, the player
+        /// is moved via transform.position which bypasses Unity physics, so
+        /// OnTriggerEnter never fires for event triggers along the path.
+        /// We check these bounds manually each frame in <see cref="CheckEventTriggers"/>.
+        /// </summary>
+        private void CacheEventTriggers()
+        {
+            _cachedEventTriggers ??= new List<CachedEventTrigger>();
+            _cachedEventTriggers.Clear();
+
+            try
+            {
+                var events = UnityEngine.Object.FindObjectsOfType<FieldEventCollision>();
+                if (events == null) return;
+
+                foreach (var evt in events)
+                {
+                    if (evt == null) continue;
+
+                    // Only cache triggers that are currently active and have a collider.
+                    var col = evt.GetComponent<Collider>();
+                    if (col == null || !col.isTrigger) continue;
+
+                    _cachedEventTriggers.Add(new CachedEventTrigger
+                    {
+                        Event  = evt,
+                        Bounds = col.bounds,
+                    });
+                }
+
+                DebugLogger.LogState($"NAV: cached {_cachedEventTriggers.Count} event triggers.");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV: CacheEventTriggers error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Checks if the player's current position is inside any cached event
+        /// trigger zone. If so, fires the event via StartEvent() and cancels
+        /// auto-walk (the event cutscene takes over). Returns true if an event
+        /// was triggered, false otherwise.
+        /// </summary>
+        private bool CheckEventTriggers(Vector3 playerPos)
+        {
+            if (_cachedEventTriggers == null || _cachedEventTriggers.Count == 0)
+                return false;
+
+            for (int i = 0; i < _cachedEventTriggers.Count; i++)
+            {
+                var cached = _cachedEventTriggers[i];
+                if (cached.Event == null) continue;
+
+                if (!cached.Bounds.Contains(playerPos)) continue;
+
+                try
+                {
+                    if (!cached.Event.IsEventActivate()) continue;
+
+                    string evtName = cached.Event.name ?? "unknown";
+                    DebugLogger.LogState(
+                        $"NAV: player entered event trigger '{evtName}' at " +
+                        $"({playerPos.x:F2},{playerPos.y:F2},{playerPos.z:F2}). " +
+                        $"Firing StartEvent().");
+
+                    if (cached.Event.StartEvent())
+                    {
+                        _isAutoWalking       = false;
+                        _staticIsApproaching = false;
+                        _pathCorners         = null;
+                        DebugLogger.LogState(
+                            $"NAV: event '{evtName}' triggered successfully. " +
+                            "Auto-walk ended.");
+                        return true;
+                    }
+                    else
+                    {
+                        DebugLogger.LogState(
+                            $"NAV: event '{evtName}' StartEvent returned false.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogState(
+                        $"NAV: event trigger error: {ex.Message}");
+                }
+            }
+
+            return false;
         }
     }
 }

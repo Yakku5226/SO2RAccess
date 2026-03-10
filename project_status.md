@@ -36,9 +36,14 @@
 ## Current Phase
 
 **Phase:** Phase 3 — Feature Implementation
-**Currently working on:** Phase 3 features
-**Blocked by:** Nothing — framework fully working in-game
-**Last completed:** Database sub-menu accessibility — All 6 Database sub-screens now have full screen reader support: Tutorial, Enemy Picture Book, Item Picture Book, Fish Picture Book, Location Picture Book (list-based with browse + confirm detail), and Player Data (virtual cursor with Up/Down navigation through 24 stats across 3 categories: Battle Data, Collection Data, Other Data). Locked entries always announced. (2026-03-08)
+**Currently working on:** Auto-walk movement system overhaul (input injection approach)
+**Blocked by:** Nothing — ready to start
+**Last completed:** Auto-walk diagnostics at Krosse Castle — identified root causes (2026-03-10):
+  - transform.position bypasses Unity colliders (walls, doors, counters)
+  - INVALID-type NPCs pollute nav list (e.g. 3 "Receptionist" entries, only 1 real)
+  - King auto-walk targeted Attendant position, not actual King
+  - Event trigger system limited (only FieldEventCollision, not ev_1001500 type)
+  Next: replace transform.position movement with fake input injection so game physics handles colliders naturally. Also filter INVALID NPCs from nav list.
 
 ## Codebase Analysis Progress
 
@@ -306,6 +311,15 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Announces EXP/Fol/SP/BP/items when rewards given via managed code (missions, etc.)
   - Does NOT fire for location point rewards (native-only flow)
 
+- **Dialogue choice menus** (`DialogueChoiceHandler.cs`) ✓ TESTED
+  - Choice menus during private actions, story events, and dialogue sequences now announced
+  - Hook: UISelectChoiceSelector.ShowSelectChoiceMessage (CallerCount 5) — captures menu open
+  - Announces prompt/title text + initial choice with position on open
+  - Polling: selectChoiceIndex tracked each frame (native-only navigation, no Harmony hooks fire)
+  - Navigation announces current choice text + "N of total" position
+  - Choice text read from UISelectChoicePresenter.choicePresenterList[i].message.text
+  - Deactivates when presenter goes inactive (choice confirmed or cancelled)
+
 - **Save notification and audio cue** (`SaveNotificationHandler.cs`, `AudioCuePlayer.cs`, `ModSettings.cs`) ✓ TESTED
   - Hook: UIDialogWindow.SetupAutoSaveAnnounce (CallerCount 2) — reads new game save notification dialog
   - Hook: GameSaveManager.Save prefix (CallerCount 3) — detects manual save start
@@ -315,6 +329,11 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Settings: ModSettings.SaveSoundEnabled (on/off) and SaveSoundVolume (0.0-1.0, default 0.5)
   - Settings persisted to UserData/SO2RAccess/settings.json (created automatically)
   - Ready for future mod settings menu integration
+
+- **Fol readout** (`Main.cs`)
+  - F3 (keyboard) or L1+R3 (gamepad) announces current Fol
+  - Uses EventManager.Instance.GetMoney() to retrieve current money
+  - Works anywhere in the game (field, menus, battle)
 
 ## In-Progress / Pending Test
 
@@ -340,6 +359,8 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Plain "Side event" (no hint) = needs user testing to determine relevance
   - Numbered by label type in distance order (e.g. "Story event 1", "Side event (reward) 2")
   - NavMesh reachability filter applied; static transforms (LiveTransform = null)
+  - PA NPCs (code names starting with `pa_`) also listed under Events as "Private action (Name)"
+  - Name parsed from code name last segment (not dialogue-derived, which can be wrong speaker)
 
 - **Navigation Enemies category** (`NavigationHandler.cs`) — TESTED, WORKING
   - New "Enemies" category added to nav list (7th category)
@@ -514,6 +535,16 @@ Without this list, mod keys WILL conflict with game controls. -->
 - [x] "Status." announced when opening the status screen ✓
 - [x] Character stats announced ✓
 
+## Pending Tests (Navigation Improvements — 2026-03-08)
+
+- [ ] Field stuck detection: auto-walk into a corner or dead-end, verify it cancels after ~4s with "Path blocked" announcement
+- [ ] Field stuck detection: normal auto-walk to NPC/chest still works (no false stuck triggers)
+- [ ] Linecast filter: open nav list on a map with walls, check F12 debug log for "linecast blocked" messages
+- [ ] Linecast filter: all expected NPCs/chests/exits still appear (no false removals)
+- [ ] Floor labels: open nav list on a multi-floor map (e.g. inn), items on other floors show "(above)" or "(below)"
+- [ ] Floor labels: items on the same floor have no suffix
+- [ ] Regression: auto-walk to NPCs, chests, exits, counter NPCs all still work normally
+
 ## Pending Tests (Camp Formation Sub-screen)
 
 - [ ] Not yet testable — area inaccessible in current game progress
@@ -652,6 +683,23 @@ bypass managed stubs) with polling UIConversationSelector.currentVoiceController
   - Resets on map change to avoid false triggers between areas
   - Auto-walk now accepts partial NavMesh paths for targets on different floors
     (Y difference > 2 units) instead of saying "Cannot reach"
+  - Floor-aware arrival logic (2026-03-08): arrival proximity check skipped for
+    different-floor targets (prevents false "arrived" when directly above/below).
+    At partial path end, announces "Target is above/below you — look for stairs"
+    instead of running endlessly. Tested — NavMesh sometimes finds full path
+    including stairs (works perfectly), fix is safety net for partial paths.
+  - Dynamic floor re-evaluation (2026-03-08): _autoWalkDifferentFloor is now cleared
+    each frame if player reaches the same floor as target — prevents infinite walk
+    when player goes upstairs to reach NPC but proximity check stayed disabled.
+  - Floor-aware NavMesh sampling (2026-03-08): SampleNavMeshFloorAware() tries tight
+    radius (1.0) first to stay on correct floor, then falls back to full radius (5.0).
+    Y-override removed (2026-03-08): previously overrode sampled Y back to original
+    when floor difference exceeded threshold, but this created positions off the NavMesh
+    surface causing PathInvalid. Now uses sampled NavMesh position as-is and trusts
+    CalculatePath to determine connectivity. Fixes Krosse Castle exit and Overworld
+    town gate being falsely filtered as unreachable. ✓ TESTED
+  - NOTE: Krosse Guild exit shows PathPartial (genuinely disconnected NavMesh) —
+    may become accessible later in story progression. Monitor on revisit.
 
 - **World map fast travel menu** — IMPLEMENTED AND TESTED (2026-03-07):
   - WorldMapHandler.cs: polling-based (same pattern as shop/camp — native-only navigation)
@@ -681,6 +729,14 @@ bypass managed stubs) with polling UIConversationSelector.currentVoiceController
   - Plays PrivateAction.wav + screen reader "Private action available. Press Square." once per town visit
   - Volume slider in mod settings menu (0% = off, default 70%)
   - Game has NO native audio cue for PA availability — purely visual icon only
+
+- **Dialogue choice menus** — IMPLEMENTED (2026-03-08), PENDING TEST:
+  - DialogueChoiceHandler.cs: announces Yes/No and multi-choice menus during NPC conversations
+  - Polling-based activation (finds UIConversationWindow.selectChoiceSelector, detects presenter visibility)
+  - Hooks on ShowSelectChoiceMessage capture title text when available (bonus — not relied upon)
+  - Index polling for navigation (native-only cursor movement, same pattern as camp menus)
+  - Inn Yes/No uses ShowSelectChoiceDirectMessage (native-only call chain) — hook alone missed it
+  - Loc keys: dialogue_choice_open_with_title, dialogue_choice_open, dialogue_choice_item
 
 - **Database sub-menu accessibility** — IMPLEMENTED AND TESTED (2026-03-08):
   - CampMenuHandler.Database.cs: partial class with all 6 Database sub-screen handlers
@@ -757,6 +813,38 @@ Stale-open check helper consolidation. Key changes:
 - **File:** `E:\StarOcean\audio_cue.wav` — 10-second clip (PCM WAV, 44100 Hz, 16-bit mono, ~861 KB)
 - **Source:** YouTube clip trimmed from 5s to 15s
 - **User has a specific use in mind** — to be implemented in a future session
+
+### Navigation improvements (2026-03-08, late session)
+- **Architecture review:** Thoroughly analyzed NavMesh pathfinding, game's AIPathFinder A*,
+  NavMeshAgent, and OnMove() alternatives. Conclusion: current approach (NavMesh.CalculatePath
+  for field maps, game A* for world map) is optimal. No rewrite needed.
+- **Field map stuck detection:** Added 2-second interval check (FieldStuckMinMove=0.5 units).
+  Two-strike system: first stuck → recalculate path; still stuck → cancel + announce
+  "Path blocked to [target]. Auto-walk stopped." PENDING TEST
+- **Physics.Linecast POI filtering:** Secondary filter after NavMesh reachability. Fires
+  linecast at eye height, removes items blocked by non-trigger colliders (solid walls).
+  Counter NPCs skip this check. Errors default to keeping item. PENDING TEST
+- **Floor labels in nav list:** Items with Y difference > FloorChangeThreshold (2.0 units)
+  get "(above)" or "(below)" appended to their label. Applied to all categories. PENDING TEST
+
+### Current work (2026-03-08)
+- NavMesh reachability fix: removed Y-override from SampleNavMeshFloorAware. The override
+  created positions off the NavMesh surface causing PathInvalid, which falsely filtered exits
+  like Krosse Castle gate (trigger Y=8.8, NavMesh Y=6.6). Now uses sampled NavMesh position
+  as-is and trusts CalculatePath connectivity check. ✓ TESTED
+- Krosse Guild exit: PathPartial (genuinely disconnected NavMesh), likely story-gated. Monitor.
+- Auto-walk multi-floor NavMesh fix: floor-aware sampling (SampleNavMeshFloorAware) prevents
+  NavMesh.SamplePosition from snapping to wrong floor in multi-story buildings (inn Tourist bug).
+  Tight radius (1.0) tried first, falls back to full (5.0). ✓ TESTED
+- Auto-walk dynamic floor re-evaluation: _autoWalkDifferentFloor cleared each frame once player
+  reaches same Y level as target. Prevents infinite walk after going upstairs. ✓ TESTED
+- DialogueChoiceHandler: rewritten to polling-based activation (was hook-only, hooks don't fire
+  for native-only call chains like inn ShowSelectChoiceDirectMessage). Now detects presenter
+  visibility via UIConversationWindow.selectChoiceSelector. PENDING TEST for inn Yes/No.
+- Auto-walk field exit fix: auto-walk uses transform.position which bypasses Unity trigger
+  colliders, so FieldMapjumpCollision (building doors, gates) never fired. Added TryEnterFieldExit()
+  — calls ChangeFieldmap() directly on the nearest exit trigger, same approach as world map entry.
+  Now announces "Entering [building]" instead of stopping outside. ✓ TESTED
 
 ### Current work (2026-03-07)
 - R2 ally switching in battle: BattleTargetHandler now announces controlled ally on R2 press ✓ TESTED

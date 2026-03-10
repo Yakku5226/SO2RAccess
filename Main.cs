@@ -62,6 +62,7 @@ namespace SO2RAccess
         private EquipWizardHandler _equipWizardHandler;
         private PrivateActionHandler _privateActionHandler;
         private BonusGaugeHandler _bonusGaugeHandler;
+        private DialogueChoiceHandler _dialogueChoiceHandler;
 
         // Gamepad nav overlay — L1 hold-to-open state.
         private bool _gamepadL1Held;
@@ -142,6 +143,7 @@ namespace SO2RAccess
             _equipWizardHandler = new EquipWizardHandler();
             _privateActionHandler = new PrivateActionHandler();
             _bonusGaugeHandler = new BonusGaugeHandler();
+            _dialogueChoiceHandler = new DialogueChoiceHandler();
         }
 
         private IEnumerator AnnounceStartupDelayed()
@@ -237,6 +239,7 @@ namespace SO2RAccess
             _battleStatusHandler.ApplyPatches(_harmony);
             _equipWizardHandler.ApplyPatches(_harmony);
             _bonusGaugeHandler.ApplyPatches(_harmony);
+            _dialogueChoiceHandler.ApplyPatches(_harmony);
         }
 
         /// <summary>
@@ -304,6 +307,14 @@ namespace SO2RAccess
                 ScreenReader.Say(Loc.Get(locKey));
                 MelonLogger.Msg($"Dialogue voice mode: {ModSettings.DialogueVoiceMode}.");
                 ModSettings.Save();
+                return true;
+            }
+
+            // F3 — read current Fol
+            if (kb[Key.F3].wasPressedThisFrame)
+            {
+                DebugLogger.LogInput("F3", "ReadFol");
+                AnnounceFol();
                 return true;
             }
 
@@ -406,6 +417,28 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// Announces the player's current Fol (money) via screen reader.
+        /// </summary>
+        private void AnnounceFol()
+        {
+            try
+            {
+                var em = EventManager.Instance;
+                if (em == null)
+                {
+                    DebugLogger.Log(LogCategory.Handler, "AnnounceFol", "EventManager.Instance is null");
+                    return;
+                }
+                int fol = em.GetMoney();
+                ScreenReader.Say(Loc.Get("fol_amount", fol));
+            }
+            catch (System.Exception ex)
+            {
+                DebugLogger.Log(LogCategory.Handler, "AnnounceFol", ex.Message);
+            }
+        }
+
+        /// <summary>
         /// Processes gamepad L1 hold-to-open navigation overlay each frame.
         /// L1 pressed: opens nav list (field only, not in menus/battle).
         /// L1 held: D-pad Up/Down switches category, D-pad Left/Right switches item.
@@ -460,6 +493,13 @@ namespace SO2RAccess
             {
                 DebugLogger.LogInput("L1+L3", "ModMenuToggle");
                 _modMenuHandler.Toggle();
+                return;
+            }
+            // L1+R3 — read current Fol
+            if (gp.leftShoulder.isPressed && gp.rightStickButton.wasPressedThisFrame)
+            {
+                DebugLogger.LogInput("L1+R3", "ReadFol");
+                AnnounceFol();
                 return;
             }
             if (_modMenuHandler.IsOpen)
@@ -622,6 +662,7 @@ namespace SO2RAccess
             _worldMapHandler.Update();
             _privateActionHandler.Update();
             _bonusGaugeHandler.Update();
+            _dialogueChoiceHandler.Update();
         }
 
         #endregion

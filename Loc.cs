@@ -78,7 +78,8 @@ namespace SO2RAccess
             Add("mod_loaded",   "SO2RAccess loaded. Press F1 for help.");
             Add("debug_on",     "Debug mode enabled.");
             Add("debug_off",    "Debug mode disabled.");
-            Add("help",         "Keyboard: F1 Help. F4 Mod settings. NumPad 5 open or close navigation list. NumPad 8 and 2 move up and down. NumPad 4 and 6 change category. NumPad 1 walk to selected item or cancel walk. F12 toggle debug mode. Gamepad: hold L1 to open navigation, D-pad up and down for category, left and right for items. Push left stick up to walk. L1 plus L3 for mod settings.");
+            Add("fol_amount",   "{0} Fol.");
+            Add("help",         "Keyboard: F1 Help. F3 read Fol. F4 Mod settings. NumPad 5 open or close navigation list. NumPad 8 and 2 move up and down. NumPad 4 and 6 change category. NumPad 1 walk to selected item or cancel walk. F12 toggle debug mode. Gamepad: hold L1 to open navigation, D-pad up and down for category, left and right for items. Push left stick up to walk. L1 plus L3 for mod settings. L1 plus R3 read Fol.");
 
             // Title menu
             Add("title_press_any_button",      "Title screen. Press any button to start.");
@@ -162,8 +163,11 @@ namespace SO2RAccess
             Add("nav_autowalk_unreachable","Cannot reach {0}.");
             Add("nav_autowalk_no_navmesh", "No navigation data available.");
             Add("nav_autowalk_lost_path",  "Lost path to {0}.");
+            Add("nav_autowalk_stuck",      "Path blocked to {0}. Auto-walk stopped.");
             Add("nav_floor_up",            "Went upstairs.");
             Add("nav_floor_down",          "Went downstairs.");
+            Add("nav_label_above",         "{0} (above)");
+            Add("nav_label_below",         "{0} (below)");
             Add("nav_chest_unopened",   "Unopened chest");
             Add("nav_chest_opened",     "Opened chest");
             Add("nav_chest_unopened_n", "Unopened chest {0}");
@@ -176,6 +180,8 @@ namespace SO2RAccess
             Add("nav_npc_n",          "NPC {0}");
             Add("nav_event_story",              "Story event");
             Add("nav_event_pa",                 "Private action");
+            Add("nav_autowalk_arrived_above",   "Arrived near {0}. Target is above you — look for stairs or a ramp.");
+            Add("nav_autowalk_arrived_below",   "Arrived near {0}. Target is below you — look for stairs or a ramp.");
             Add("nav_event_side",               "Side event");
             Add("nav_event_side_reward",        "Side event (reward)");
             Add("nav_event_side_battle",        "Side event (battle)");
@@ -622,6 +628,12 @@ namespace SO2RAccess
             Add("db_location_item",             "{0}. {1} of {2}.");
             Add("db_location_item_new",         "{0}, New. {1} of {2}.");
             Add("db_location_discovered_by",    "Discovered by: {0}.");
+
+            // Dialogue choice menus (private actions, story choices, etc.)
+            Add("dialogue_choice_open_with_title", "{0}. {1}, {2} of {3}.");
+            Add("dialogue_choice_open",            "{0}, {1} of {2}.");
+            Add("dialogue_choice_open_no_items",   "{0}");
+            Add("dialogue_choice_item",            "{0}, {1} of {2}.");
 
             // Database — Player Data (virtual cursor navigation)
             Add("db_playerdata_screen",         "Player Data.");
