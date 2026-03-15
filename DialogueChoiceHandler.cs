@@ -48,6 +48,15 @@ namespace SO2RAccess
         /// <summary>Title/prompt text set by hook, consumed on next activation.</summary>
         private static string _pendingTitle;
 
+        /// <summary>
+        /// When true, the presenter just became visible and we are waiting one frame
+        /// for the game to set the correct selectChoiceIndex before announcing.
+        /// </summary>
+        private bool _activationPending = false;
+
+        /// <summary>Title captured at the moment activation was deferred.</summary>
+        private string _deferredTitle;
+
         /// <summary>Throttle FindObjectOfType calls.</summary>
         private float _findWindowTimer = 0f;
         private const float FindWindowInterval = 2f;
@@ -186,17 +195,29 @@ namespace SO2RAccess
                     return;
                 }
 
-                // Edge detection: presenter just became visible → choice menu opened.
+                // Edge detection: presenter just became visible → defer activation by one frame.
+                // selectChoiceIndex is stale on the first visible frame (holds value from
+                // the previous menu). Waiting one frame lets the game reset it to 0.
                 if (presenterVisible && !_wasPresenterVisible)
                 {
-                    ActivateChoiceMenu(_pendingTitle);
+                    _activationPending = true;
+                    _deferredTitle = _pendingTitle;
                     _pendingTitle = null;
+                    DebugLogger.LogState("DialogueChoiceHandler: presenter visible, deferring activation by 1 frame.");
+                }
+                // Second frame after presenter appeared → now activate with correct index.
+                else if (presenterVisible && _activationPending)
+                {
+                    _activationPending = false;
+                    ActivateChoiceMenu(_deferredTitle);
+                    _deferredTitle = null;
                 }
 
                 // Edge detection: presenter just became hidden → choice menu closed.
                 if (!presenterVisible && _wasPresenterVisible)
                 {
                     _isActive = false;
+                    _activationPending = false;
                     _choiceTexts = null;
                     _lastIndex = -1;
                     DebugLogger.LogState("DialogueChoiceHandler: choice menu closed.");
@@ -226,6 +247,7 @@ namespace SO2RAccess
             catch (Exception ex)
             {
                 _isActive = false;
+                _activationPending = false;
                 _selector = null;
                 _window = null;
                 _wasPresenterVisible = false;

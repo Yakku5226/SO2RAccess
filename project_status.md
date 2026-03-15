@@ -36,14 +36,125 @@
 ## Current Phase
 
 **Phase:** Phase 3 — Feature Implementation
-**Currently working on:** Auto-walk movement system overhaul (input injection approach)
-**Blocked by:** Nothing — ready to start
-**Last completed:** Auto-walk diagnostics at Krosse Castle — identified root causes (2026-03-10):
-  - transform.position bypasses Unity colliders (walls, doors, counters)
-  - INVALID-type NPCs pollute nav list (e.g. 3 "Receptionist" entries, only 1 real)
-  - King auto-walk targeted Attendant position, not actual King
-  - Event trigger system limited (only FieldEventCollision, not ev_1001500 type)
-  Next: replace transform.position movement with fake input injection so game physics handles colliders naturally. Also filter INVALID NPCs from nav list.
+**Currently working on:** Nothing — awaiting next task
+**Blocked by:** Nothing
+**Last completed:** Dialogue choice menu stale index fix (2026-03-15)
+
+### Auto-Walk Bug Fixes (2026-03-15) — Tested and confirmed
+
+1. **Obstacle avoidance NavMesh sampling fix:** `TryStartObstacleAvoidance` now samples
+   `_autoWalkTarget` onto NavMesh before checking detour paths. Previously, different-floor
+   targets caused `PathInvalid` for all detour candidates (raw Y=8.8 wasn't on NavMesh surface).
+2. **IsReachable accepts partial paths for different floors:** Targets on different floors
+   (connected by stairs) get `PathPartial` — now accepted instead of being filtered from nav list.
+3. **Chest IsAcquired fix:** Switched from `chest.isAcquired` (backing field, stale at distance)
+   to `chest.IsAcquired` (property, calls native getter). Distant chests no longer flip
+   between Opened/Unopened.
+4. **Interactable arrival radius:** Added `InteractableArrivalRadius = 1.3f` for chests, save
+   points, and interactables. Previously used 1.8f (NPC radius) — too far for chest interaction.
+5. **Stuck loop prevention:** Max 3 obstacle avoidance attempts before cancelling with
+   "Path blocked" message. Avoidance counter no longer resets on "progress" (detour movement
+   counted as progress, causing infinite loops when path was truly blocked by guards).
+6. **Quest marker filtering:** Discovered location points filtered by `effectComponent == null`
+   (sparkle removed after discovery). `IsEnd` and `isEnd` properties don't work for this.
+7. **Diagnostic cleanup:** Removed verbose NAV DIAG per-frame logging and marker diagnostic fields.
+
+### Dialogue Choice Menu Stale Index Fix (2026-03-15) — Pending test
+
+`selectChoiceIndex` returned a stale value from the previous menu on the activation frame,
+causing the wrong item to be announced on open. Fix: defer `ActivateChoiceMenu` by one frame
+after the presenter becomes visible, letting the game reset the index to 0 first.
+Same one-frame deferral pattern used in dialogue voice detection.
+
+### Auto-Walk Overhaul — Summary of Changes (2026-03-10)
+
+**Core change:** Replaced `transform.position` direct movement with `GetLeftStick()` postfix
+input injection. The game's own movement pipeline now handles physics, colliders, animations,
+triggers, party AI, and terrain — all naturally.
+
+**What was done:**
+1. **GetLeftStick postfix** (NavigationHandler.Patches.cs): Harmony postfix on
+   `GameInputManager.GetLeftStick()` overrides stick input with synthetic direction
+   toward current waypoint. `WorldDirToCameraStick()` converts world-space direction
+   to camera-relative stick coordinates.
+2. **Removed old workarounds:** PlayMoveAnimation prefix, CacheEventTriggers/CheckEventTriggers,
+   TryEnterFieldExit, InteractDist snapping, manual transform.rotation, Y interpolation,
+   _staticIsApproaching field, CachedEventTrigger struct, DirectWalkMaxDistance constant.
+3. **Counter NPC detection fix** (NavigationHandler.Build.cs): NPCs with contactDistance >= 1.0
+   are now flagged as counter NPCs (skip reachability filter, use partial path). This fixes
+   the castle receptionist (WARRIOR1b, contactDistance=1.50, type=NORMAL) disappearing
+   from the nav list.
+4. **Pre-walk path validation** (NavigationHandler.AutoWalk.cs): Before walking, SphereCast
+   validates every segment of the NavMesh path against actual physics colliders. If a segment
+   is blocked, a temporary NavMeshObstacle is placed at the midpoint and the path is
+   recalculated (up to 4 attempts). All obstacles stay during retries so each recalculation
+   routes around ALL found barriers. Obstacles are destroyed after path is accepted.
+5. **WaypointArrivalThreshold** increased from 0.3 to 0.8 for physics-based movement.
+6. **World map unchanged** — still uses transform.position (different physics model).
+
+**Files modified:**
+- `NavigationHandler.Patches.cs` — GetLeftStick postfix, removed PlayMoveAnimation prefix
+- `NavigationHandler.AutoWalk.cs` — WorldDirToCameraStick(), path validation with SphereCast,
+  StopAutoWalk() helper, removed CacheEventTriggers/CheckEventTriggers/TryEnterFieldExit
+- `NavigationHandler.cs` — Update() uses stick injection, simplified arrival, new ApplyPatches
+- `NavigationHandler.Build.cs` — contactDistance-based counter NPC detection
+
+**Pending tests (user will test 2026-03-11):**
+- [ ] Basic NPC auto-walk (run toward NPC, proper animation/footsteps)
+- [ ] Wall collision (player stops at walls, doesn't clip through)
+- [ ] Door interaction (stops at closed doors like Krosse Castle guard gate)
+- [ ] Event triggers fire naturally (story triggers, PA triggers)
+- [ ] Map exits trigger naturally (building entrances, town gates)
+- [ ] Counter NPCs (receptionist appears in list, walks to counter edge)
+- [ ] Path validation rerouting (Krosse town → castle should find clear path)
+- [ ] Moving NPCs (path recalculation, arrival)
+- [ ] Stuck detection still works
+- [ ] Party members follow naturally
+- [ ] World map auto-walk still works
+- [ ] Cancel auto-walk (NumPad 5 / L1)
+- [ ] Gamepad auto-walk (L1 + LStick)
+
+**Known issue from first test:**
+- King/Soldier in Krosse Castle unreachable — this is correct behavior (guard blocks
+  corridor until receptionist grants audience). Not a bug.
+- Krosse town → castle path initially went through a dead-end area where NavMesh and
+  game colliders disagreed. Path validation (SphereCast + NavMeshObstacle rerouting)
+  was added to fix this. Needs re-testing.
+
+### SphereCast Removal (2026-03-15)
+
+**Problem:** LayerMaskWall fix (2026-03-13) still caused widespread false "Cannot reach" errors.
+Testing showed two types of colliders blocking valid paths:
+- Layer 15 (`collider`) — invisible collision volumes throughout scenes, player walks through fine
+- Layer 22 (`Col_Obstacle_Col*`) — named "obstacle" but not actually impassable
+
+Both layers are included in GameRenderManager.LayerMaskWall but do not block player movement.
+NavMesh paths are inherently walkable — SphereCast validation was redundant and harmful.
+
+**Fix:** Removed SphereCast path validation entirely. CalculateAndStorePath now trusts the
+NavMesh path directly. Stuck detection (2-second timer, recalculates from current position)
+remains as the safety net for genuine obstacles encountered at runtime.
+
+**Removed code:**
+- `FindBlockedSegment()`, `GetSegmentMidpoint()`, `CreateTempNavMeshObstacle()` methods
+- `MaxPathValidationAttempts`, `PathValidationRadius` constants
+- `_wallLayerMask`, `_wallLayerMaskResolved`, `GetWallLayerMask()` from NavigationHandler.cs
+- Wall mask cache reset in `CheckFieldmapChange()`
+
+**Files modified:**
+- `NavigationHandler.AutoWalk.cs` — simplified CalculateAndStorePath, removed validation methods
+- `NavigationHandler.cs` — removed wall mask fields/method/reset
+
+**Pending tests (user will test):**
+- [ ] Auto-walk to nearby NPC — should no longer say "Cannot reach"
+- [ ] Auto-walk to building entrances (Inn, Church, etc.) — should work
+- [ ] Auto-walk to distant exits (Krosse Castle gate) — should work
+- [ ] Stuck detection still triggers if player gets physically blocked
+- [ ] Indoor areas still navigable
+- [ ] Previous test checklist items from 2026-03-10 also still apply
+- [ ] **NEW: Obstacle avoidance** — if auto-walk gets blocked (e.g. enemy in path), it should try walking around instead of giving up. Walk toward an enemy-blocked path to test.
+- [ ] **NEW: Camera follow** — camera should gently rotate to face walking direction during auto-walk. If camera rotates the WRONG way (away from path), report it — sign flip needed.
+- [ ] Camera follow should NOT affect world map auto-walk (world map has fixed camera)
 
 ## Codebase Analysis Progress
 
