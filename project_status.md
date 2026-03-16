@@ -36,9 +36,73 @@
 ## Current Phase
 
 **Phase:** Phase 3 — Feature Implementation
-**Currently working on:** Nothing — awaiting next task
+**Currently working on:** Next feature (see pending items below)
 **Blocked by:** Nothing
-**Last completed:** Dialogue choice menu stale index fix (2026-03-15)
+**Last completed:** Camp quest and mission list accessibility (2026-03-16)
+
+### Camp Quest & Mission Lists (2026-03-16) — COMPLETE
+
+- **Quests** (camp → Quests and Missions → Quests):
+  - Polls UIQuestSelector (UIListSelectorBase) for cursor + data
+  - Announces: quest name, status (Available/In progress/Ready to report/Completed), position
+  - New quests marked with "New"
+  - Confirm press reads full description (title + description + rewards)
+  - Hook: GameUIManager.OpenQuestWindow captures UIQuestWindow reference
+- **Missions** (camp → Quests and Missions → Missions):
+  - Polls UIMissionListSelector (UIListSelectorBase) for cursor + data
+  - Announces: mission name, status (Complete/Incomplete/In progress/etc.), position
+  - Category changes (Beginner/Expert/Specialist/Legend) announced on switch
+  - Hook: GameUIManager.OpenMissionWindow captures UIMissionWindow (camp-only)
+- **Guild handler fix:** Skips detection when camp is open (IsCampOpen guard)
+  to prevent false "Guild." announcements on camp quest/mission screens
+- **Files:** CampMenuHandler.Quest.cs, CampMenuHandler.Mission.cs, GuildHandler.cs, Loc.cs
+
+### Guild Mission Menu (2026-03-15 → 2026-03-16) — NATIVE CODE WALL
+
+- **What works:**
+  - Window open/close detection via gameObject.activeInHierarchy
+  - "Guild." announced on open
+  - Dialog system catches "Mission accepted.", provisions, "There are no more missions"
+- **What's blocked — EXHAUSTIVELY TESTED (2026-03-16):**
+  The entire guild UI operates in native C++ that is invisible to managed code.
+  Every approach below was tested with diagnostic dumps across full guild sessions:
+  - currentDataList: always empty (0 items)
+  - currentIndex: stuck at 0, never changes when user navigates
+  - windowState: stuck at None, never transitions to List
+  - FindObjectsOfTypeAll<UIMissionListItemPresenter>: found 14, ALL with empty text/state
+  - All 59 TMPro components: only template/placeholder text, never updated
+  - GetParsedText() internal buffer: same as .text (no hidden data)
+  - textInfo.characterCount: 0 on all components
+  - informationSelector.missionName: Japanese placeholder "ミッション名" only
+  - ParameterManager bypass: shows 93 missions when guild shows 4 (wrong filtering)
+  - Mission name text keys (MISSION_023 etc.): don't resolve via TextManager
+  The game renders mission text through a native pipeline that bypasses Unity's
+  managed TextMeshPro entirely — text is drawn on screen but never written to
+  any managed field.
+- **Current state:** GuildHandler detects window open/close, announces "Guild.",
+  and relies on dialogue system for accept/provisions. Individual mission names
+  and cursor tracking are not possible from managed code.
+- **Files:** GuildHandler.cs, Main.cs, Loc.cs (guild_screen only)
+
+### NavMesh Partial Path Progress Fix (2026-03-15) — TESTED OK (2026-03-16)
+
+- **Problem:** The Krosse Guild entrance was filtered as unreachable from the upper level.
+  NavMesh surfaces are disconnected (PathPartial) but Y difference is only ~1.0m — below
+  the 2.0m FloorChangeThreshold, so the "different floor" exception didn't apply.
+- **Fix:** IsReachable now accepts PathPartial when the partial path endpoint gets at least
+  30% closer to the target than the player's start position. This catches disconnected
+  NavMesh surfaces regardless of Y difference, without showing truly unreachable targets.
+- **Also:** AutoWalkTo now always allows partial paths (allowPartial: true) since
+  IsReachable already filtered out truly unreachable targets.
+- **Test:** Confirmed working — Krosse Guild appears from upper town, auto-walk reaches it.
+
+### Dialogue Choice Menu Fixes (2026-03-15) — Tested and confirmed
+
+1. **Stale index on open:** 1-frame defer lets game reset selectChoiceIndex before announcing.
+2. **Opening heading:** Menu now announces "Choice, N items." followed by the initial item
+   in a single combined string (no double-read from screen reader interruption).
+3. **Correct item count:** Uses `choiceMessageIDList.Count` (actual active choices) instead of
+   `MaxChoiceIndex` (pre-allocated presenter slots). Was showing "X of 9" for 2-item menus.
 
 ### Auto-Walk Bug Fixes (2026-03-15) — Tested and confirmed
 

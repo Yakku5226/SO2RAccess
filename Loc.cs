@@ -413,6 +413,12 @@ namespace SO2RAccess
             Add("shop_cat_greave",      "Greave");
             Add("shop_cat_accessory",   "Accessory");
 
+            // Guild mission menu
+            // NOTE: Guild mission list is a native code wall — individual mission
+            // names and cursor position cannot be read from managed code. Only window
+            // open/close detection works. Dialogue system catches accept/provisions.
+            Add("guild_screen",             "Guild.");
+
             // Item acquisition popups (treasure chests, quest rewards, etc.)
             Add("overflow_item",            "{0}");
             Add("overflow_item_multi",      "{0} x{1}");
@@ -629,10 +635,42 @@ namespace SO2RAccess
             Add("db_location_item_new",         "{0}, New. {1} of {2}.");
             Add("db_location_discovered_by",    "Discovered by: {0}.");
 
+            // Quest list sub-screen (camp → Quests and Missions → Quests)
+            Add("quest_screen",             "Quests.");
+            Add("quest_empty",              "Empty. {0} of {1}.");
+            // quest_item: {0}=name {1}=status {2}=position {3}=total
+            Add("quest_item",               "{0}, {1}. {2} of {3}.");
+            Add("quest_item_new",           "{0}, New, {1}. {2} of {3}.");
+            Add("quest_status_available",   "Available");
+            Add("quest_status_received",    "In progress");
+            Add("quest_status_reportable",  "Ready to report");
+            Add("quest_status_completed",   "Completed");
+            Add("quest_status_not_achieved","Not achieved");
+            Add("quest_rewards",            "Rewards: {0}");
+
+            // Mission list sub-screen (camp → Quests and Missions → Missions)
+            Add("mission_screen",              "Missions.");
+            Add("mission_empty",               "Empty. {0} of {1}.");
+            // mission_item: {0}=name {1}=status {2}=position {3}=total
+            Add("mission_item",                "{0}, {1}. {2} of {3}.");
+            Add("mission_category",            "{0}.");
+            Add("mission_status_complete",     "Complete");
+            Add("mission_status_achieved",     "Achieved");
+            Add("mission_status_reportable",   "Ready to report");
+            Add("mission_status_in_progress",  "In progress");
+            Add("mission_status_incomplete",   "Incomplete");
+            Add("mission_cat_beginner",        "Beginner");
+            Add("mission_cat_expert",          "Expert");
+            Add("mission_cat_specialist",      "Specialist");
+            Add("mission_cat_legend",          "Legend");
+
             // Dialogue choice menus (private actions, story choices, etc.)
-            Add("dialogue_choice_open_with_title", "{0}. {1}, {2} of {3}.");
-            Add("dialogue_choice_open",            "{0}, {1} of {2}.");
-            Add("dialogue_choice_open_no_items",   "{0}");
+            // open_with_title: {0}=title {1}=total {2}=choiceText {3}=position
+            Add("dialogue_choice_open_with_title", "{0}. Choice, {1} items. {2}, {3} of {1}.");
+            // open: {0}=total {1}=choiceText {2}=position
+            Add("dialogue_choice_open",            "Choice, {0} items. {1}, {2} of {0}.");
+            // open_no_items: {0}=title {1}=total
+            Add("dialogue_choice_open_no_items",   "Choice, {1} items.");
             Add("dialogue_choice_item",            "{0}, {1} of {2}.");
 
             // Database — Player Data (virtual cursor navigation)

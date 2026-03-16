@@ -167,6 +167,21 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(UIElementalGroupPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIElementalData).TypeHandle);
 
+                // Quest sub-screen (separate window opened from camp)
+                RuntimeHelpers.RunClassConstructor(typeof(UIQuestWindow).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIQuestSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIQuestListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIQuestDescriptionPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIQuestRewardElementPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIQuestRewardElementData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIItemNamePresenter).TypeHandle);
+
+                // Mission sub-screen (separate window opened from camp)
+                RuntimeHelpers.RunClassConstructor(typeof(UIMissionWindow).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIMissionListSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIMissionListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIMissionInformationSelector).TypeHandle);
+
                 // Database sub-screens
                 RuntimeHelpers.RunClassConstructor(typeof(UICampTutorialListSelector).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UICampTutorialListItemData).TypeHandle);
@@ -311,6 +326,22 @@ namespace SO2RAccess
                         nameof(OperationInfoPresenter_Set_Postfix))
                 );
 
+                // GameUIManager.OpenQuestWindow fires when camp opens the quest sub-screen
+                // (CallerCount 2 — hookable). Captures UIQuestWindow for polling.
+                harmony.Patch(
+                    AccessTools.Method(typeof(GameUIManager), "OpenQuestWindow"),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(OpenQuestWindow_Postfix))
+                );
+
+                // GameUIManager.OpenMissionWindow fires when camp opens the mission
+                // sub-screen (CallerCount 2 — hookable). Captures UIMissionWindow.
+                harmony.Patch(
+                    AccessTools.Method(typeof(GameUIManager), "OpenMissionWindow"),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(OpenMissionWindow_Postfix))
+                );
+
                 _patchesApplied = true;
                 MelonLogger.Msg("CampMenuHandler: patches applied.");
             }
@@ -367,6 +398,8 @@ namespace SO2RAccess
             UpdatePartyFormationSelector();
             UpdateAssistSettingSelector();
             UpdateTacticsSelector();
+            UpdateQuestList();
+            UpdateMissionList();
             UpdateTutorialSelector();
             UpdateEnemyPictureBook();
             UpdateItemPictureBook();
@@ -778,6 +811,13 @@ namespace SO2RAccess
                 DebugLogger.LogState("CampMenu: location picture book selector cached.");
                 StaleSeedPictureBook(_locationPBSelector, _locationPBState, ref _locationPBListBase, "CampLocationPB");
             }
+
+            // Quest and Mission sub-screens (separate windows, not direct selectors)
+            _questState.Reset();
+            _questListBase = null;
+            _missionState.Reset();
+            _missionListBase = null;
+            _missionLastCategory = -1;
 
             _playerDataSelector = __instance.playerDataSelector;
             _playerDataPresenter = _playerDataSelector?.playerDataPresenter;
