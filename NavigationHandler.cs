@@ -26,8 +26,9 @@ namespace SO2RAccess
     /// Release L1      — close the list silently.
     ///
     /// AUTO-WALK
-    /// On activation: closes the list, announces "Walking to [label].", then moves
-    /// the player toward the target via direct transform manipulation.
+    /// On activation: closes the list, announces "Walking to [label].", then injects
+    /// synthetic left stick input via GetLeftStick() postfix so the game's own movement
+    /// pipeline handles physics, colliders, animations, triggers, and party AI.
     /// Announces "Arrived at [label]." on arrival (within 1.8 units).
     /// NumPad 1 cancels while walking. L1 press also cancels and reopens the list.
     ///
@@ -85,6 +86,12 @@ namespace SO2RAccess
         /// </summary>
         private const float AutoWalkArrivalRadius = 1.8f;
 
+        /// <summary>
+        /// Tighter arrival radius for interactable objects (chests, save points).
+        /// These require the player to be closer than NPCs to trigger interaction.
+        /// </summary>
+        private const float InteractableArrivalRadius = 1.3f;
+
         /// <summary>Rotation speed in degrees per second while auto-walking.</summary>
         private const float AutoWalkTurnSpeed = 720f;
 
@@ -94,14 +101,10 @@ namespace SO2RAccess
         /// <summary>Seconds between path recalculations when following a moving NPC.</summary>
         private const float PathRecalcInterval = 1.5f;
 
-        /// <summary>Distance threshold for advancing to the next path waypoint.</summary>
-        private const float WaypointArrivalThreshold = 0.3f;
-
-        /// <summary>
-        /// Maximum distance to walk directly when the NavMesh path ends short
-        /// of the target. Only used if physics checks confirm the path is clear.
-        /// </summary>
-        private const float DirectWalkMaxDistance = 3.5f;
+        /// <summary>Distance threshold for advancing to the next path waypoint.
+        /// Set to 0.8 to account for physics-based movement via input injection
+        /// (the player won't hit waypoints as precisely as transform.position did).</summary>
+        private const float WaypointArrivalThreshold = 0.8f;
 
         /// <summary>
         /// How far an NPC must move from the last path endpoint before triggering
@@ -132,6 +135,35 @@ namespace SO2RAccess
         /// to be considered making progress. Below this, auto-walk is cancelled.
         /// </summary>
         private const float WorldmapStuckMinMove = 2f;
+
+        /// <summary>
+        /// Maximum seconds to spend walking toward a detour point before giving up
+        /// and resuming normal pathfinding.
+        /// </summary>
+        private const float ObstacleAvoidanceTimeout = 8f;
+
+        /// <summary>
+        /// Maximum number of obstacle avoidance attempts before giving up entirely.
+        /// Prevents infinite stuck loops when the path is truly blocked (e.g. guards).
+        /// </summary>
+        private const int MaxAvoidanceAttempts = 3;
+
+        /// <summary>
+        /// Distance at which the detour point is considered reached during obstacle avoidance.
+        /// </summary>
+        private const float DetourArrivalRadius = 1.5f;
+
+        /// <summary>
+        /// Dead zone for camera follow stick injection. Below this cross-product magnitude,
+        /// no camera rotation is applied (prevents jitter when already aligned).
+        /// </summary>
+        private const float CameraFollowDeadZone = 0.08f;
+
+        /// <summary>
+        /// Scale factor for camera follow stick. Higher = faster camera catch-up.
+        /// Clamped to [-1, 1] after scaling.
+        /// </summary>
+        private const float CameraFollowScale = 1.5f;
 
         /// <summary>Max distance to show chests on the world map.</summary>
         private const float WorldmapChestMaxDistance = 200f;
@@ -173,7 +205,7 @@ namespace SO2RAccess
         private int  _currentItemIndex;
 
         private bool      _isAutoWalking;
-        private float     _autoWalkSpeed;   // queried from player at walk start via GetMoveSpeed(true)
+        private float     _autoWalkSpeed;   // queried for world map movement via GetMoveSpeed(true)
         private Vector3   _autoWalkTarget;
         private string    _autoWalkLabel;
         /// <summary>
@@ -214,20 +246,6 @@ namespace SO2RAccess
         private bool _autoWalkDifferentFloor;
 
         /// <summary>
-        /// Cached event trigger zones in the current scene. During auto-walk,
-        /// the player is moved via transform.position which bypasses Unity physics,
-        /// so OnTriggerEnter never fires. We manually check if the player enters
-        /// any of these trigger bounds each frame and call StartEvent() directly.
-        /// </summary>
-        private List<CachedEventTrigger> _cachedEventTriggers;
-
-        private struct CachedEventTrigger
-        {
-            public FieldEventCollision Event;
-            public Bounds Bounds;
-        }
-
-        /// <summary>
         /// Category index of the current auto-walk target.
         /// Used to add compass direction hints for exit-type targets on arrival.
         /// </summary>
@@ -245,9 +263,6 @@ namespace SO2RAccess
         /// <summary>Timer for periodic path recalculation when following moving NPCs.</summary>
         private float _pathRecalcTimer;
 
-        /// <summary>Timer for periodic diagnostic logging during auto-walk.</summary>
-        private float _diagLogTimer;
-
         /// <summary>Timer for field map stuck detection during auto-walk.</summary>
         private float _fieldStuckTimer;
 
@@ -257,11 +272,17 @@ namespace SO2RAccess
         /// <summary>True if a recalculation was already attempted after getting stuck. Prevents infinite recalc loops.</summary>
         private bool _fieldStuckRecalcAttempted;
 
-        /// <summary>
-        /// Static mirror of _isAutoWalking — readable by the Harmony prefix which must be static.
-        /// True only during the approach phase (not in proximity-lock and not stopped).
-        /// </summary>
-        private static bool _staticIsApproaching;
+        /// <summary>True while the player is walking toward a detour point to avoid an obstacle.</summary>
+        private bool _isAvoidingObstacle;
+
+        /// <summary>World-space position of the detour point the player walks to during obstacle avoidance.</summary>
+        private Vector3 _avoidanceDetourTarget;
+
+        /// <summary>Time.time when obstacle avoidance started, for timeout.</summary>
+        private float _avoidanceStartTime;
+
+        /// <summary>Increments each avoidance attempt, alternating left/right detour direction.</summary>
+        private int _avoidanceAttempt;
 
         /// <summary>
         /// True while the gamepad L1 nav overlay is active. Static so Harmony prefixes
@@ -302,7 +323,8 @@ namespace SO2RAccess
 
         /// <summary>
         /// Applies Harmony patches:
-        /// - PlayMoveAnimation prefix (blocks animation resets during auto-walk)
+        /// - GetLeftStick postfix (injects synthetic stick input during auto-walk)
+        /// - GetFieldCameraRightStick postfix (rotates camera to follow walk direction)
         /// - GameInputManager.IsDown prefix (suppresses D-pad/L1 camera when gamepad nav active)
         /// - GameInputManager.IsRepeat prefix (suppresses D-pad repeat)
         /// - GameInputManager.GetDPad prefix (suppresses D-pad analog)
@@ -312,16 +334,29 @@ namespace SO2RAccess
             try
             {
                 harmony.Patch(
-                    AccessTools.Method(typeof(FieldBillboardObject), "PlayMoveAnimation",
-                        new Type[] { typeof(FieldAnimationKind) }),
-                    prefix: new HarmonyMethod(typeof(NavigationHandler),
-                        nameof(PlayMoveAnimation_Prefix)));
-                DebugLogger.LogState("NavigationHandler: PlayMoveAnimation prefix applied.");
+                    AccessTools.Method(typeof(GameInputManager), "GetLeftStick"),
+                    postfix: new HarmonyMethod(typeof(NavigationHandler),
+                        nameof(GetLeftStick_Postfix)));
+                DebugLogger.LogState("NavigationHandler: GetLeftStick postfix applied.");
             }
             catch (Exception ex)
             {
                 MelonLoader.MelonLogger.Error(
-                    $"NavigationHandler.ApplyPatches failed (PlayMoveAnimation): {ex.Message}");
+                    $"NavigationHandler.ApplyPatches failed (GetLeftStick): {ex.Message}");
+            }
+
+            try
+            {
+                harmony.Patch(
+                    AccessTools.Method(typeof(GameInputManager), "GetFieldCameraRightStick"),
+                    postfix: new HarmonyMethod(typeof(NavigationHandler),
+                        nameof(GetFieldCameraRightStick_Postfix)));
+                DebugLogger.LogState("NavigationHandler: GetFieldCameraRightStick postfix applied.");
+            }
+            catch (Exception ex)
+            {
+                MelonLoader.MelonLogger.Error(
+                    $"NavigationHandler.ApplyPatches failed (GetFieldCameraRightStick): {ex.Message}");
             }
 
             // Gamepad input suppression patches
@@ -372,6 +407,27 @@ namespace SO2RAccess
             // NOTE: InputManager.IsDown(InputKey) hooks were removed — CallerCount(0)
             // means native IL2CPP code bypasses the managed wrapper, so Harmony prefixes
             // never fire. Field shortcuts are now blocked via GameInputManager ShortCut actions.
+
+            // Fishing result announcement — CallerCount(1), fires when result screen populates.
+            try
+            {
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
+                    typeof(UIFieldFishingResultPresenter).TypeHandle);
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
+                    typeof(UIFieldFishingResultListItemData).TypeHandle);
+
+                harmony.Patch(
+                    AccessTools.Method(typeof(UIFieldFishingResultPresenter),
+                        nameof(UIFieldFishingResultPresenter.Set)),
+                    postfix: new HarmonyMethod(typeof(NavigationHandler),
+                        nameof(FishingResultSet_Postfix)));
+                DebugLogger.LogState("NavigationHandler: UIFieldFishingResultPresenter.Set postfix applied.");
+            }
+            catch (Exception ex)
+            {
+                MelonLoader.MelonLogger.Error(
+                    $"NavigationHandler.ApplyPatches failed (FishingResult): {ex.Message}");
+            }
         }
 
         #endregion
@@ -540,45 +596,6 @@ namespace SO2RAccess
                 if (_autoWalkTransform != null)
                     _autoWalkTarget = _autoWalkTransform.position;
 
-                // --- Periodic diagnostic log (every 0.5s) ---
-                _diagLogTimer += Time.deltaTime;
-                if (_diagLogTimer >= 0.5f)
-                {
-                    _diagLogTimer = 0f;
-                    float diagDx = _autoWalkTarget.x - playerPos.x;
-                    float diagDz = _autoWalkTarget.z - playerPos.z;
-                    float diagDist = Mathf.Sqrt(diagDx * diagDx + diagDz * diagDz);
-                    float diagDist3D = Vector3.Distance(playerPos, _autoWalkTarget);
-                    DebugLogger.LogState(
-                        $"NAV DIAG: player=({playerPos.x:F2},{playerPos.y:F2},{playerPos.z:F2}) " +
-                        $"target=({_autoWalkTarget.x:F2},{_autoWalkTarget.y:F2},{_autoWalkTarget.z:F2}) " +
-                        $"distXZ={diagDist:F2} dist3D={diagDist3D:F2} " +
-                        $"wp={_pathCornerIndex}/{(_pathCorners?.Length ?? 0)} " +
-                        $"arrived={_autoWalkArrived} counter={_autoWalkIsCounter} diffFloor={_autoWalkDifferentFloor}");
-
-                    // Log party member positions
-                    try
-                    {
-                        var allChars = UnityEngine.Object.FindObjectsOfType<FieldFollowCharacter>();
-                        if (allChars != null)
-                        {
-                            foreach (var fc in allChars)
-                            {
-                                if (fc == null) continue;
-                                Vector3 fcPos = fc.transform.position;
-                                float fcDist = Vector3.Distance(playerPos, fcPos);
-                                DebugLogger.LogState(
-                                    $"NAV DIAG PARTY: '{fc.name}' pos=({fcPos.x:F2},{fcPos.y:F2},{fcPos.z:F2}) " +
-                                    $"distToPlayer={fcDist:F2}");
-                            }
-                        }
-                    }
-                    catch (Exception diagEx)
-                    {
-                        DebugLogger.LogState($"NAV DIAG PARTY error: {diagEx.Message}");
-                    }
-                }
-
                 // --- Check arrival at the final target (not waypoint) ---
                 // Use XZ distance for same-floor targets. For different-floor targets,
                 // skip the proximity arrival check entirely — arrival is handled at
@@ -608,7 +625,14 @@ namespace SO2RAccess
                     ? new Vector3(targetDx / targetDist, 0f, targetDz / targetDist)
                     : Vector3.forward;
 
-                float arrivalRadius = _isWorldmap ? WorldmapArrivalRadius : AutoWalkArrivalRadius;
+                // Use a tighter arrival radius for interactable objects (chests, save points)
+                // that require the player to be very close to trigger interaction.
+                bool isInteractable = _autoWalkCategoryIndex == CAT_CHEST
+                    || _autoWalkCategoryIndex == CAT_SAVE
+                    || _autoWalkCategoryIndex == CAT_INTERACTABLE;
+                float arrivalRadius = _isWorldmap
+                    ? WorldmapArrivalRadius
+                    : (isInteractable ? InteractableArrivalRadius : AutoWalkArrivalRadius);
                 if (targetDist <= arrivalRadius)
                 {
                     // Face the target.
@@ -624,17 +648,10 @@ namespace SO2RAccess
                     if (!useProximityLock)
                     {
                         // Non-NPC target — fully stop.
-                        _isAutoWalking       = false;
-                        _staticIsApproaching = false;
-                        _pathCorners         = null;
+                        StopAutoWalk();
 
-                        // Exit-type targets (building entrances, town gates,
-                        // world map locations): enter directly by triggering
-                        // the nearest FieldMapjumpCollision. Auto-walk uses
-                        // transform.position which bypasses Unity trigger
-                        // colliders, so the normal walk-into-trigger entry
-                        // never fires. This gives the same result as a sighted
-                        // player walking into the trigger zone.
+                        // World map locations: trigger entry via mapjump
+                        // (world map uses transform.position, not input injection).
                         if (_isWorldmap && _autoWalkCategoryIndex == CAT_LOCATION)
                         {
                             if (TryEnterWorldmapLocation())
@@ -655,49 +672,13 @@ namespace SO2RAccess
                             return;
                         }
 
-                        // Field exits (doors, gates, stairs, warps): same
-                        // bypass issue as world map — trigger ChangeFieldmap
-                        // directly so the player enters the building.
-                        if (!_isWorldmap && IsExitCategory(_autoWalkCategoryIndex))
-                        {
-                            if (TryEnterFieldExit())
-                            {
-                                AnnounceArrival(Loc.Get("nav_autowalk_entering",
-                                    _autoWalkLabel));
-                                DebugLogger.LogState(
-                                    $"NAV auto-walk entering '{_autoWalkLabel}' via mapjump.");
-                            }
-                            else
-                            {
-                                // Fallback: announce with compass direction so
-                                // the player can try walking manually.
-                                string compass = GetCompassDirection(
-                                    playerPos, _autoWalkTarget, _isWorldmap);
-                                AnnounceArrival(Loc.Get("nav_autowalk_arrived_exit",
-                                    _autoWalkLabel, compass));
-                                DebugLogger.LogState(
-                                    $"NAV auto-walk arrived at '{_autoWalkLabel}' " +
-                                    "but field mapjump trigger failed.");
-                            }
-                            return;
-                        }
-
-                        // Snap the player close to the target so the game's
-                        // interaction check succeeds immediately on button press.
-                        const float InteractDist = 1.0f;
-                        if (targetDist > InteractDist && _autoWalkTransform != null)
-                        {
-                            player.transform.position = new Vector3(
-                                _autoWalkTarget.x - targetDir.x * InteractDist,
-                                playerPos.y,
-                                _autoWalkTarget.z - targetDir.z * InteractDist);
-                        }
-
                         // --- Diagnostic dump on non-NPC arrival ---
                         LogNpcArrivalDiagnostics(player, playerPos, targetDist);
 
                         // For exit-type targets, add compass direction so the player
                         // knows which way to walk to pass through the exit.
+                        // Field exits now trigger naturally via Unity colliders
+                        // (input injection uses the game's own movement pipeline).
                         string arrivalMsg;
                         if (IsExitCategory(_autoWalkCategoryIndex))
                         {
@@ -715,30 +696,32 @@ namespace SO2RAccess
                         return;
                     }
 
-                    // NPC — proximity-lock mode (follow until manually cancelled).
+                    // NPC — proximity-lock mode: stop injecting input and let
+                    // the player stand where the game's movement left them.
+                    // Face the NPC so interaction button works immediately.
                     if (!_autoWalkArrived)
                     {
                         _autoWalkArrived     = true;
-                        _staticIsApproaching = false;
+                        _staticIsAutoWalking = false;
+                        _staticAutoWalkStickDir = Vector2.zero;
                         AnnounceArrival(Loc.Get("nav_autowalk_arrived_npc", _autoWalkLabel));
                         DebugLogger.LogState($"NAV auto-walk proximity lock '{_autoWalkLabel}'.");
+
+                        // Face the NPC.
+                        player.transform.rotation = Quaternion.LookRotation(targetDir, Vector3.up);
 
                         // --- Diagnostic dump on NPC arrival ---
                         LogNpcArrivalDiagnostics(player, playerPos, targetDist);
                     }
 
-                    // Lock the player 1 unit away from the NPC.
-                    const float LockDist = 1.0f;
-                    player.transform.position = new Vector3(
-                        _autoWalkTarget.x - targetDir.x * LockDist,
-                        playerPos.y,
-                        _autoWalkTarget.z - targetDir.z * LockDist);
+                    // Stay stopped — don't inject any input while in proximity-lock.
+                    // If the NPC wanders away, the approach phase re-activates below.
                     return;
                 }
 
                 // --- Approach phase ---
                 _autoWalkArrived     = false;
-                _staticIsApproaching = true;
+                _staticIsAutoWalking = true;
 
                 // World map: use per-frame WorldmapFindPath from real player
                 // position. The A* pathfinder gives a single next-step waypoint
@@ -814,6 +797,48 @@ namespace SO2RAccess
                     return;
                 }
 
+                // --- Obstacle avoidance: walking toward detour point ---
+                if (_isAvoidingObstacle)
+                {
+                    float detourDx = _avoidanceDetourTarget.x - playerPos.x;
+                    float detourDz = _avoidanceDetourTarget.z - playerPos.z;
+                    float detourDist = Mathf.Sqrt(detourDx * detourDx + detourDz * detourDz);
+                    bool timedOut = Time.time - _avoidanceStartTime > ObstacleAvoidanceTimeout;
+
+                    if (detourDist < DetourArrivalRadius || timedOut)
+                    {
+                        // Reached detour or timed out — recalculate path from here.
+                        _isAvoidingObstacle = false;
+                        _fieldLastStuckCheckPos = playerPos;
+                        _fieldStuckTimer = 0f;
+                        _fieldStuckRecalcAttempted = false;
+
+                        bool allowPartial = _autoWalkIsCounter || _autoWalkDifferentFloor;
+                        if (CalculateAndStorePath(playerPos, _autoWalkTarget, allowPartial))
+                        {
+                            DebugLogger.LogState(
+                                $"NAV obstacle avoidance {(timedOut ? "timed out" : "complete")}, " +
+                                $"resumed with {_pathCorners.Length} waypoints.");
+                        }
+                        else
+                        {
+                            DebugLogger.LogState("NAV obstacle avoidance: recalc failed after detour.");
+                            ScreenReader.Say(Loc.Get("nav_autowalk_stuck", _autoWalkLabel));
+                            CancelAutoWalk();
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        // Walk toward the detour point.
+                        Vector3 detourDir = new Vector3(
+                            detourDx / detourDist, 0f, detourDz / detourDist);
+                        _staticAutoWalkStickDir = WorldDirToCameraStick(detourDir);
+                        UpdateCameraFollow(detourDir);
+                        return;
+                    }
+                }
+
                 // --- Field map stuck detection ---
                 _fieldStuckTimer += Time.deltaTime;
                 if (_fieldStuckTimer >= FieldStuckCheckInterval)
@@ -848,17 +873,42 @@ namespace SO2RAccess
                         }
                         else
                         {
-                            // Already tried recalculating — still stuck. Give up.
-                            DebugLogger.LogState(
-                                $"NAV field stuck after recalc (moved {Mathf.Sqrt(movedSq):F2}). Cancelling.");
-                            ScreenReader.Say(Loc.Get("nav_autowalk_stuck", _autoWalkLabel));
-                            CancelAutoWalk();
-                            return;
+                            // Recalc didn't help — try obstacle avoidance detour.
+                            // Give up after MaxAvoidanceAttempts to prevent infinite
+                            // stuck loops (e.g. guards blocking the path).
+                            if (_avoidanceAttempt >= MaxAvoidanceAttempts)
+                            {
+                                DebugLogger.LogState(
+                                    $"NAV field stuck: max avoidance attempts " +
+                                    $"({MaxAvoidanceAttempts}) reached. Cancelling.");
+                                ScreenReader.Say(Loc.Get("nav_autowalk_stuck", _autoWalkLabel));
+                                CancelAutoWalk();
+                                return;
+                            }
+
+                            if (TryStartObstacleAvoidance(playerPos))
+                            {
+                                DebugLogger.LogState(
+                                    $"NAV field stuck after recalc — starting obstacle avoidance " +
+                                    $"(attempt {_avoidanceAttempt}).");
+                            }
+                            else
+                            {
+                                // No walkable detour found — give up.
+                                DebugLogger.LogState(
+                                    $"NAV field stuck after recalc, no detour available. Cancelling.");
+                                ScreenReader.Say(Loc.Get("nav_autowalk_stuck", _autoWalkLabel));
+                                CancelAutoWalk();
+                                return;
+                            }
                         }
                     }
                     else
                     {
                         // Making progress — reset the recalc flag.
+                        // Do NOT reset _avoidanceAttempt here: a detour that moves
+                        // the player slightly counts as "progress" but doesn't mean
+                        // the path is unblocked. The counter resets on new auto-walks.
                         _fieldStuckRecalcAttempted = false;
                     }
 
@@ -903,88 +953,25 @@ namespace SO2RAccess
                 // the NavMesh edge.
                 if (_pathCornerIndex >= _pathCorners.Length)
                 {
-                    // Event targets: trigger directly via StartEvent().
-                    // transform.position bypasses Unity physics so OnTriggerEnter
-                    // never fires — same pattern as world map TryEnterWorldmapLocation.
-                    if (_autoWalkEventRef != null)
-                    {
-                        // Safety: only trigger if player is near the event's
-                        // trigger collider edge (not separated by a wall).
-                        bool nearTrigger = false;
-                        if (_autoWalkTriggerBounds.HasValue)
-                        {
-                            Vector3 closest = _autoWalkTriggerBounds.Value.ClosestPoint(playerPos);
-                            float distToEdge = Vector3.Distance(playerPos, closest);
-                            nearTrigger = distToEdge <= 2.0f;
-                            DebugLogger.LogState(
-                                $"NAV event trigger check: distToEdge={distToEdge:F2}, " +
-                                $"bounds.center=({_autoWalkTriggerBounds.Value.center.x:F1}," +
-                                $"{_autoWalkTriggerBounds.Value.center.y:F1}," +
-                                $"{_autoWalkTriggerBounds.Value.center.z:F1}), " +
-                                $"bounds.size=({_autoWalkTriggerBounds.Value.size.x:F1}," +
-                                $"{_autoWalkTriggerBounds.Value.size.y:F1}," +
-                                $"{_autoWalkTriggerBounds.Value.size.z:F1})");
-                        }
-                        else
-                        {
-                            // No bounds available — fall back to tight distance check.
-                            nearTrigger = targetDist <= 2.5f;
-                            DebugLogger.LogState(
-                                $"NAV event trigger check: no bounds, targetDist={targetDist:F2}");
-                        }
-
-                        if (nearTrigger)
-                        {
-                            try
-                            {
-                                if (_autoWalkEventRef.IsEventActivate() &&
-                                    _autoWalkEventRef.StartEvent())
-                                {
-                                    _isAutoWalking       = false;
-                                    _staticIsApproaching = false;
-                                    _pathCorners         = null;
-                                    AnnounceArrival(
-                                        Loc.Get("nav_autowalk_arrived", _autoWalkLabel));
-                                    DebugLogger.LogState(
-                                        $"NAV auto-walk: triggered event '{_autoWalkLabel}'.");
-                                    return;
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                DebugLogger.LogState(
-                                    $"NAV event StartEvent failed: {ex.Message}");
-                            }
-                        }
-
-                        // Event trigger failed or too far from trigger zone.
-                        _isAutoWalking       = false;
-                        _staticIsApproaching = false;
-                        _pathCorners         = null;
-                        AnnounceArrival(
-                            Loc.Get("nav_autowalk_unreachable", _autoWalkLabel));
-                        DebugLogger.LogState(
-                            $"NAV auto-walk: event unreachable '{_autoWalkLabel}'. " +
-                            $"player=({playerPos.x:F2},{playerPos.y:F2},{playerPos.z:F2}), " +
-                            $"target=({_autoWalkTarget.x:F2},{_autoWalkTarget.y:F2},{_autoWalkTarget.z:F2})");
-                        return;
-                    }
-
-                    // Non-event targets: stop and announce direction.
-                    _isAutoWalking       = false;
-                    _staticIsApproaching = false;
-                    _pathCorners         = null;
+                    // Path exhausted but proximity check didn't fire.
+                    // With input injection, event triggers and map exits fire
+                    // naturally via Unity colliders as the player walks through.
+                    // Just stop and announce — the game handles transitions.
+                    StopAutoWalk();
 
                     player.transform.rotation = Quaternion.LookRotation(targetDir, Vector3.up);
 
                     int meters = Mathf.RoundToInt(targetDist);
                     string compass = GetCompassDirection(playerPos, _autoWalkTarget, _isWorldmap);
                     AnnounceArrival(Loc.Get("nav_autowalk_arrived", _autoWalkLabel));
+                    Vector3 fwd = player.transform.forward;
                     DebugLogger.LogState(
-                        $"NAV auto-walk: path exhausted for non-event '{_autoWalkLabel}'. " +
+                        $"NAV auto-walk: path exhausted for '{_autoWalkLabel}'. " +
                         $"{meters}m {compass}. " +
                         $"player=({playerPos.x:F2},{playerPos.y:F2},{playerPos.z:F2}), " +
-                        $"target=({_autoWalkTarget.x:F2},{_autoWalkTarget.y:F2},{_autoWalkTarget.z:F2})");
+                        $"target=({_autoWalkTarget.x:F2},{_autoWalkTarget.y:F2},{_autoWalkTarget.z:F2}), " +
+                        $"facing=({fwd.x:F2},{fwd.y:F2},{fwd.z:F2}), " +
+                        $"targetDir=({targetDir.x:F2},{targetDir.y:F2},{targetDir.z:F2})");
                     return;
                 }
 
@@ -999,30 +986,18 @@ namespace SO2RAccess
                     _pathCornerIndex++;
                     if (_pathCornerIndex >= _pathCorners.Length)
                     {
-                        // Reached the final waypoint.
-                        player.transform.position = new Vector3(
-                            waypoint.x,
-                            Mathf.Lerp(playerPos.y, waypoint.y, 0.3f),
-                            waypoint.z);
-
-                        // Check for event triggers at the final waypoint position.
-                        if (CheckEventTriggers(player.transform.position))
-                            return;
-
                         // Counter NPCs: the partial path ends at the counter, not
-                        // the NPC. Announce arrival here and stop walking.
+                        // the NPC. Stop and announce arrival.
                         if (_autoWalkIsCounter)
                         {
+                            StopAutoWalk();
                             // Face the NPC behind the counter.
-                            Vector3 toNpc = _autoWalkTarget - player.transform.position;
+                            Vector3 toNpc = _autoWalkTarget - playerPos;
                             toNpc.y = 0f;
                             if (toNpc.sqrMagnitude > 0.01f)
                                 player.transform.rotation =
                                     Quaternion.LookRotation(toNpc.normalized, Vector3.up);
 
-                            _isAutoWalking       = false;
-                            _staticIsApproaching = false;
-                            _pathCorners         = null;
                             AnnounceArrival(
                                 Loc.Get("nav_autowalk_arrived_npc", _autoWalkLabel));
                             DebugLogger.LogState(
@@ -1034,9 +1009,7 @@ namespace SO2RAccess
                         // target is above or below. Tell the player which direction.
                         if (_autoWalkDifferentFloor)
                         {
-                            _isAutoWalking       = false;
-                            _staticIsApproaching = false;
-                            _pathCorners         = null;
+                            StopAutoWalk();
 
                             bool above = _autoWalkTarget.y > playerPos.y;
                             string msg = Loc.Get(
@@ -1052,6 +1025,8 @@ namespace SO2RAccess
                         }
 
                         // Normal targets: will be caught by arrival check next frame.
+                        // Stop injecting to let the game settle the player naturally.
+                        _staticAutoWalkStickDir = Vector2.zero;
                         return;
                     }
                     waypoint = _pathCorners[_pathCornerIndex];
@@ -1060,30 +1035,20 @@ namespace SO2RAccess
                     wpDist = Mathf.Sqrt(wpDx * wpDx + wpDz * wpDz);
                 }
 
+                // --- Input injection: set synthetic stick direction ---
+                // Calculate world-space direction toward the current waypoint,
+                // convert to camera-relative stick, and inject via GetLeftStick postfix.
+                // The game's own movement pipeline handles physics, colliders,
+                // animations, triggers, and party AI — no manual position setting.
                 {
-                    // Direction toward the current waypoint.
                     Vector3 moveDir = wpDist > 0.01f
                         ? new Vector3(wpDx / wpDist, 0f, wpDz / wpDist)
                         : Vector3.forward;
 
-                    // Move toward the waypoint.
-                    float step = _autoWalkSpeed * Time.deltaTime;
-                    float nx   = playerPos.x + moveDir.x * step;
-                    float nz   = playerPos.z + moveDir.z * step;
-                    // Interpolate Y toward the waypoint's Y for smooth terrain following.
-                    float ny   = Mathf.Lerp(playerPos.y, waypoint.y, 0.15f);
-                    player.transform.position = new Vector3(nx, ny, nz);
+                    _staticAutoWalkStickDir = WorldDirToCameraStick(moveDir);
 
-                    // Check if we walked through an event trigger zone.
-                    // transform.position bypasses Unity physics, so OnTriggerEnter
-                    // never fires — we detect it manually and call StartEvent().
-                    if (CheckEventTriggers(new Vector3(nx, ny, nz)))
-                        return;
-
-                    // Rotate to face the direction of travel.
-                    Quaternion moveRot = Quaternion.LookRotation(moveDir, Vector3.up);
-                    player.transform.rotation = Quaternion.RotateTowards(
-                        player.transform.rotation, moveRot, AutoWalkTurnSpeed * Time.deltaTime);
+                    // Camera follow: gently rotate camera to face the walking direction.
+                    UpdateCameraFollow(moveDir);
                 }
             }
             catch (Exception ex)
@@ -1098,17 +1063,8 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Per-frame animation update — called from Main.OnLateUpdate().
-        /// LateUpdate runs after ALL game MonoBehaviour Update() calls, so setting
-        /// the walk animation here overrides whatever the game's character controller
-        /// reset it to during its own Update(). Movement is handled in Update();
-        /// only the animation state is managed here.
-        /// Does nothing outside of the approach phase (idle at arrival, stopped, etc.).
-        /// </summary>
-        /// <summary>
         /// Per-frame late update — currently unused; kept as a hook point for future needs.
-        /// Animation is now handled via the PlayMoveAnimation Harmony prefix + a single
-        /// PlayMoveAnimation(Walk) call at walk start, rather than per-frame overrides.
+        /// Animation is handled by the game's own movement pipeline via GetLeftStick injection.
         /// </summary>
         public void LateUpdate() { }
 
@@ -1316,6 +1272,7 @@ namespace SO2RAccess
                     BuildMarkers(fm.FieldLocationPointList, playerPos);
                     BuildEvents(playerPos);
                     BuildSavePoints(fm.FieldSavePointList, playerPos);
+                    BuildFishingSpots(playerPos);
                     BuildEnemies(playerPos);
                     BuildStairs(fm.FieldStairsList, playerPos);
                     BuildDoors(fm.FieldDoorList, playerPos);

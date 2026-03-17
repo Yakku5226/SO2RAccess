@@ -201,6 +201,29 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(UICampPlayerDataPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UICampPlayerDataItemPresenter).TypeHandle);
 
+                // Item Creation sub-screen types
+                RuntimeHelpers.RunClassConstructor(typeof(UICampSelectSpecialSkillSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampSpecialSkillSelectorBase).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampSpecialSkillActionSelectorBase).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UISpecialSkillConsumeListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UISpecialSkillCreationListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIItemCreationInformationPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIItemCreationInformationData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UISpecialSkillInformationPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampSpecialSkillResultSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampSpecialSkillResultListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampSpecialSkillAddMaterialSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampSpecialSkillSelectMaterialSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampSpecialSkillItemListSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(InvestFactorItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIEquipListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UISpecialSkillFactorInformationPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIPercentagePresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(ConstItemParameter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampSpecialSkillActionPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampSpecialSkillActionSelectorData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIConditionGroupData).TypeHandle);
+
                 harmony.Patch(
                     AccessTools.Method(typeof(UICampWindow),
                         nameof(UICampWindow.Open)),
@@ -342,6 +365,43 @@ namespace SO2RAccess
                         nameof(OpenMissionWindow_Postfix))
                 );
 
+                // UISpecialSkillInformationPresenter.Set fires when the skill info panel
+                // updates in the item creation skill selection screen (CallerCount 1).
+                harmony.Patch(
+                    AccessTools.Method(typeof(UISpecialSkillInformationPresenter), "Set",
+                        new Type[] {
+                            typeof(string), typeof(string),
+                            typeof(Il2CppSystem.Collections.Generic.List<string>),
+                            typeof(Il2CppSystem.Collections.Generic.List<UIConditionGroupData>),
+                            typeof(string), typeof(bool), typeof(int)
+                        }),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(SkillInfoPresenter_Set_IC_Postfix))
+                );
+
+                // UIItemCreationInformationPresenter.Set fires when the creation info
+                // panel updates (action screen, CallerCount 1).
+                harmony.Patch(
+                    AccessTools.Method(typeof(UIItemCreationInformationPresenter), "Set",
+                        new Type[] { typeof(UIItemCreationInformationData) }),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(CreationInfoPresenter_Set_IC_Postfix))
+                );
+
+                // UICampSpecialSkillAddMaterialSelector.Set fires when the material
+                // selection screen is initialized (CallerCount 1).
+                harmony.Patch(
+                    AccessTools.Method(typeof(UICampSpecialSkillAddMaterialSelector), "Set",
+                        new Type[] {
+                            typeof(Il2CppSystem.Collections.Generic.List<int>),
+                            typeof(Il2CppSystem.Collections.Generic.List<int>),
+                            typeof(UIDefine.CampState),
+                            typeof(int)
+                        }),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(AddMaterialSelector_Set_IC_Postfix))
+                );
+
                 _patchesApplied = true;
                 MelonLogger.Msg("CampMenuHandler: patches applied.");
             }
@@ -398,6 +458,7 @@ namespace SO2RAccess
             UpdatePartyFormationSelector();
             UpdateAssistSettingSelector();
             UpdateTacticsSelector();
+            UpdateItemCreation();
             UpdateQuestList();
             UpdateMissionList();
             UpdateTutorialSelector();
@@ -818,6 +879,9 @@ namespace SO2RAccess
             _missionState.Reset();
             _missionListBase = null;
             _missionLastCategory = -1;
+
+            // --- Item Creation ---
+            CacheItemCreationSelectors(__instance);
 
             _playerDataSelector = __instance.playerDataSelector;
             _playerDataPresenter = _playerDataSelector?.playerDataPresenter;

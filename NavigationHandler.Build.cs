@@ -86,9 +86,32 @@ namespace SO2RAccess
                 if (npc.TryCast<FieldPlayer>() != null) continue;
                 if (npc.TryCast<FieldFollowCharacter>() != null) continue;
 
+                // Skip INVALID-type NPCs — background/decoration NPCs not meant for interaction
+                if (npc.NpcType == NpcType.INVALID) continue;
+
                 string label = ResolveNpcName(npc, npcParams, out string codeName);
                 bool isCounter = IsFunctionalNpcType(npc.npcType);
                 bool isInteractable = IsInteractableNpcType(npc.npcType);
+
+                // Read contactDistance to detect counter NPCs that aren't a
+                // functional type (e.g. castle receptionist behind a desk).
+                // High contactDistance (>= 1.0) means the game expects interaction
+                // from farther away — typical of behind-counter NPCs.
+                float contactDist = 0.5f;
+                try
+                {
+                    contactDist = npc.ContactDistance;
+                    DebugLogger.LogGameValue("NAV:NPC:CONTACT",
+                        $"[{label}] contactDistance={contactDist:F2} codeName={codeName}");
+                }
+                catch
+                {
+                    DebugLogger.LogGameValue("NAV:NPC:CONTACT",
+                        $"[{label}] contactDistance=READ_ERROR codeName={codeName}");
+                }
+
+                if (!isCounter && contactDist >= 1.0f)
+                    isCounter = true;
 
                 // Private action NPCs have code names starting with "pa_"
                 bool isPrivateAction = codeName != null
@@ -116,19 +139,6 @@ namespace SO2RAccess
                     LiveTransform = npc.transform,
                     IsCounterNpc  = isCounter,
                 };
-
-                // Log game interaction distances for diagnostics
-                try
-                {
-                    float contactDist = npc.ContactDistance;
-                    DebugLogger.LogGameValue("NAV:NPC:CONTACT",
-                        $"[{label}] contactDistance={contactDist:F2} codeName={codeName}");
-                }
-                catch
-                {
-                    DebugLogger.LogGameValue("NAV:NPC:CONTACT",
-                        $"[{label}] contactDistance=READ_ERROR codeName={codeName}");
-                }
 
                 if (isPrivateAction)
                 {
@@ -324,7 +334,9 @@ namespace SO2RAccess
                 // World map: skip distant chests (they're likely across ocean/mountains).
                 if (_isWorldmap && dist > WorldmapChestMaxDistance) continue;
 
-                string  label = chest.isAcquired
+                // Use PascalCase property (IsAcquired) not backing field (isAcquired).
+                // IL2CPP backing fields can return stale/wrong values for distant objects.
+                string  label = chest.IsAcquired
                     ? Loc.Get("nav_chest_opened")
                     : Loc.Get("nav_chest_unopened");
 
@@ -414,6 +426,14 @@ namespace SO2RAccess
             {
                 var marker = list[i];
                 if (marker == null) continue;
+
+                // Skip discovered markers. The effectComponent (sparkle) is
+                // removed after discovery; IsEnd and isEnd stay false.
+                try
+                {
+                    if (marker.effectComponent == null) continue;
+                }
+                catch { /* property unavailable — include the marker */ }
 
                 Vector3 pos  = marker.transform.position;
                 float   dist = Vector3.Distance(playerPos, pos);
@@ -631,6 +651,74 @@ namespace SO2RAccess
             }
 
             _categories[CAT_SAVE].AddRange(items);
+        }
+
+        /// <summary>
+        /// Scans for FieldFishingWaterPlace objects and adds them to the
+        /// Interactables category. Position is set to the nearest walkable
+        /// shore point (NavMesh sample from collider center). LiveTransform
+        /// is set to the BoxCollider transform so the arrival code can face
+        /// the player toward the water.
+        /// </summary>
+        private void BuildFishingSpots(Vector3 playerPos)
+        {
+            var found = UnityEngine.Object.FindObjectsOfType<FieldFishingWaterPlace>();
+            if (found == null || found.Length == 0) return;
+
+            var items = new List<NavItem>();
+            foreach (var spot in found)
+            {
+                if (spot == null) continue;
+
+                var col = spot.boxCollider;
+                if (col == null) continue;
+
+                Bounds bounds = col.bounds;
+                Vector3 center = bounds.center;
+
+                // Walk target: nearest NavMesh point to the collider center.
+                // This puts the player at the water's edge (close enough to interact).
+                Vector3 walkTarget;
+                if (NavMesh.SamplePosition(center, out NavMeshHit hit, 10f, NavMesh.AllAreas))
+                    walkTarget = hit.position;
+                else
+                    walkTarget = spot.transform.position;
+
+                float dist = Vector3.Distance(playerPos, walkTarget);
+
+                DebugLogger.LogGameValue("NAV:FISHING:BUILD",
+                    $"center={center} walkTarget={walkTarget} " +
+                    $"bounds=({bounds.size.x:F2},{bounds.size.y:F2},{bounds.size.z:F2}) " +
+                    $"dist={dist:F1}");
+
+                items.Add(new NavItem
+                {
+                    Label         = Loc.Get("nav_fishing"),
+                    Distance      = dist,
+                    Position      = walkTarget,
+                    // LiveTransform = collider transform so arrival faces the water.
+                    LiveTransform = col.transform,
+                });
+            }
+
+            SortAndFilterUnreachable(items, playerPos);
+
+            // Number if multiple fishing spots on the same map.
+            if (items.Count > 1)
+            {
+                for (int i = 0; i < items.Count; i++)
+                {
+                    var item = items[i];
+                    item.Label = Loc.Get("nav_fishing_n", i + 1);
+                    items[i] = item;
+                }
+            }
+
+            _categories[CAT_INTERACTABLE].AddRange(items);
+
+            foreach (var item in items)
+                DebugLogger.LogGameValue("NAV:FISHING",
+                    $"[{item.Label}] dist={item.Distance:F1} pos={item.Position}");
         }
 
         /// <summary>
@@ -1284,7 +1372,7 @@ namespace SO2RAccess
             for (int i = 0; i < items.Count; i++)
             {
                 float yDiff = items[i].Position.y - playerPos.y;
-                if (Mathf.Abs(yDiff) > FloorChangeThreshold)
+                if (Mathf.Abs(yDiff) >= FloorChangeThreshold)
                 {
                     var item = items[i];
                     item.Label = Loc.Get(

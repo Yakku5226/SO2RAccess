@@ -61,6 +61,9 @@ namespace SO2RAccess
         private float _findWindowTimer = 0f;
         private const float FindWindowInterval = 2f;
 
+        /// <summary>Throttle diagnostic logging to avoid log spam.</summary>
+        private int _diagCooldown = 0;
+
         #endregion
 
         #region Patch Application
@@ -195,6 +198,29 @@ namespace SO2RAccess
                     return;
                 }
 
+                // Diagnostic: log presenter state periodically when selector is cached but not active.
+                if (Main.DebugMode && _selector != null && !_isActive && !_activationPending)
+                {
+                    _diagCooldown--;
+                    if (_diagCooldown <= 0)
+                    {
+                        _diagCooldown = 120; // ~2 seconds at 60fps
+                        try
+                        {
+                            var diagPresenter = _selector.selectChoicePresenter;
+                            string pState = diagPresenter == null ? "null"
+                                : diagPresenter.gameObject == null ? "go=null"
+                                : $"active={diagPresenter.gameObject.activeInHierarchy} activeSelf={diagPresenter.gameObject.activeSelf}";
+                            int diagIdx = _selector.selectChoiceIndex;
+                            DebugLogger.LogState($"DialogueChoiceHandler DIAG: presenter={pState} idx={diagIdx} wasVisible={_wasPresenterVisible}");
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.LogState($"DialogueChoiceHandler DIAG error: {ex.Message}");
+                        }
+                    }
+                }
+
                 // Edge detection: presenter just became visible → defer activation by one frame.
                 // selectChoiceIndex is stale on the first visible frame (holds value from
                 // the previous menu). Waiting one frame lets the game reset it to 0.
@@ -296,15 +322,14 @@ namespace SO2RAccess
         private void ActivateChoiceMenu(string title)
         {
             _isActive = true;
-            _lastIndex = -1;
 
             // Read choice texts from the presenter's choice presenter list.
             ReadChoiceTexts();
 
-            // Build the opening announcement.
+            // Announce heading + initial item as one combined string so the
+            // screen reader doesn't interrupt the heading with the item.
             int total = _choiceTexts?.Length ?? 0;
             int initialIndex = _selector.selectChoiceIndex;
-
             string initialChoice = GetChoiceText(initialIndex);
             string cleanTitle = !string.IsNullOrEmpty(title)
                 ? NotificationHandler.StripTagsPublic(title) : "";
@@ -313,16 +338,20 @@ namespace SO2RAccess
             if (!string.IsNullOrEmpty(cleanTitle) && !string.IsNullOrEmpty(initialChoice))
             {
                 announcement = Loc.Get("dialogue_choice_open_with_title",
-                    cleanTitle, initialChoice, initialIndex + 1, total);
+                    cleanTitle, total, initialChoice, initialIndex + 1);
             }
             else if (!string.IsNullOrEmpty(initialChoice))
             {
                 announcement = Loc.Get("dialogue_choice_open",
-                    initialChoice, initialIndex + 1, total);
+                    total, initialChoice, initialIndex + 1);
+            }
+            else if (!string.IsNullOrEmpty(cleanTitle))
+            {
+                announcement = Loc.Get("dialogue_choice_open_no_items", cleanTitle, total);
             }
             else
             {
-                announcement = Loc.Get("dialogue_choice_open_no_items", cleanTitle);
+                announcement = Loc.Get("dialogue_choice_open_no_items", "", total);
             }
 
             _lastIndex = initialIndex;
@@ -346,8 +375,16 @@ namespace SO2RAccess
             var list = presenter.choicePresenterList;
             if (list == null || list.Count == 0) return;
 
-            // MaxChoiceIndex is the max valid index (0-based).
-            int count = presenter.MaxChoiceIndex + 1;
+            // choiceMessageIDList.Count gives the actual number of active choices.
+            // MaxChoiceIndex / choicePresenterList.Count return pre-allocated slots.
+            int count = 0;
+            try
+            {
+                var idList = _selector.choiceMessageIDList;
+                if (idList != null) count = idList.Count;
+            }
+            catch { /* fallback below */ }
+
             if (count <= 0 || count > list.Count) count = list.Count;
 
             _choiceTexts = new string[count];

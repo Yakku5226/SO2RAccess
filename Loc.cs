@@ -191,6 +191,16 @@ namespace SO2RAccess
             Add("nav_save_recovery",   "Recovery save point");
             Add("nav_save_recovery_n", "Recovery save point {0}");
 
+            // Navigation — fishing spots
+            Add("nav_fishing",         "Fishing spot");
+            Add("nav_fishing_n",       "Fishing spot {0}");
+
+            // Fishing results
+            Add("fish_caught",         "Caught:");
+            Add("fish_new_record",     "new record");
+            Add("fish_new",            "new");
+            Add("fish_max_size",       "max size");
+
             // Navigation — world map locations
             Add("nav_location_dungeon",  "{0} (Dungeon)");
 
@@ -672,6 +682,31 @@ namespace SO2RAccess
             // open_no_items: {0}=title {1}=total
             Add("dialogue_choice_open_no_items",   "Choice, {1} items.");
             Add("dialogue_choice_item",            "{0}, {1} of {2}.");
+
+            // Item Creation sub-screen (Camp → Item Creation)
+            Add("ic_screen",                  "Item Creation.");
+            Add("ic_tab_itemcreation",        "Item Creation.");
+            Add("ic_tab_specialskill",        "Special Skills.");
+            Add("ic_tab_superspecialskill",   "Super Special Skills.");
+            Add("ic_skill_level",             "Level {0}");
+            Add("ic_skill_position",          "{0} of {1}.");
+            Add("ic_action_screen",           "Creation.");
+            Add("ic_action_position",         "{0} of {1}.");
+            Add("ic_creates",                 "Creates: {0}");
+            Add("ic_have_count",              "Have {0}");
+            Add("ic_unavailable",             "Unavailable");
+            Add("ic_factor",                  "Factor: {0}");
+            Add("ic_result_heading",          "Creation result.");
+            Add("ic_result_success",          "Success");
+            Add("ic_result_failure",          "Failure");
+            Add("ic_unknown_item",            "Unknown");
+            Add("ic_material_screen",         "Material selection.");
+            Add("ic_material_slots",          "Material slots.");
+            Add("ic_material_itemlist",       "Choose item.");
+            Add("ic_material_empty",          "Empty");
+            Add("ic_material_slot",           "Slot {0}");
+            Add("ic_material_create",         "Create");
+            Add("ic_material_rate",           "Success rate: {0} percent.");
 
             // Database — Player Data (virtual cursor navigation)
             Add("db_playerdata_screen",         "Player Data.");

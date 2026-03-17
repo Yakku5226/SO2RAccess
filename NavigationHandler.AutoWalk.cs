@@ -43,16 +43,16 @@ namespace SO2RAccess
                 return;
             }
 
-            // Accept a partial NavMesh path when the target is behind a barrier
-            // (counter NPCs) or on a different floor (significant Y difference means
-            // separate NavMesh surfaces connected only by stairs/ramps — the player
-            // walks as far as the current floor allows, typically toward the stairs).
-            bool differentFloor = Mathf.Abs(item.Position.y - playerPos.y) > FloorChangeThreshold;
+            // Accept partial NavMesh paths when the target is behind a barrier
+            // (counter NPCs), on a different floor, or on a disconnected NavMesh
+            // surface that passed IsReachable (e.g. nearby exit with small Y gap).
+            // Always allow partial — IsReachable already filtered truly unreachable
+            // targets. Refusing partial here would block items that passed the filter.
             bool pathFound;
             try
             {
                 pathFound = CalculateAndStorePath(playerPos, item.Position,
-                    allowPartial: item.IsCounterNpc || differentFloor);
+                    allowPartial: true);
             }
             catch (Exception ex)
             {
@@ -74,12 +74,11 @@ namespace SO2RAccess
             _autoWalkIsCounter      = item.IsCounterNpc;
             _autoWalkEventRef       = item.EventRef;
             _autoWalkTriggerBounds  = item.TriggerBounds;
-            _autoWalkDifferentFloor = differentFloor;
+            _autoWalkDifferentFloor = Mathf.Abs(item.Position.y - playerPos.y) >= FloorChangeThreshold;
             _autoWalkCategoryIndex = _currentCategoryIndex;
             _isAutoWalking       = true;
             _autoWalkArrived     = false;
-            _staticIsApproaching = true;
-            _diagLogTimer        = 0f;
+            _staticIsAutoWalking = true;
 
             // Initialize stuck detection.
             if (_isWorldmap)
@@ -92,15 +91,17 @@ namespace SO2RAccess
                 _fieldStuckTimer            = 0f;
                 _fieldLastStuckCheckPos     = playerPos;
                 _fieldStuckRecalcAttempted  = false;
+                _isAvoidingObstacle         = false;
+                _avoidanceAttempt           = 0;
             }
 
             // Close the list — the player is now running, not browsing.
             _isOpen = false;
             for (int i = 0; i < CAT_COUNT; i++) _categories[i].Clear();
 
-            // Query the player's actual run speed and start the run animation.
-            // _staticIsApproaching=true means the Harmony prefix will block the game
-            // from resetting the Run animation to Idle each frame.
+            // Query the player's actual run speed (used for world map movement
+            // and as a fallback). Field map movement is handled by the game's own
+            // pipeline via GetLeftStick injection — no manual speed needed.
             try
             {
                 var player = FieldManager.Instance?.GetControlPlayer();
@@ -108,7 +109,6 @@ namespace SO2RAccess
                 {
                     _autoWalkSpeed = player.GetMoveSpeed(true);
                     DebugLogger.LogState($"NAV auto-run: speed={_autoWalkSpeed:F1}");
-                    player.PlayMoveAnimation(FieldAnimationKind.Run);
                 }
                 else
                 {
@@ -120,11 +120,6 @@ namespace SO2RAccess
                 _autoWalkSpeed = 10.0f;
                 DebugLogger.LogState($"NAV AutoWalkTo: run setup failed: {ex.Message}");
             }
-
-            // Cache all event trigger zones in the scene so we can detect
-            // when the player walks through them (transform.position bypasses
-            // Unity physics — OnTriggerEnter never fires).
-            CacheEventTriggers();
 
             ScreenReader.Say(Loc.Get("nav_autowalk_start", item.Label));
             DebugLogger.LogState(
@@ -150,14 +145,17 @@ namespace SO2RAccess
             _autoWalkDifferentFloor = false;
             _autoWalkCategoryIndex = 0;
             _autoWalkTransform     = null;
-            _staticIsApproaching = false; // re-enable normal animation resets
+            _staticIsAutoWalking = false;
+            _staticAutoWalkStickDir = Vector2.zero;
+            _staticCameraStickX     = 0f;
             _pathCorners                = null;
             _pathCornerIndex            = 0;
             _pathRecalcTimer            = 0f;
             _fieldStuckTimer            = 0f;
             _fieldStuckRecalcAttempted  = false;
+            _isAvoidingObstacle         = false;
+            _avoidanceAttempt           = 0;
             _isWorldmap                 = false;
-            _cachedEventTriggers?.Clear();
             DebugLogger.LogState("NAV auto-walk cancelled.");
         }
 
@@ -192,60 +190,52 @@ namespace SO2RAccess
             categoryIndex == CAT_LOCATION;
 
         /// <summary>
-        /// Triggers the nearest FieldMapjumpCollision to the auto-walk target.
-        /// Field exits (building doors, town gates) use Unity collision triggers
-        /// that never fire when the player is moved via transform.position.
-        /// This calls ChangeFieldmap() directly — same approach as world map entry.
+        /// Converts a world-space direction vector into a camera-relative stick Vector2.
+        /// The game interprets left stick input relative to camera orientation:
+        /// stick Y+ = camera forward, stick X+ = camera right.
+        /// Projects the world direction onto the camera's XZ-plane forward/right axes,
+        /// then returns a normalized Vector2 (magnitude 1.0 = full run speed).
         /// </summary>
-        private bool TryEnterFieldExit()
+        private static Vector2 WorldDirToCameraStick(Vector3 worldDir)
         {
-            try
+            var cam = Camera.main;
+            if (cam == null)
             {
-                var collisions = UnityEngine.Object
-                    .FindObjectsOfType<FieldMapjumpCollision>();
-                if (collisions == null || collisions.Length == 0)
-                {
-                    DebugLogger.LogState(
-                        "NAV field exit: no FieldMapjumpCollision objects found.");
-                    return false;
-                }
-
-                FieldMapjumpCollision nearest = null;
-                float nearestDist = float.MaxValue;
-
-                for (int i = 0; i < collisions.Length; i++)
-                {
-                    var c = collisions[i];
-                    if (c == null) continue;
-                    float dist = Vector3.Distance(
-                        c.transform.position, _autoWalkTarget);
-                    if (dist < nearestDist)
-                    {
-                        nearestDist = dist;
-                        nearest = c;
-                    }
-                }
-
-                if (nearest == null)
-                {
-                    DebugLogger.LogState(
-                        "NAV field exit: no valid FieldMapjumpCollision.");
-                    return false;
-                }
-
-                DebugLogger.LogState(
-                    $"NAV field exit: triggering mapjump " +
-                    $"dist={nearestDist:F1} fieldmap={nearest.fieldmapID} " +
-                    $"pos=({nearest.transform.position.x:F1}," +
-                    $"{nearest.transform.position.z:F1})");
-
-                return nearest.ChangeFieldmap();
+                // No camera — fall back to raw world direction.
+                return new Vector2(worldDir.x, worldDir.z).normalized;
             }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"NAV field exit error: {ex.Message}");
-                return false;
-            }
+
+            // Camera forward/right projected onto XZ plane.
+            Vector3 camFwd = cam.transform.forward;
+            camFwd.y = 0f;
+            camFwd.Normalize();
+            Vector3 camRight = cam.transform.right;
+            camRight.y = 0f;
+            camRight.Normalize();
+
+            // Dot product gives the component along each camera axis.
+            float stickY = worldDir.x * camFwd.x + worldDir.z * camFwd.z;   // forward component
+            float stickX = worldDir.x * camRight.x + worldDir.z * camRight.z; // right component
+
+            Vector2 stick = new Vector2(stickX, stickY);
+            float mag = stick.magnitude;
+            if (mag > 0.001f)
+                stick /= mag; // normalize to magnitude 1.0 (full run)
+            return stick;
+        }
+
+        /// <summary>
+        /// Stops auto-walk input injection and clears the auto-walk state.
+        /// Used at arrival points to cleanly end the walk.
+        /// </summary>
+        private void StopAutoWalk()
+        {
+            _isAutoWalking       = false;
+            _staticIsAutoWalking = false;
+            _staticAutoWalkStickDir = Vector2.zero;
+            _staticCameraStickX  = 0f;
+            _isAvoidingObstacle  = false;
+            _pathCorners         = null;
         }
 
         /// <summary>
@@ -364,6 +354,37 @@ namespace SO2RAccess
 
                 NavMesh.CalculatePath(playerHit.position, targetHit.position,
                     NavMesh.AllAreas, _navPath);
+
+                if (_navPath.status == NavMeshPathStatus.PathComplete)
+                    return true;
+
+                if (_navPath.status == NavMeshPathStatus.PathPartial)
+                {
+                    // Partial paths occur when NavMesh surfaces are disconnected
+                    // (different floors, stairs, or small elevation changes like
+                    // the Krosse Guild entrance). Accept partial paths when:
+                    //  1. Target is on a clearly different floor (Y >= threshold), OR
+                    //  2. The partial path makes meaningful progress — endpoint is
+                    //     significantly closer to the target than the player is.
+                    bool differentFloor =
+                        Mathf.Abs(targetPos.y - playerPos.y) >= FloorChangeThreshold;
+                    if (differentFloor)
+                        return true;
+
+                    var corners = _navPath.corners;
+                    if (corners.Length > 0)
+                    {
+                        Vector3 pathEnd = corners[corners.Length - 1];
+                        float playerToTarget = Vector3.Distance(playerHit.position,
+                            targetHit.position);
+                        float pathEndToTarget = Vector3.Distance(pathEnd,
+                            targetHit.position);
+                        // Accept if the path gets at least 30% closer to the target.
+                        if (pathEndToTarget < playerToTarget * 0.7f)
+                            return true;
+                    }
+                }
+
                 if (_navPath.status != NavMeshPathStatus.PathComplete)
                 {
                     float directDist = Vector3.Distance(playerPos, targetPos);
@@ -372,7 +393,7 @@ namespace SO2RAccess
                         $"directDist={directDist:F1}, " +
                         $"player={playerHit.position}, target={targetHit.position}");
                 }
-                return _navPath.status == NavMeshPathStatus.PathComplete;
+                return false;
             }
             catch (System.Exception ex)
             {
@@ -412,114 +433,161 @@ namespace SO2RAccess
 
             // Copy corners from IL2CPP array into managed array.
             var il2cppCorners = _navPath.corners;
-            _pathCorners = new Vector3[il2cppCorners.Length];
+            var corners = new Vector3[il2cppCorners.Length];
             for (int i = 0; i < il2cppCorners.Length; i++)
-                _pathCorners[i] = il2cppCorners[i];
+                corners[i] = il2cppCorners[i];
 
-            // Start walking toward index 1 (index 0 is the start position).
-            _pathCornerIndex = _pathCorners.Length > 1 ? 1 : 0;
+            _pathCorners = corners;
+            _pathCornerIndex = corners.Length > 1 ? 1 : 0;
             _pathRecalcTimer = 0f;
 
-            var sb = new System.Text.StringBuilder();
-            sb.Append($"NAV path: {_pathCorners.Length} waypoints, status={_navPath.status}");
-            for (int i = 0; i < _pathCorners.Length; i++)
-                sb.Append($" [{i}]=({_pathCorners[i].x:F1},{_pathCorners[i].y:F1},{_pathCorners[i].z:F1})");
-            DebugLogger.LogState(sb.ToString());
+            LogPath(corners);
             return true;
         }
 
-        /// <summary>
-        /// Caches all FieldEventCollision trigger zones in the current scene.
-        /// Called once at the start of each auto-walk. During movement, the player
-        /// is moved via transform.position which bypasses Unity physics, so
-        /// OnTriggerEnter never fires for event triggers along the path.
-        /// We check these bounds manually each frame in <see cref="CheckEventTriggers"/>.
-        /// </summary>
-        private void CacheEventTriggers()
+        /// <summary>Logs the accepted path details.</summary>
+        private static void LogPath(Vector3[] corners)
         {
-            _cachedEventTriggers ??= new List<CachedEventTrigger>();
-            _cachedEventTriggers.Clear();
-
-            try
-            {
-                var events = UnityEngine.Object.FindObjectsOfType<FieldEventCollision>();
-                if (events == null) return;
-
-                foreach (var evt in events)
-                {
-                    if (evt == null) continue;
-
-                    // Only cache triggers that are currently active and have a collider.
-                    var col = evt.GetComponent<Collider>();
-                    if (col == null || !col.isTrigger) continue;
-
-                    _cachedEventTriggers.Add(new CachedEventTrigger
-                    {
-                        Event  = evt,
-                        Bounds = col.bounds,
-                    });
-                }
-
-                DebugLogger.LogState($"NAV: cached {_cachedEventTriggers.Count} event triggers.");
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"NAV: CacheEventTriggers error: {ex.Message}");
-            }
+            var sb = new System.Text.StringBuilder();
+            sb.Append($"NAV path: {corners.Length} waypoints");
+            for (int i = 0; i < corners.Length; i++)
+                sb.Append($" [{i}]=({corners[i].x:F1},{corners[i].y:F1},{corners[i].z:F1})");
+            DebugLogger.LogState(sb.ToString());
         }
 
         /// <summary>
-        /// Checks if the player's current position is inside any cached event
-        /// trigger zone. If so, fires the event via StartEvent() and cancels
-        /// auto-walk (the event cutscene takes over). Returns true if an event
-        /// was triggered, false otherwise.
+        /// Attempts to find a walkable detour point on the NavMesh to route around
+        /// an obstacle blocking the current path. Tries perpendicular directions
+        /// (alternating left/right) at increasing distances.
+        /// Returns true if a valid detour was found and avoidance mode is active.
         /// </summary>
-        private bool CheckEventTriggers(Vector3 playerPos)
+        private bool TryStartObstacleAvoidance(Vector3 playerPos)
         {
-            if (_cachedEventTriggers == null || _cachedEventTriggers.Count == 0)
-                return false;
-
-            for (int i = 0; i < _cachedEventTriggers.Count; i++)
+            // Determine the direction we were heading toward.
+            Vector3 headingDir;
+            if (_pathCorners != null && _pathCornerIndex < _pathCorners.Length)
             {
-                var cached = _cachedEventTriggers[i];
-                if (cached.Event == null) continue;
+                headingDir = _pathCorners[_pathCornerIndex] - playerPos;
+            }
+            else
+            {
+                headingDir = _autoWalkTarget - playerPos;
+            }
+            headingDir.y = 0f;
+            if (headingDir.sqrMagnitude < 0.001f)
+                return false;
+            headingDir.Normalize();
 
-                if (!cached.Bounds.Contains(playerPos)) continue;
+            // Snap the target onto NavMesh so CalculatePath can find it.
+            // Without this, different-floor targets (Y far from NavMesh surface)
+            // cause PathInvalid for every candidate, making detours always fail.
+            if (!SampleNavMeshFloorAware(_autoWalkTarget, out NavMeshHit targetHit))
+            {
+                DebugLogger.LogState("NAV obstacle avoidance: target not on NavMesh.");
+                return false;
+            }
+            Vector3 navTarget = targetHit.position;
 
-                try
+            // Perpendicular direction (right of heading).
+            Vector3 rightDir = new Vector3(headingDir.z, 0f, -headingDir.x);
+
+            _avoidanceAttempt++;
+
+            // Build candidate directions: alternate starting left/right,
+            // include diagonal-backward options to handle corners.
+            Vector3[] directions;
+            if (_avoidanceAttempt % 2 == 1)
+            {
+                directions = new[]
                 {
-                    if (!cached.Event.IsEventActivate()) continue;
-
-                    string evtName = cached.Event.name ?? "unknown";
-                    DebugLogger.LogState(
-                        $"NAV: player entered event trigger '{evtName}' at " +
-                        $"({playerPos.x:F2},{playerPos.y:F2},{playerPos.z:F2}). " +
-                        $"Firing StartEvent().");
-
-                    if (cached.Event.StartEvent())
-                    {
-                        _isAutoWalking       = false;
-                        _staticIsApproaching = false;
-                        _pathCorners         = null;
-                        DebugLogger.LogState(
-                            $"NAV: event '{evtName}' triggered successfully. " +
-                            "Auto-walk ended.");
-                        return true;
-                    }
-                    else
-                    {
-                        DebugLogger.LogState(
-                            $"NAV: event '{evtName}' StartEvent returned false.");
-                    }
-                }
-                catch (Exception ex)
+                    rightDir, -rightDir,
+                    (-headingDir + rightDir).normalized,
+                    (-headingDir - rightDir).normalized,
+                    -headingDir
+                };
+            }
+            else
+            {
+                directions = new[]
                 {
+                    -rightDir, rightDir,
+                    (-headingDir - rightDir).normalized,
+                    (-headingDir + rightDir).normalized,
+                    -headingDir
+                };
+            }
+
+            float[] distances = { 3f, 5f, 8f };
+
+            foreach (var dir in directions)
+            {
+                foreach (var dist in distances)
+                {
+                    Vector3 candidate = playerPos + dir * dist;
+                    if (!NavMesh.SamplePosition(candidate, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+                        continue;
+
+                    // Verify a path exists from the detour point to the destination.
+                    NavMesh.CalculatePath(hit.position, navTarget, NavMesh.AllAreas, _navPath);
+                    if (_navPath.status == NavMeshPathStatus.PathInvalid)
+                        continue;
+                    if (_navPath.status == NavMeshPathStatus.PathPartial
+                        && !_autoWalkIsCounter && !_autoWalkDifferentFloor)
+                        continue;
+
+                    // Valid detour found.
+                    _avoidanceDetourTarget = hit.position;
+                    _isAvoidingObstacle = true;
+                    _avoidanceStartTime = Time.time;
+                    _fieldLastStuckCheckPos = playerPos;
+                    _fieldStuckTimer = 0f;
+                    _fieldStuckRecalcAttempted = false;
+
                     DebugLogger.LogState(
-                        $"NAV: event trigger error: {ex.Message}");
+                        $"NAV obstacle avoidance: detour " +
+                        $"{Vector3.Distance(playerPos, hit.position):F1}m away, " +
+                        $"attempt {_avoidanceAttempt}");
+                    return true;
                 }
             }
 
+            DebugLogger.LogState(
+                $"NAV obstacle avoidance: no valid detour found " +
+                $"(tested {directions.Length * distances.Length} candidates).");
             return false;
+        }
+
+        /// <summary>
+        /// Computes camera follow stick input so the camera gently rotates
+        /// to face the walking direction. Uses the cross product between
+        /// the camera forward and the movement direction to determine
+        /// which way to rotate.
+        /// </summary>
+        private static void UpdateCameraFollow(Vector3 worldMoveDir)
+        {
+            var cam = Camera.main;
+            if (cam == null)
+            {
+                _staticCameraStickX = 0f;
+                return;
+            }
+
+            Vector3 camFwd = cam.transform.forward;
+            camFwd.y = 0f;
+            camFwd.Normalize();
+
+            // Cross product: positive when moveDir is to the right of camera forward.
+            float cross = camFwd.x * worldMoveDir.z - camFwd.z * worldMoveDir.x;
+
+            // Dead zone to prevent jitter when nearly aligned.
+            if (Mathf.Abs(cross) < CameraFollowDeadZone)
+            {
+                _staticCameraStickX = 0f;
+                return;
+            }
+
+            // Scale and clamp — negative because camera rotates opposite to stick.
+            _staticCameraStickX = Mathf.Clamp(-cross * CameraFollowScale, -1f, 1f);
         }
     }
 }

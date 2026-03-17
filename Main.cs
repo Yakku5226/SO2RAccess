@@ -50,6 +50,7 @@ namespace SO2RAccess
         private BattleResultHandler _battleResultHandler;
         private BattleCounterHandler _battleCounterHandler;
         private ShopHandler _shopHandler;
+        private GuildHandler _guildHandler;
         private EnemyProximityHandler _enemyProximityHandler;
         private GameOverHandler _gameOverHandler;
         private SaveNotificationHandler _saveNotificationHandler;
@@ -131,6 +132,7 @@ namespace SO2RAccess
             _battleResultHandler = new BattleResultHandler();
             _battleCounterHandler = new BattleCounterHandler();
             _shopHandler = new ShopHandler();
+            _guildHandler = new GuildHandler();
             _enemyProximityHandler = new EnemyProximityHandler();
             _gameOverHandler = new GameOverHandler();
             _saveNotificationHandler = new SaveNotificationHandler();
@@ -203,6 +205,7 @@ namespace SO2RAccess
             _navigationHandler?.CancelAutoWalk();
             _campMenuHandler?.OnSceneChanged();
             _shopHandler?.OnSceneChanged();
+            _guildHandler?.OnSceneChanged();
             _enemyProximityHandler?.OnSceneChanged();
             _gameOverHandler?.OnSceneChanged();
             _saveNotificationHandler?.OnSceneChanged();
@@ -230,6 +233,7 @@ namespace SO2RAccess
             _battleResultHandler.ApplyPatches(_harmony);
             _battleCounterHandler.ApplyPatches(_harmony);
             _shopHandler.ApplyPatches(_harmony);
+            _guildHandler.ApplyPatches(_harmony);
             _enemyProximityHandler.ApplyPatches(_harmony);
             _gameOverHandler.ApplyPatches(_harmony);
             _saveNotificationHandler.ApplyPatches(_harmony);
@@ -651,6 +655,7 @@ namespace SO2RAccess
             _navigationHandler.Update();
             _campMenuHandler.Update();
             _shopHandler.Update();
+            _guildHandler.Update();
             _enemyProximityHandler.Update();
             _gameOverHandler.Update();
             _notificationHandler.Update();

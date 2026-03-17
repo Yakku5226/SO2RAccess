@@ -11,37 +11,47 @@ namespace SO2RAccess
     public partial class NavigationHandler
     {
         /// <summary>
-        /// Harmony prefix for FieldBillboardObject.PlayMoveAnimation(FieldAnimationKind).
-        /// During the auto-run approach phase, blocks any non-Run animation from being
-        /// applied to the player. This prevents the game's internal state machine from
-        /// resetting the player's Run animation to Idle every frame when no movement
-        /// keys are held. Returns false (skip original) to block; true to allow.
+        /// True while auto-walk input injection is active. Static for Harmony postfix access.
+        /// Set true at auto-walk start, false at cancel/arrival.
         /// </summary>
-        private static bool PlayMoveAnimation_Prefix(
-            FieldBillboardObject __instance, FieldAnimationKind animationKind)
+        private static bool _staticIsAutoWalking;
+
+        /// <summary>
+        /// Synthetic left stick direction injected into GetLeftStick() during auto-walk.
+        /// Camera-relative Vector2: X = right/left, Y = forward/back.
+        /// Magnitude 1.0 = full run speed.
+        /// </summary>
+        private static Vector2 _staticAutoWalkStickDir;
+
+        /// <summary>
+        /// Synthetic camera stick X injected into GetFieldCameraRightStick() during auto-walk.
+        /// Positive = rotate camera right, negative = rotate camera left.
+        /// Keeps the camera facing the walking direction so the player stays oriented.
+        /// </summary>
+        private static float _staticCameraStickX;
+
+        /// <summary>
+        /// Harmony postfix for GameInputManager.GetLeftStick().
+        /// When auto-walk is active, replaces the returned stick value with a synthetic
+        /// direction pointing toward the current waypoint. This makes the game's own
+        /// movement pipeline handle physics, colliders, animations, triggers, and party AI.
+        /// </summary>
+        private static void GetLeftStick_Postfix(ref Vector2 __result)
         {
-            // Only intercept during the approach phase (not proximity-lock, not stopped).
-            if (!_staticIsApproaching) return true;
+            if (!_staticIsAutoWalking) return;
+            __result = _staticAutoWalkStickDir;
+        }
 
-            // Run is always allowed — let it set or re-set Run normally.
-            if (animationKind == FieldAnimationKind.Run) return true;
-
-            // Check if this FieldBillboardObject is the player character.
-            try
-            {
-                var fm = FieldManager.Instance;
-                if (fm == null) return true;
-                var player = fm.GetControlPlayer();
-                if (player == null) return true;
-                if (__instance.GetInstanceID() != player.GetInstanceID()) return true;
-
-                // It is the player and we're in the approach phase — block the reset.
-                return false;
-            }
-            catch
-            {
-                return true; // on any error, allow the call through
-            }
+        /// <summary>
+        /// Harmony postfix for GameInputManager.GetFieldCameraRightStick().
+        /// When auto-walk is active and the camera isn't aligned with the walking direction,
+        /// injects gentle rotation to keep the camera facing forward along the path.
+        /// </summary>
+        private static void GetFieldCameraRightStick_Postfix(ref Vector2 __result)
+        {
+            if (!_staticIsAutoWalking) return;
+            if (Mathf.Abs(_staticCameraStickX) < 0.01f) return;
+            __result = new Vector2(_staticCameraStickX, 0f);
         }
 
         /// <summary>
@@ -119,6 +129,62 @@ namespace SO2RAccess
 
             __result = Vector2.zero;
             return false;
+        }
+
+        /// <summary>
+        /// Postfix on UIFieldFishingResultPresenter.Set — fires when the fishing
+        /// result screen is populated with caught fish/items. Announces each catch
+        /// via screen reader with name, size, and record status.
+        /// </summary>
+        private static void FishingResultSet_Postfix(
+            Il2CppSystem.Collections.Generic.List<UIFieldFishingResultListItemData> fishingDataList)
+        {
+            try
+            {
+                if (fishingDataList == null || fishingDataList.Count == 0) return;
+
+                var parts = new System.Collections.Generic.List<string>();
+
+                for (int i = 0; i < fishingDataList.Count; i++)
+                {
+                    var data = fishingDataList[i];
+                    if (data == null) continue;
+
+                    string name = data.fishName;
+                    if (string.IsNullOrEmpty(name)) continue;
+
+                    string entry = name;
+
+                    // Append size for fish (not items).
+                    if (data.isFish && !string.IsNullOrEmpty(data.fishSize))
+                        entry += $", {data.fishSize}";
+
+                    // Append record/new flags.
+                    if (data.isMaxSize)
+                        entry += $", {Loc.Get("fish_max_size")}";
+                    else if (data.isNewRecord)
+                        entry += $", {Loc.Get("fish_new_record")}";
+
+                    if (data.isNew)
+                        entry += $", {Loc.Get("fish_new")}";
+
+                    parts.Add(entry);
+
+                    DebugLogger.LogState(
+                        $"FishingResult: [{i}] {name} size={data.fishSize} " +
+                        $"isFish={data.isFish} new={data.isNew} record={data.isNewRecord} max={data.isMaxSize}");
+                }
+
+                if (parts.Count > 0)
+                {
+                    string announcement = Loc.Get("fish_caught") + " " + string.Join(". ", parts) + ".";
+                    ScreenReader.Say(announcement);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"FishingResultSet_Postfix error: {ex.Message}");
+            }
         }
     }
 }
