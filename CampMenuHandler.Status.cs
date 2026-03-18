@@ -2,6 +2,7 @@ using HarmonyLib;
 using Il2CppGame;
 using MelonLoader;
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -26,6 +27,7 @@ namespace SO2RAccess
         private static UICampStatusParameterData _statusParamData = null;
         private static UICampStatusLevelData _statusLevelData = null;
         private static string _statusPlayerName = "";
+        private static PlayerID _statusPlayerID = PlayerID.INVALID;
         private static int _statusLastPageIndex = -1;
         /// <summary>
         /// Cached talent announcement string built by UITalentPresenter.Set hook.
@@ -33,6 +35,31 @@ namespace SO2RAccess
         /// We cache the string and announce it when pageIndex changes to 1 (talent page).
         /// </summary>
         private static string _cachedTalentAnnouncement = "";
+        /// <summary>
+        /// Cached elemental affinities string built by UIElementalGroupPresenter.Set hook
+        /// when the status screen is active. Cleared on status close and camp reopen.
+        /// </summary>
+        private static string _cachedStatusElementalAnnouncement = "";
+        /// <summary>
+        /// Individual elemental resistance lines for virtual cursor navigation.
+        /// Each entry is one element's resistance (e.g. "Fire: weak").
+        /// </summary>
+        private static List<string> _cachedStatusElementalLines = new List<string>();
+        /// <summary>
+        /// Cached friendship announcement built by UICampStatusPresenter.SetEmotion hook.
+        /// Shows each party member's favorability rating. Cleared on status close and camp reopen.
+        /// </summary>
+        private static string _cachedFriendshipAnnouncement = "";
+        /// <summary>
+        /// Individual friendship lines for virtual cursor navigation.
+        /// Each entry is one party member's friendship level.
+        /// </summary>
+        private static List<string> _cachedFriendshipLines = new List<string>();
+
+        // Virtual cursor for line-by-line navigation on page 0.
+        // Built by AnnounceStatusCharacter, navigated by Up/Down in UpdateStatusSelector.
+        private static List<string> _statusVirtualLines = new List<string>();
+        private static int _statusVirtualIndex = -1;
 
         #endregion
 
@@ -52,25 +79,59 @@ namespace SO2RAccess
             try
             {
                 int pageIdx = _statusSelector.pageIndex;
-                if (pageIdx == _statusLastPageIndex) return;
 
-                int oldPage = _statusLastPageIndex;
-                _statusLastPageIndex = pageIdx;
-
-                // Skip initial page set (handled by UpdatePresenter heading).
-                if (oldPage < 0) return;
-
-                // Reset character index so switching characters on a new page
-                // will re-trigger the UpdatePresenter announcement.
-                _statusLastIndex = -1;
-
-                DebugLogger.LogState($"CampStatus: page changed {oldPage} → {pageIdx}.");
-
-                // Page 0 = stats (UpdatePresenter hooks will fire and announce).
-                // Page 1 = talents (announce cached data from UITalentPresenter.Set hook).
-                if (pageIdx == 1 && !string.IsNullOrEmpty(_cachedTalentAnnouncement))
+                // Detect page change.
+                if (pageIdx != _statusLastPageIndex)
                 {
-                    ScreenReader.Say(_cachedTalentAnnouncement);
+                    int oldPage = _statusLastPageIndex;
+                    _statusLastPageIndex = pageIdx;
+
+                    // Skip initial page set (handled by UpdatePresenter heading).
+                    if (oldPage >= 0)
+                    {
+                        // Reset character index so switching characters on a new page
+                        // will re-trigger the UpdatePresenter announcement.
+                        _statusLastIndex = -1;
+
+                        DebugLogger.LogState($"CampStatus: page changed {oldPage} → {pageIdx}.");
+
+                        // Clear virtual cursor on page switch.
+                        _statusVirtualLines.Clear();
+                        _statusVirtualIndex = -1;
+
+                        // Page 0 = stats (UpdatePresenter hooks will fire and announce).
+                        // Page 1 = talents (announce cached data from UITalentPresenter.Set hook).
+                        if (pageIdx == 1 && !string.IsNullOrEmpty(_cachedTalentAnnouncement))
+                        {
+                            ScreenReader.Say(_cachedTalentAnnouncement);
+                        }
+                    }
+
+                    return;
+                }
+
+                // Virtual cursor: Up/Down navigates status lines on page 0.
+                if (pageIdx == 0 && _statusVirtualLines.Count > 0)
+                {
+                    var gim = GameInputManager.Instance;
+                    if (gim == null) return;
+
+                    int newIdx = _statusVirtualIndex;
+                    if (gim.IsDown(GameInputManager.InputAction.Down))
+                    {
+                        newIdx = Math.Min(_statusVirtualIndex + 1, _statusVirtualLines.Count - 1);
+                    }
+                    else if (gim.IsDown(GameInputManager.InputAction.Up))
+                    {
+                        newIdx = Math.Max(_statusVirtualIndex - 1, 0);
+                    }
+
+                    if (newIdx == _statusVirtualIndex) return;
+                    _statusVirtualIndex = newIdx;
+
+                    ScreenReader.Say(_statusVirtualLines[newIdx]);
+                    DebugLogger.LogGameValue("CampStatus.vcursor",
+                        $"{newIdx + 1}/{_statusVirtualLines.Count}: {_statusVirtualLines[newIdx]}");
                 }
             }
             catch (Exception ex)
@@ -82,59 +143,129 @@ namespace SO2RAccess
         /// <summary>
         /// Builds and announces character status from hook-captured data.
         /// Called from the UpdatePresenter hook (fires last in the hook chain).
+        /// Also populates _statusVirtualLines for Up/Down line-by-line navigation.
         /// Data sources: _statusPlayerName (UpdateName hook), _statusLevelData
-        /// (LevelPresenter.Setup hook), _statusParamData (StatusParamPresenter.Setup hook).
+        /// (LevelPresenter.Setup hook), _statusParamData (StatusParamPresenter.Setup hook),
+        /// age/food (direct presenter read), elementals/friendship (cached from hooks).
         /// </summary>
         private static void AnnounceStatusCharacter(int index, int total)
         {
             try
             {
-                var sb = new StringBuilder();
+                var lines = new List<string>();
 
                 // Character name (captured by UpdateName hook).
                 if (!string.IsNullOrEmpty(_statusPlayerName))
-                    sb.Append(_statusPlayerName + ". ");
+                    lines.Add(_statusPlayerName);
 
-                // Level, HP, MP, EXP (captured by LevelPresenter.Setup hook).
+                // Level, HP, MP (captured by LevelPresenter.Setup hook).
                 if (_statusLevelData != null)
                 {
-                    sb.Append(Loc.Get("camp_status_level_hp_mp",
+                    lines.Add(Loc.Get("camp_status_level_hp_mp",
                         _statusLevelData.level,
                         _statusLevelData.hp, _statusLevelData.maxHp,
                         _statusLevelData.mp, _statusLevelData.maxMp));
-                    sb.Append(" ");
-                    sb.Append(Loc.Get("camp_status_exp",
+                    lines.Add(Loc.Get("camp_status_exp",
                         _statusLevelData.exp, _statusLevelData.nextExp));
-                    sb.Append(" ");
                 }
 
-                // Combat stats and base attributes (captured by StatusParamPresenter.Setup hook).
+                // Combat stats — one line per stat for virtual cursor navigation.
                 if (_statusParamData != null)
                 {
-                    sb.Append(Loc.Get("camp_status_combat",
-                        _statusParamData.attack, _statusParamData.defence,
-                        _statusParamData.magic, _statusParamData.hit,
-                        _statusParamData.dodge, _statusParamData.critical));
-                    sb.Append(" ");
-                    sb.Append(Loc.Get("camp_status_attributes",
-                        _statusParamData.str, _statusParamData.con,
-                        _statusParamData.dex, _statusParamData.agl,
-                        _statusParamData.intelligence, _statusParamData.luc));
-                    sb.Append(" ");
-                    sb.Append(Loc.Get("camp_status_stamina_guts",
-                        _statusParamData.stm, _statusParamData.guts));
-                    sb.Append(" ");
+                    lines.Add($"{Loc.Get("camp_status_stat_attack")}: {_statusParamData.attack}");
+                    lines.Add($"{Loc.Get("camp_status_stat_defence")}: {_statusParamData.defence}");
+                    lines.Add($"{Loc.Get("camp_status_stat_magic")}: {_statusParamData.magic}");
+                    lines.Add($"{Loc.Get("camp_status_stat_hit")}: {_statusParamData.hit}");
+                    lines.Add($"{Loc.Get("camp_status_stat_dodge")}: {_statusParamData.dodge}");
+                    lines.Add($"{Loc.Get("camp_status_stat_critical")}: {_statusParamData.critical}");
+                    lines.Add($"{Loc.Get("camp_status_stat_str")}: {_statusParamData.str}");
+                    lines.Add($"{Loc.Get("camp_status_stat_con")}: {_statusParamData.con}");
+                    lines.Add($"{Loc.Get("camp_status_stat_dex")}: {_statusParamData.dex}");
+                    lines.Add($"{Loc.Get("camp_status_stat_agl")}: {_statusParamData.agl}");
+                    lines.Add($"{Loc.Get("camp_status_stat_int")}: {_statusParamData.intelligence}");
+                    lines.Add($"{Loc.Get("camp_status_stat_luc")}: {_statusParamData.luc}");
+                    lines.Add($"{Loc.Get("camp_status_stat_stamina")}: {_statusParamData.stm}");
+                    lines.Add($"{Loc.Get("camp_status_stat_guts")}: {_statusParamData.guts}");
+                }
+
+                // Age (read directly from presenter — CallerCount 0, not hookable).
+                try
+                {
+                    var agePresenter = _statusSelector?.statusPresenter?.agePresenter;
+                    var valuePresenter = agePresenter?.valuePresenter;
+                    if (valuePresenter != null)
+                    {
+                        string ageText = valuePresenter.age?.gameText?.text;
+                        if (!string.IsNullOrEmpty(ageText))
+                            lines.Add(Loc.Get("camp_status_age", ageText));
+                    }
+                }
+                catch (Exception ageEx)
+                {
+                    DebugLogger.LogState($"CampStatus: age read failed: {ageEx.Message}");
+                }
+
+                // Favorite food — the likeFood GameText is the label "Favorite Food".
+                // The actual food name is set by native SetLikeFood(string) into the same
+                // GameText. When a food hasn't been discovered yet, the text just says
+                // "Favorite Food" (the label default). Only announce when the text differs
+                // from the label, meaning an actual food has been discovered.
+                try
+                {
+                    var likeFoodGT = _statusSelector?.statusPresenter?.likeFood;
+                    if (likeFoodGT != null)
+                    {
+                        string foodText = likeFoodGT.text;
+                        if (!string.IsNullOrEmpty(foodText) &&
+                            foodText != "Favorite Food" && foodText != "Favourite Food")
+                        {
+                            lines.Add(Loc.Get("camp_status_favorite_food", foodText));
+                            DebugLogger.LogGameValue("CampStatus.food", foodText);
+                        }
+                    }
+                }
+                catch (Exception foodEx)
+                {
+                    DebugLogger.LogState($"CampStatus: food read failed: {foodEx.Message}");
+                }
+
+                // Elemental affinities — individual lines per element for virtual cursor.
+                if (_cachedStatusElementalLines.Count > 0)
+                {
+                    foreach (var el in _cachedStatusElementalLines)
+                        lines.Add(el);
+                }
+                else if (!string.IsNullOrEmpty(_cachedStatusElementalAnnouncement))
+                {
+                    lines.Add(_cachedStatusElementalAnnouncement);
+                }
+
+                // Friendship levels — individual lines per party member for virtual cursor.
+                if (_cachedFriendshipLines.Count > 0)
+                {
+                    foreach (var fl in _cachedFriendshipLines)
+                        lines.Add(fl);
+                }
+                else if (!string.IsNullOrEmpty(_cachedFriendshipAnnouncement))
+                {
+                    lines.Add(_cachedFriendshipAnnouncement);
                 }
 
                 // Position in party.
-                sb.Append(Loc.Get("camp_status_position", index + 1, total));
+                lines.Add(Loc.Get("camp_status_position", index + 1, total));
+
+                // Store for virtual cursor navigation.
+                _statusVirtualLines = lines;
+                _statusVirtualIndex = -1;
 
                 DebugLogger.LogGameValue("CampStatus.char",
                     $"name='{_statusPlayerName}' idx={index} ({index + 1}/{total}) " +
+                    $"lines={lines.Count} " +
                     $"levelData={(_statusLevelData != null ? "yes" : "null")} " +
                     $"paramData={(_statusParamData != null ? "yes" : "null")}");
 
-                ScreenReader.Say(sb.ToString());
+                // Announce everything at once on entry.
+                ScreenReader.Say(string.Join(" ", lines));
             }
             catch (Exception ex)
             {
@@ -225,6 +356,7 @@ namespace SO2RAccess
             try
             {
                 var pm = ParameterManager.Instance;
+                _statusPlayerID = playerID;
                 _statusPlayerName = pm != null ? (pm.GetCharacterFirstName(playerID) ?? "") : playerID.ToString();
                 DebugLogger.LogGameValue("CampStatus.nameHook", $"playerID={playerID} name='{_statusPlayerName}'");
             }
@@ -294,6 +426,83 @@ namespace SO2RAccess
             catch (Exception ex)
             {
                 MelonLogger.Warning($"CampMenuHandler.TalentPresenter_Set_Postfix: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Postfix for UICampStatusPresenter.SetEmotion(List&lt;UICampStatusFavorabilityRatingItemListData&gt;).
+        /// Fires when the friendship panel updates on the status screen (CallerCount 1).
+        /// Caches a formatted friendship string for inclusion in the page 0 announcement.
+        /// Character identification via faceIcon sprite name with fallback to index.
+        /// </summary>
+        private static void StatusPresenter_SetEmotion_Postfix(
+            Il2CppSystem.Collections.Generic.List<UICampStatusFavorabilityRatingItemListData> dataList)
+        {
+            if (_lastRootMenuItemName != "Status") return;
+
+            try
+            {
+                if (dataList == null || dataList.Count == 0)
+                {
+                    _cachedFriendshipAnnouncement = Loc.Get("camp_status_friendship_none");
+                    _cachedFriendshipLines.Clear();
+                    DebugLogger.LogGameValue("CampStatus.friendship", "no data");
+                    return;
+                }
+
+                // Build party member name list excluding the currently selected character.
+                // The friendship list contains entries for all OTHER party members in order.
+                // Use _statusPlayerID (set by UpdateName hook which fires before SetEmotion)
+                // rather than _statusLastIndex (set by UpdatePresenter which fires AFTER).
+                var otherNames = new System.Collections.Generic.List<string>();
+                try
+                {
+                    var tabList = _statusSelector?.statusPresenter?.characterTabPresenter?.itemTabDataList;
+                    if (tabList != null)
+                    {
+                        var pm = ParameterManager.Instance;
+                        for (int t = 0; t < tabList.Count; t++)
+                        {
+                            var tabItem = tabList[t]?.TryCast<UICharacterTabItemData>();
+                            if (tabItem == null) continue;
+                            if (tabItem.playerID == _statusPlayerID) continue;
+                            string name = pm?.GetCharacterFirstName(tabItem.playerID);
+                            otherNames.Add(!string.IsNullOrEmpty(name) ? name : tabItem.playerID.ToString());
+                        }
+                    }
+                }
+                catch (Exception tabEx)
+                {
+                    DebugLogger.LogState($"CampStatus: friendship tab lookup failed: {tabEx.Message}");
+                }
+
+                var friendLines = new List<string>();
+                for (int i = 0; i < dataList.Count; i++)
+                {
+                    var entry = dataList[i];
+                    if (entry == null) continue;
+
+                    string charName = (i < otherNames.Count) ? otherNames[i] : $"Character {i + 1}";
+                    int percentage = (int)(entry.favorabilityRating * 100);
+
+                    DebugLogger.LogGameValue($"CampStatus.friendship[{i}]",
+                        $"name='{charName}' rating={entry.favorabilityRating:F2} pct={percentage} ending={entry.isEnding}");
+
+                    string line = entry.isEnding
+                        ? Loc.Get("camp_status_friendship_ending", charName, percentage)
+                        : Loc.Get("camp_status_friendship_entry", charName, percentage);
+                    friendLines.Add(line);
+                }
+
+                _cachedFriendshipLines = friendLines;
+                _cachedFriendshipAnnouncement = Loc.Get("camp_status_friendship") + " " +
+                    string.Join(". ", friendLines);
+                DebugLogger.LogGameValue("CampStatus.friendship",
+                    $"count={dataList.Count} cached='{_cachedFriendshipAnnouncement}'");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"CampMenuHandler.StatusPresenter_SetEmotion_Postfix: {ex.Message}");
             }
         }
 

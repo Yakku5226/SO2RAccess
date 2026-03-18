@@ -38,7 +38,7 @@
 **Phase:** Phase 3 — Feature Implementation
 **Currently working on:** Ready for new feature work
 **Blocked by:** Nothing
-**Last completed:** Fishing — nav arrival + catch dedup fixes (2026-03-18)
+**Last completed:** Status screen — age, food, elements, friendship, virtual cursor (2026-03-18)
 
 ### Fishing Accessibility (2026-03-18) — WORKING
 
@@ -754,6 +754,12 @@ Without this list, mod keys WILL conflict with game controls. -->
 - [x] No false HP/MP announcement on camp root open (old stale bug fixed) ✓
 - [x] "Status." announced when opening the status screen ✓
 - [x] Character stats announced ✓
+- [x] Age announced on page 0 ✓
+- [x] Elemental affinities announced (or "No elemental affinities") ✓
+- [x] Friendship levels announced with correct character names ✓
+- [x] Up/Down virtual cursor navigates individual stat lines ✓
+- [x] No stale announcements on camp reopen or character/page switch ✓
+- [ ] Favorite food: only displays after food is discovered in-game (untested — needs gameplay progress)
 
 ## Pending Tests (Navigation Improvements — 2026-03-08)
 

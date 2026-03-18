@@ -166,6 +166,10 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(UITalentData).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIElementalGroupPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIElementalData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampStatusAgePresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampStatusAgeValuePresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UILayoutElementTextPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampStatusFavorabilityRatingItemListData).TypeHandle);
 
                 // Quest sub-screen (separate window opened from camp)
                 RuntimeHelpers.RunClassConstructor(typeof(UIQuestWindow).TypeHandle);
@@ -303,6 +307,15 @@ namespace SO2RAccess
                         new Type[] { typeof(Il2CppSystem.Collections.Generic.List<UITalentData>) }),
                     postfix: new HarmonyMethod(typeof(CampMenuHandler),
                         nameof(TalentPresenter_Set_Postfix))
+                );
+
+                // UICampStatusPresenter.SetEmotion fires when the friendship panel
+                // updates (CallerCount 1 — hookable). Caches friendship data.
+                harmony.Patch(
+                    AccessTools.Method(typeof(UICampStatusPresenter), "SetEmotion",
+                        new Type[] { typeof(Il2CppSystem.Collections.Generic.List<UICampStatusFavorabilityRatingItemListData>) }),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(StatusPresenter_SetEmotion_Postfix))
                 );
 
                 // UICampFormationInformationPresenter.Set fires when the formation info
@@ -513,7 +526,14 @@ namespace SO2RAccess
                     _statusParamData = null;
                     _statusLevelData = null;
                     _statusPlayerName = "";
+                    _statusPlayerID = PlayerID.INVALID;
                     _cachedTalentAnnouncement = "";
+                    _cachedStatusElementalAnnouncement = "";
+                    _cachedStatusElementalLines.Clear();
+                    _cachedFriendshipAnnouncement = "";
+                    _cachedFriendshipLines.Clear();
+                    _statusVirtualLines.Clear();
+                    _statusVirtualIndex = -1;
                     DebugLogger.LogState("CampStatus: closed (root menu index changed).");
                 }
 
@@ -646,6 +666,10 @@ namespace SO2RAccess
             _statusLevelData = null;
             _statusPlayerName = "";
             _cachedTalentAnnouncement = "";
+            _cachedStatusElementalAnnouncement = "";
+            _cachedFriendshipAnnouncement = "";
+            _statusVirtualLines.Clear();
+            _statusVirtualIndex = -1;
             _lastRootMenuItemName = "";
 
             if (_statusSelector != null)

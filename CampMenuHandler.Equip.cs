@@ -239,58 +239,86 @@ namespace SO2RAccess
         };
 
         /// <summary>
+        /// Formats elemental resistance entries from the game data list into localized
+        /// strings. Shared by both equip and status screen contexts.
+        /// Returns a list of formatted strings like "Fire: weak", "Water: absorb".
+        /// Only non-INVALID resistances are included.
+        /// </summary>
+        private static List<string> FormatElementalResistances(
+            Il2CppSystem.Collections.Generic.List<UIElementalData> dataList)
+        {
+            var parts = new List<string>();
+            if (dataList == null) return parts;
+
+            for (int i = 0; i < dataList.Count; i++)
+            {
+                var entry = dataList[i];
+                if (entry == null) continue;
+                if (entry.type == ElementResistanceType.INVALID) continue;
+
+                string elemName = (i < _elementNameKeys.Length)
+                    ? Loc.Get(_elementNameKeys[i])
+                    : $"Element {i + 1}";
+
+                string key = entry.type switch
+                {
+                    ElementResistanceType.DOUBLE  => "camp_equip_elemental_weak",
+                    ElementResistanceType.HALF    => "camp_equip_elemental_half",
+                    ElementResistanceType.DISABLE => "camp_equip_elemental_immune",
+                    ElementResistanceType.ABSORB  => "camp_equip_elemental_absorb",
+                    _ => null
+                };
+
+                if (key != null)
+                    parts.Add(Loc.Get(key, elemName));
+            }
+
+            return parts;
+        }
+
+        /// <summary>
         /// Postfix for UIElementalGroupPresenter.Set(List&lt;UIElementalData&gt;).
-        /// Fires when the elemental resistance panel updates — triggered by Triangle
-        /// button in the equip screen. Announces each element's resistance status.
+        /// Fires when the elemental resistance panel updates. Handles both equip screen
+        /// (Triangle button) and status screen (page 0 initialization) contexts.
         /// Only non-INVALID resistances are announced.
         /// </summary>
         private static void ElementalGroupPresenter_Set_Postfix(
             Il2CppSystem.Collections.Generic.List<UIElementalData> dataList)
         {
-            // Gate: only cache when the equip screen is active.
-            if (_equipSelector == null) return;
-            if (_lastRootMenuItemName != "Equip") return;
+            bool isEquip = _lastRootMenuItemName == "Equip" && _equipSelector != null;
+            bool isStatus = _lastRootMenuItemName == "Status";
+            if (!isEquip && !isStatus) return;
 
             try
             {
                 if (dataList == null || dataList.Count == 0)
                 {
-                    _cachedElementalAnnouncement = Loc.Get("camp_equip_elemental_none");
+                    if (isEquip)
+                        _cachedElementalAnnouncement = Loc.Get("camp_equip_elemental_none");
+                    else
+                        _cachedStatusElementalAnnouncement = Loc.Get("camp_status_elements_none");
                     return;
                 }
 
-                var parts = new List<string>();
+                var parts = FormatElementalResistances(dataList);
 
-                for (int i = 0; i < dataList.Count; i++)
+                if (isEquip)
                 {
-                    var entry = dataList[i];
-                    if (entry == null) continue;
-                    if (entry.type == ElementResistanceType.INVALID) continue;
-
-                    string elemName = (i < _elementNameKeys.Length)
-                        ? Loc.Get(_elementNameKeys[i])
-                        : $"Element {i + 1}";
-
-                    string key = entry.type switch
-                    {
-                        ElementResistanceType.DOUBLE  => "camp_equip_elemental_weak",
-                        ElementResistanceType.HALF    => "camp_equip_elemental_half",
-                        ElementResistanceType.DISABLE => "camp_equip_elemental_immune",
-                        ElementResistanceType.ABSORB  => "camp_equip_elemental_absorb",
-                        _ => null
-                    };
-
-                    if (key != null)
-                        parts.Add(Loc.Get(key, elemName));
+                    _cachedElementalAnnouncement = parts.Count > 0
+                        ? Loc.Get("camp_equip_elemental_heading") + " " + string.Join(". ", parts) + "."
+                        : Loc.Get("camp_equip_elemental_none");
+                    DebugLogger.LogGameValue("CampEquip.elemental",
+                        $"count={dataList.Count} resistances={parts.Count} (cached)");
                 }
-
-                if (parts.Count > 0)
-                    _cachedElementalAnnouncement = Loc.Get("camp_equip_elemental_heading") + " " + string.Join(". ", parts) + ".";
                 else
-                    _cachedElementalAnnouncement = Loc.Get("camp_equip_elemental_none");
-
-                DebugLogger.LogGameValue("CampEquip.elemental",
-                    $"count={dataList.Count} resistances={parts.Count} (cached)");
+                {
+                    _cachedStatusElementalLines = new System.Collections.Generic.List<string>(parts);
+                    _cachedStatusElementalAnnouncement = parts.Count > 0
+                        ? Loc.Get("camp_status_elements") + " " + string.Join(". ", parts) + "."
+                        : Loc.Get("camp_status_elements_none");
+                    DebugLogger.LogGameValue("CampStatus.elemental",
+                        $"count={dataList.Count} resistances={parts.Count} (cached)");
+                }
             }
             catch (Exception ex)
             {

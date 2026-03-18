@@ -260,6 +260,28 @@ namespace SO2RAccess
             Add("camp_status_position",      "{0} of {1}.");
             Add("camp_status_talents_screen","Talents.");
             Add("camp_status_talents_none",  "No talents.");
+            Add("camp_status_stat_attack",   "Attack");
+            Add("camp_status_stat_defence",  "Defence");
+            Add("camp_status_stat_magic",    "Magic");
+            Add("camp_status_stat_hit",      "Hit");
+            Add("camp_status_stat_dodge",    "Dodge");
+            Add("camp_status_stat_critical", "Critical");
+            Add("camp_status_stat_str",      "Strength");
+            Add("camp_status_stat_con",      "Constitution");
+            Add("camp_status_stat_dex",      "Dexterity");
+            Add("camp_status_stat_agl",      "Agility");
+            Add("camp_status_stat_int",      "Intelligence");
+            Add("camp_status_stat_luc",      "Luck");
+            Add("camp_status_stat_stamina",  "Stamina");
+            Add("camp_status_stat_guts",     "Guts");
+            Add("camp_status_age",           "Age: {0}.");
+            Add("camp_status_favorite_food", "Favorite food: {0}.");
+            Add("camp_status_elements",      "Elements.");
+            Add("camp_status_elements_none", "No elemental affinities.");
+            Add("camp_status_friendship",         "Friendship.");
+            Add("camp_status_friendship_entry",   "{0}: {1}%");
+            Add("camp_status_friendship_ending",  "{0}: {1}%, ending candidate");
+            Add("camp_status_friendship_none",    "No friendship data.");
 
             // Camp menu — equip sub-screen
             // Slot list: each entry shows the item currently equipped in that slot.
