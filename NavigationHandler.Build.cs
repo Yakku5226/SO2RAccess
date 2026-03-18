@@ -43,6 +43,12 @@ namespace SO2RAccess
             /// Null if unavailable or for non-event targets.
             /// </summary>
             public Bounds?   TriggerBounds;
+            /// <summary>
+            /// Optional world position to face on arrival (e.g. water center for
+            /// fishing spots). Used instead of LiveTransform for facing when the
+            /// target object is off the NavMesh and shouldn't drive distance checks.
+            /// </summary>
+            public Vector3?  FacePosition;
         }
 
         #endregion
@@ -696,8 +702,10 @@ namespace SO2RAccess
                     Label         = Loc.Get("nav_fishing"),
                     Distance      = dist,
                     Position      = walkTarget,
-                    // LiveTransform = collider transform so arrival faces the water.
-                    LiveTransform = col.transform,
+                    // Face the water center on arrival, but don't track
+                    // LiveTransform — the collider center is off NavMesh
+                    // and would cause arrival distance to be too large.
+                    FacePosition  = center,
                 });
             }
 

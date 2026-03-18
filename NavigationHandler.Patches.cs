@@ -131,6 +131,11 @@ namespace SO2RAccess
             return false;
         }
 
+        /// <summary>Last fishing result announcement text, for dedup.</summary>
+        private static string _lastFishingAnnouncement;
+        /// <summary>Timestamp of last fishing result announcement.</summary>
+        private static float _lastFishingAnnouncementTime;
+
         /// <summary>
         /// Postfix on UIFieldFishingResultPresenter.Set — fires when the fishing
         /// result screen is populated with caught fish/items. Announces each catch
@@ -178,6 +183,15 @@ namespace SO2RAccess
                 if (parts.Count > 0)
                 {
                     string announcement = Loc.Get("fish_caught") + " " + string.Join(". ", parts) + ".";
+
+                    // Dedup: the game calls Set() many times per catch. Only announce once.
+                    float now = Time.time;
+                    if (announcement == _lastFishingAnnouncement &&
+                        now - _lastFishingAnnouncementTime < 2f)
+                        return;
+                    _lastFishingAnnouncement = announcement;
+                    _lastFishingAnnouncementTime = now;
+
                     ScreenReader.Say(announcement);
                 }
             }

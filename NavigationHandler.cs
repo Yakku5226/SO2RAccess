@@ -237,6 +237,10 @@ namespace SO2RAccess
         /// is near the trigger edge before calling StartEvent().
         /// </summary>
         private Bounds? _autoWalkTriggerBounds;
+        /// <summary>
+        /// Optional position to face on arrival (e.g. water center for fishing spots).
+        /// </summary>
+        private Vector3? _autoWalkFacePosition;
 
         /// <summary>
         /// True when auto-walking to a target on a different floor (significant Y difference).
@@ -635,8 +639,16 @@ namespace SO2RAccess
                     : (isInteractable ? InteractableArrivalRadius : AutoWalkArrivalRadius);
                 if (targetDist <= arrivalRadius)
                 {
-                    // Face the target.
-                    player.transform.rotation = Quaternion.LookRotation(targetDir, Vector3.up);
+                    // Face toward FacePosition if set (e.g. water center), else target.
+                    Vector3 faceDir = targetDir;
+                    if (_autoWalkFacePosition.HasValue)
+                    {
+                        Vector3 toFace = _autoWalkFacePosition.Value - playerPos;
+                        toFace.y = 0f;
+                        if (toFace.sqrMagnitude > 0.01f)
+                            faceDir = toFace.normalized;
+                    }
+                    player.transform.rotation = Quaternion.LookRotation(faceDir, Vector3.up);
 
                     // Only NPCs use proximity-lock (they wander, so the player
                     // follows until manually cancelled). All other targets with
@@ -959,7 +971,16 @@ namespace SO2RAccess
                     // Just stop and announce — the game handles transitions.
                     StopAutoWalk();
 
-                    player.transform.rotation = Quaternion.LookRotation(targetDir, Vector3.up);
+                    // Face toward FacePosition if set (e.g. water center), else target.
+                    Vector3 exhaustFaceDir = targetDir;
+                    if (_autoWalkFacePosition.HasValue)
+                    {
+                        Vector3 toFace = _autoWalkFacePosition.Value - playerPos;
+                        toFace.y = 0f;
+                        if (toFace.sqrMagnitude > 0.01f)
+                            exhaustFaceDir = toFace.normalized;
+                    }
+                    player.transform.rotation = Quaternion.LookRotation(exhaustFaceDir, Vector3.up);
 
                     int meters = Mathf.RoundToInt(targetDist);
                     string compass = GetCompassDirection(playerPos, _autoWalkTarget, _isWorldmap);

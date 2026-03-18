@@ -74,6 +74,7 @@ namespace SO2RAccess
             _autoWalkIsCounter      = item.IsCounterNpc;
             _autoWalkEventRef       = item.EventRef;
             _autoWalkTriggerBounds  = item.TriggerBounds;
+            _autoWalkFacePosition   = item.FacePosition;
             _autoWalkDifferentFloor = Mathf.Abs(item.Position.y - playerPos.y) >= FloorChangeThreshold;
             _autoWalkCategoryIndex = _currentCategoryIndex;
             _isAutoWalking       = true;

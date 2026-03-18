@@ -36,31 +36,26 @@
 ## Current Phase
 
 **Phase:** Phase 3 — Feature Implementation
-**Currently working on:** Fishing — arrival facing diagnostic (needs test)
-**Blocked by:** Awaiting test of fishing spot arrival facing fix (diagnostic build deployed)
-**Last completed:** Fishing — navigation + catch result announcements (2026-03-17)
+**Currently working on:** Ready for new feature work
+**Blocked by:** Nothing
+**Last completed:** Fishing — nav arrival + catch dedup fixes (2026-03-18)
 
-### Fishing Accessibility (2026-03-17) — PARTIALLY WORKING
+### Fishing Accessibility (2026-03-18) — WORKING
 
-- **What works (tested 2026-03-17):**
+- **What works (tested 2026-03-18):**
   - Fishing spots appear in Interactables nav category via `FindObjectsOfType<FieldFishingWaterPlace>()`
-  - Auto-walk navigates player to the water's edge (path exhausts at shore)
+  - Auto-walk navigates player to the water's edge and arrives close enough to interact
+  - Player faces the water on arrival via FacePosition (collider center, separate from walk target)
   - Catch result announcements: Harmony postfix on `UIFieldFishingResultPresenter.Set()` (CallerCount 1)
-    announces "Caught: [fish name], [size], [new record/max size/new]."
+    announces "Caught: [fish name], [size], [new record/max size/new]." — deduped (game calls Set ~19x per catch)
   - "Fish got away" already caught by existing dialogue system
   - Game's built-in audio/vibration cues are sufficient for the minigame itself (no custom cues needed)
   - User completed Fishing Mission 1 successfully
-- **What's NOT working (needs fix):**
-  - **Arrival facing:** Player does not face the water correctly after auto-walk to fishing spot.
-    User has to manually turn to interact. Three approaches tried so far:
-    1. `Position = NavMesh shore point` → player faced along shore, not toward water
-    2. `Position = BoxCollider center` → path exhaustion triggered too far (2m), player still not facing water correctly
-    3. `Position = shore point, LiveTransform = col.transform` → `_autoWalkTarget` updates to collider position each frame, path exhaustion faces `targetDir` toward collider. Still not working per user report.
-  - **Diagnostic build deployed:** Added `facing=` and `targetDir=` vectors to path exhaustion log.
-    Next session: have user walk to fishing spot, check log to see if facing is correct but
-    overridden by game, or if direction calculation is wrong.
-  - **Collider data (Krosse area):** center=(-63.70, -1.00, -0.73), bounds=(1.50, 1.20, 1.50),
-    walkTarget=(-64.89, -1.50, -0.51), player typically ends at X≈-65, Z≈0
+- **Previous bugs fixed (2026-03-18):**
+  - **Arrival too far:** LiveTransform tracked collider center (in water, off NavMesh), making arrival
+    distance ~2m instead of using the NavMesh walk target. Fix: FacePosition field on NavItem stores
+    water center for facing only; LiveTransform left null so arrival uses static Position.
+  - **Catch result spam:** Set() hook fired ~19 times per catch. Fix: dedup guard (same text + 2s window).
 - **Files:**
   - `NavigationHandler.Build.cs` — `BuildFishingSpots()` method
   - `NavigationHandler.cs` — `BuildFishingSpots()` call in scan, fishing result hook in ApplyPatches
