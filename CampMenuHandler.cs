@@ -446,6 +446,7 @@ namespace SO2RAccess
                     if (!_campWindow.IsOpened && (UnityEngine.Time.time - _campOpenTime) > 1.0f)
                     {
                         IsCampOpen = false;
+                        _isFieldShortcutIC = false;
                         _campWindow = null;
                         _menuSelector = null;
                         DebugLogger.LogState("CampMenu: window closed (IsCampOpen=false via IsOpened).");
@@ -454,6 +455,7 @@ namespace SO2RAccess
                 catch (Exception ex)
                 {
                     IsCampOpen = false;
+                    _isFieldShortcutIC = false;
                     _campWindow = null;
                     _menuSelector = null;
                     DebugLogger.LogState($"CampMenu: closure check error: {ex.Message}");
@@ -581,8 +583,23 @@ namespace SO2RAccess
             _campOpenTime = UnityEngine.Time.time;
             _campWindow = __instance;
 
-            ScreenReader.Say(Loc.Get("camp_menu_screen"));
-            DebugLogger.LogState("CampMenu: window opened.");
+            // Detect field shortcut IC (D-pad Down opens directly to SelectSpecialSkill).
+            UIDefine.CampState openState = UIDefine.CampState.Menu;
+            try { openState = __instance.OpenCampState; }
+            catch { /* fallback to Menu */ }
+
+            _isFieldShortcutIC = (openState == UIDefine.CampState.SelectSpecialSkill);
+
+            if (_isFieldShortcutIC)
+            {
+                ScreenReader.Say(Loc.Get("ic_shortcut_screen"));
+                DebugLogger.LogState("CampMenu: field shortcut IC opened.");
+            }
+            else
+            {
+                ScreenReader.Say(Loc.Get("camp_menu_screen"));
+                DebugLogger.LogState("CampMenu: window opened.");
+            }
 
             if (__instance == null) return;
 

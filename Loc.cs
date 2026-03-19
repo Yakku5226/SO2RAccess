@@ -707,6 +707,7 @@ namespace SO2RAccess
 
             // Item Creation sub-screen (Camp → Item Creation)
             Add("ic_screen",                  "Item Creation.");
+            Add("ic_shortcut_screen",          "IC Specialty.");
             Add("ic_tab_itemcreation",        "Item Creation.");
             Add("ic_tab_specialskill",        "Special Skills.");
             Add("ic_tab_superspecialskill",   "Super Special Skills.");

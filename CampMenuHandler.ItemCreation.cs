@@ -34,6 +34,9 @@ namespace SO2RAccess
     {
         #region Item Creation Fields
 
+        /// <summary>True when IC opened via field shortcut (D-pad Down), not camp root menu.</summary>
+        private static bool _isFieldShortcutIC;
+
         // --- Screen 1: Skill Selection ---
         private static UICampSelectSpecialSkillSelector _icSkillSelector;
         private static readonly SubScreenState _icSkillState = new SubScreenState();
@@ -55,6 +58,8 @@ namespace SO2RAccess
         // --- Screen 3: Result ---
         private static UICampSpecialSkillResultSelector _icResultSelector;
         private static readonly SubScreenState _icResultState = new SubScreenState();
+        /// <summary>Time.time after which the result index reset takes effect (animation delay).</summary>
+        private static float _icResultReadyTime;
 
         // --- Hook data ---
         private static string _icPendingSkillName;
@@ -248,12 +253,19 @@ namespace SO2RAccess
         #region Item Creation Update
 
         /// <summary>
-        /// Polls item creation sub-screens. Called from Update() when
-        /// _lastRootMenuItemName == "ItemCreation".
+        /// Returns true if IC sub-screens should be active — either via camp root menu
+        /// or via field shortcut (D-pad Down on field).
+        /// </summary>
+        private static bool IsICActive() =>
+            _lastRootMenuItemName == "ItemCreation" || _isFieldShortcutIC;
+
+        /// <summary>
+        /// Polls item creation sub-screens. Called from Update() when IC is active
+        /// (camp root menu on ItemCreation, or field shortcut).
         /// </summary>
         private void UpdateItemCreation()
         {
-            if (_lastRootMenuItemName != "ItemCreation") return;
+            if (!IsICActive()) return;
 
             try
             {
@@ -289,6 +301,13 @@ namespace SO2RAccess
                     _icLastTab = -1;
                     _icPendingSkillName = null;
                     _icPendingSkillDesc = null;
+                    // If we were in field shortcut mode and the skill selector hid,
+                    // the user backed out — clear shortcut flag so IC polling stops.
+                    if (_isFieldShortcutIC)
+                    {
+                        _isFieldShortcutIC = false;
+                        DebugLogger.LogState("CampIC: field shortcut IC cleared (skill selector hidden).");
+                    }
                 });
 
             if (!shouldPoll) return;
@@ -559,7 +578,10 @@ namespace SO2RAccess
                 else if (createCount <= 0 && prevCount > 0)
                 {
                     // Exiting Create mode (cancelled or executing).
-                    DebugLogger.LogState("CampIC: Create mode exited.");
+                    // Schedule result index reset with delay so the result animation
+                    // has time to play before the screen reader announces.
+                    _icResultReadyTime = UnityEngine.Time.time + 1.5f;
+                    DebugLogger.LogState("CampIC: Create mode exited, result delayed 1.5s.");
                 }
             }
             catch (Exception ex)
@@ -652,6 +674,14 @@ namespace SO2RAccess
         {
             if (_icResultSelector == null) return;
 
+            // Delayed reset: wait for result animation before announcing.
+            if (_icResultReadyTime > 0f && UnityEngine.Time.time >= _icResultReadyTime)
+            {
+                _icResultState.LastIndex = -1;
+                _icResultReadyTime = 0f;
+                DebugLogger.LogState("CampIC: result index reset after delay.");
+            }
+
             bool isActive;
             try { isActive = _icResultSelector.gameObject.activeInHierarchy; }
             catch { return; }
@@ -711,7 +741,7 @@ namespace SO2RAccess
         /// </summary>
         private static void AddMaterialSelector_Set_IC_Postfix()
         {
-            if (_lastRootMenuItemName != "ItemCreation") return;
+            if (!IsICActive()) return;
 
             _icMaterialSetHookFired = true;
             _icMaterialLastState = -1;
@@ -732,7 +762,7 @@ namespace SO2RAccess
             string skillName, string skillDescription, int level)
         {
             if (string.IsNullOrEmpty(skillName)) return;
-            if (_lastRootMenuItemName != "ItemCreation") return;
+            if (!IsICActive()) return;
 
             _icPendingSkillName = skillName;
             _icPendingSkillDesc = skillDescription;
@@ -772,7 +802,7 @@ namespace SO2RAccess
             UIItemCreationInformationData data)
         {
             if (data == null) return;
-            if (_lastRootMenuItemName != "ItemCreation") return;
+            if (!IsICActive()) return;
 
             _icPendingCreationData = data;
             _icCreationHookFired = true;

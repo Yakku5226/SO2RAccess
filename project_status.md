@@ -38,7 +38,7 @@
 **Phase:** Phase 3 — Feature Implementation
 **Currently working on:** Ready for new feature work
 **Blocked by:** Nothing
-**Last completed:** Status screen — age, food, elements, friendship, virtual cursor (2026-03-18)
+**Last completed:** Field shortcut IC menu accessibility + result announcement fix (2026-03-19)
 
 ### Fishing Accessibility (2026-03-18) — WORKING
 
@@ -62,9 +62,9 @@
   - `NavigationHandler.Patches.cs` — `FishingResultSet_Postfix()` for catch announcements
   - `Loc.cs` — 6 keys: nav_fishing, nav_fishing_n, fish_caught, fish_new_record, fish_new, fish_max_size
 
-### Item Creation Sub-screen (2026-03-17) — WORKING
+### Item Creation Sub-screen (2026-03-19) — WORKING
 
-- **What works (tested 2026-03-17):**
+- **What works (tested 2026-03-19):**
   - Skill selection: skill name, description, level, tab switching — all working
   - Action list: category name, creation hook, character tab — working
   - "????" item names: fixed, now says "Unknown" (SanitizeItemName helper)
@@ -74,6 +74,15 @@
   - Result screen: fully working — item name, success/failure, position
   - Stale suppression: all IC sub-screens (skill, action, result) properly seed
     LastIndex and tab values on camp open. Scrolling past IC in root menu is silent.
+  - **Field shortcut IC (D-pad Down on field):** fully working (2026-03-19).
+    Game reuses `UICampWindow` with `OpenCampState=SelectSpecialSkill`.
+    Detected via `UICampWindow.OpenCampState` property in Open postfix.
+    `_isFieldShortcutIC` flag + `IsICActive()` helper unlocks all 4 IC gates
+    (polling + 3 hooks). Announces "IC Specialty." on open. Flag cleared on
+    window close, skill selector hidden, or root menu activation.
+  - **Result announcement fix (2026-03-19):** single-item results at index 0
+    were not announced due to stale seed. Fixed by resetting result index on
+    create mode exit with 1.5s delay to sync with result animation.
 - **What's NOT yet accessible (future work):**
   - **Material selection screen** (`UICampSpecialSkillAddMaterialSelector`):
     ALL sub-selectors have stale `activeInHierarchy=true`. The `Set` hook (CallerCount 1)
@@ -81,9 +90,9 @@
     transitions). This screen likely only appears for Compounding/Customization at higher
     skill levels. Hook + polling code is dormant, ready when encountered.
 - **Files:**
-  - `CampMenuHandler.ItemCreation.cs` — all IC logic (skill, action, create mode, result)
-  - `CampMenuHandler.cs` — selector caching in Open postfix, 3 Harmony patches, Update call
-  - `Loc.cs` — 17 localization keys (ic_screen, ic_tab_*, ic_skill_*, ic_action_*, ic_result_*, ic_unknown_item)
+  - `CampMenuHandler.ItemCreation.cs` — all IC logic (skill, action, create mode, result, field shortcut flag)
+  - `CampMenuHandler.cs` — selector caching in Open postfix, shortcut detection, 3 Harmony patches, Update call
+  - `Loc.cs` — 18 localization keys (ic_screen, ic_shortcut_screen, ic_tab_*, ic_skill_*, ic_action_*, ic_result_*, ic_unknown_item)
 
 ### Camp Quest & Mission Lists (2026-03-16) — COMPLETE
 
