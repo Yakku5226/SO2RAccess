@@ -342,7 +342,9 @@ namespace SO2RAccess
 
                 // Use PascalCase property (IsAcquired) not backing field (isAcquired).
                 // IL2CPP backing fields can return stale/wrong values for distant objects.
-                string  label = chest.IsAcquired
+                bool isOpened = chest.IsAcquired;
+
+                string label = isOpened
                     ? Loc.Get("nav_chest_opened")
                     : Loc.Get("nav_chest_unopened");
 
@@ -362,7 +364,7 @@ namespace SO2RAccess
             for (int i = 0; i < items.Count; i++)
             {
                 var  item     = items[i];
-                bool isOpened = item.Label == Loc.Get("nav_chest_opened");
+                bool isOpened = item.Label.StartsWith(Loc.Get("nav_chest_opened"));
                 item.Label = isOpened
                     ? Loc.Get("nav_chest_opened_n",   openedNum++)
                     : Loc.Get("nav_chest_unopened_n", unopenedNum++);

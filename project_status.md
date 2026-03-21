@@ -186,8 +186,9 @@
 2. **IsReachable accepts partial paths for different floors:** Targets on different floors
    (connected by stairs) get `PathPartial` — now accepted instead of being filtered from nav list.
 3. **Chest IsAcquired fix:** Switched from `chest.isAcquired` (backing field, stale at distance)
-   to `chest.IsAcquired` (property, calls native getter). Distant chests no longer flip
-   between Opened/Unopened.
+   to `chest.IsAcquired` (property, calls native getter). Also fixed numbering loop using
+   `StartsWith` instead of exact `==` so floor-suffixed labels ("Opened chest (above)") are
+   correctly recognized as opened.
 4. **Interactable arrival radius:** Added `InteractableArrivalRadius = 1.3f` for chests, save
    points, and interactables. Previously used 1.8f (NPC radius) — too far for chest interaction.
 5. **Stuck loop prevention:** Max 3 obstacle avoidance attempts before cancelling with
