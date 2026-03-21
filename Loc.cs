@@ -474,6 +474,7 @@ namespace SO2RAccess
             Add("battle_result_levelup_bsp","Gained {0} Battle Skill Points.");
             Add("battle_result_learned_skill", "Learned {0}: {1}.");
             Add("battle_result_learned_skill_noDesc", "Learned {0}.");
+            Add("battle_result_skill_unknown", "new skill");
             Add("battle_result_bonus_chain", "Chain bonus active.");
             Add("battle_result_bonus_training", "{0} has Training bonus.");
             Add("battle_result_bonus_openeyes", "{0} has Open Eyes bonus.");
@@ -730,6 +731,12 @@ namespace SO2RAccess
             Add("ic_material_slot",           "Slot {0}");
             Add("ic_material_create",         "Create");
             Add("ic_material_rate",           "Success rate: {0} percent.");
+
+            // Super Specialty (IC overlay)
+            Add("ss_screen",                  "Super Specialty.");
+            Add("ss_not_learned",             "Not learned");
+            Add("ss_requires",                "Requires: {0}");
+            Add("ss_position",                "{0} of {1}.");
 
             // Database — Player Data (virtual cursor navigation)
             Add("db_playerdata_screen",         "Player Data.");

@@ -239,6 +239,9 @@ namespace SO2RAccess
                 DebugLogger.LogState("CampIC: addMaterialSelector cached.");
 
             DebugLogger.LogState($"CampIC: {_icAllSelectors.Count} skill type selectors cached.");
+
+            // Super Specialty selector (separate overlay, not on UICampWindow).
+            CacheSuperSpecialtySelector();
         }
 
         private static void TryAddSelector(Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase selector)
@@ -337,6 +340,10 @@ namespace SO2RAccess
                 if (tab != _icLastTab)
                 {
                     _icLastTab = tab;
+                    // Clear pending hook data so fallback polling isn't blocked on new tab.
+                    _icPendingSkillName = null;
+                    _icPendingSkillDesc = null;
+                    _icPendingSkillLevel = -1;
                     string tabName = tab switch
                     {
                         0 => Loc.Get("ic_tab_itemcreation"),
@@ -353,10 +360,13 @@ namespace SO2RAccess
                 DebugLogger.LogState($"CampIC: tab poll error: {ex.Message}");
             }
 
-            // The hook (SkillInfoPresenter_Set) handles cursor announcements.
-            // We just need to track tab. If the hook doesn't fire (native-only fallback),
-            // we poll currentIndex and try to read from currentDataList.
-            TryPollSkillSelectionFallback();
+            // The hook (SkillInfoPresenter_Set) handles cursor announcements for tabs 0/1.
+            // Tab 2 (super specialty) uses a different info presenter whose Set is native-only,
+            // so we poll and read its GameText fields directly.
+            if (_icLastTab == 2)
+                TryPollSuperSpecialtyTab();
+            else
+                TryPollSkillSelectionFallback();
         }
 
         /// <summary>

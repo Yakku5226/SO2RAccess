@@ -186,8 +186,59 @@ namespace SO2RAccess
                 if (itemCount > 0 && idx >= 0 && idx < itemCount)
                 {
                     var itemData = itemList[idx];
-                    spCost = itemData.consumeSP;
-                    isMax  = itemData.isLevelMax;
+
+                    // The game's itemDataList is stale for specialties after leveling —
+                    // consumeSP and isLevelMax don't refresh. Compute fresh values.
+                    if (itemData.specialSkillID != SpecialSkillID.INVALID)
+                    {
+                        // Specialty: call game API for fresh cost data.
+                        var tabBase = _skillSelector.TryCast<UICharacterTabListSelectorBase>();
+                        if (tabBase != null)
+                        {
+                            var pm = ParameterManager.Instance;
+                            var charaParam = pm?.UserParameter?.GetCharacterParameter(tabBase.currentPlayerID);
+                            if (charaParam != null)
+                            {
+                                var levelUpList = UICommon.CalcNeedSpecialSkillForLevelUp(
+                                    charaParam, itemData.specialSkillID);
+                                if (levelUpList != null && levelUpList.Count > 0)
+                                {
+                                    spCost = 0;
+                                    for (int i = 0; i < levelUpList.Count; i++)
+                                        spCost += levelUpList[i].consumeSP;
+                                    isMax = false;
+                                }
+                                else
+                                {
+                                    // Empty list = already at max level.
+                                    spCost = 0;
+                                    isMax = true;
+                                }
+                            }
+                        }
+                    }
+                    else if (itemData.skillID != SkillID.INVALID)
+                    {
+                        // Knowledge skill: itemDataList is reliable for cost,
+                        // but verify max level against game parameter data.
+                        spCost = itemData.consumeSP;
+                        var skillParam = ParameterManager.Instance?.GetSkillParameter(itemData.skillID);
+                        if (skillParam != null)
+                        {
+                            var spList = skillParam.levelupSp;
+                            isMax = (spList == null || level >= spList.Count);
+                        }
+                        else
+                        {
+                            isMax = itemData.isLevelMax;
+                        }
+                    }
+                    else
+                    {
+                        // Fallback: use stale data.
+                        spCost = itemData.consumeSP;
+                        isMax = itemData.isLevelMax;
+                    }
                 }
 
                 // ReadSkillPointBalance is defined in BattleSkill partial class.

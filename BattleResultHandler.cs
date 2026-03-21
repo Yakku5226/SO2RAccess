@@ -259,26 +259,49 @@ namespace SO2RAccess
                     string nameId = param.battleSkillNameID;
                     if (string.IsNullOrEmpty(nameId)) continue;
 
-                    string skillName = tm.GetMessage(nameId, TextManager.MessageType.Skill);
-                    if (string.IsNullOrEmpty(skillName))
-                    {
-                        DebugLogger.LogState($"BattleResult: skill name unresolved for '{nameId}'");
-                        continue;
-                    }
-
-                    // Try to get the description via UICommon.
+                    string skillName = "";
                     string description = "";
+
+                    // Try UICommon first — native code resolves both name and description.
                     try
                     {
                         var infoData = UICommon.CreateBattleSkillInformationData(
                             skillId, playerID, false);
                         if (infoData != null)
+                        {
+                            skillName = infoData.battleSkillName ?? "";
                             description = (infoData.battleSkillDescription ?? "").TrimEnd('.', ' ');
+                        }
                     }
                     catch (Exception ex)
                     {
                         DebugLogger.LogState(
-                            $"BattleResult: skill description failed for '{skillName}': {ex.Message}");
+                            $"BattleResult: UICommon skill info failed for '{nameId}': {ex.Message}");
+                    }
+
+                    // Fallback: TextManager with Skill message type.
+                    if (string.IsNullOrEmpty(skillName))
+                        skillName = tm.GetMessage(nameId, TextManager.MessageType.Skill) ?? "";
+
+                    // Fallback: ParameterManager.GetBattleSkillMessage.
+                    if (string.IsNullOrEmpty(skillName))
+                    {
+                        try
+                        {
+                            skillName = pm.GetBattleSkillMessage(nameId) ?? "";
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.LogState(
+                                $"BattleResult: GetBattleSkillMessage failed for '{nameId}': {ex.Message}");
+                        }
+                    }
+
+                    // Last resort: announce as "Learned new skill" so it's never silent.
+                    if (string.IsNullOrEmpty(skillName))
+                    {
+                        DebugLogger.LogState($"BattleResult: skill name unresolved for '{nameId}', using fallback");
+                        skillName = Loc.Get("battle_result_skill_unknown");
                     }
 
                     if (!string.IsNullOrEmpty(description))

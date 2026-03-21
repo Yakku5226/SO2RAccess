@@ -147,6 +147,11 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(UICampSkillListItemData).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UISkillInformationPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UISkillInformationData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICharacterTabListSelectorBase).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICommon).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICommon.SpecialSkillLevelUpData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UserParameter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(ConstSkillParameter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UICampSelectCharacterSelector).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UICampPartyMemberPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UICampPartyMemberSelectItemData).TypeHandle);
@@ -227,6 +232,19 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(UICampSpecialSkillActionPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UICampSpecialSkillActionSelectorData).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIConditionGroupData).TypeHandle);
+
+                // Super Specialty sub-screen types
+                RuntimeHelpers.RunClassConstructor(typeof(UICampSuperSpecialSkillSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UISuperSpecialSkillInformationPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UISuperSpecialSkillSelectItemPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UISuperSpecialSkillSelectItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UISuperSpecialSkillNamePresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UISuperSpecialSkillNeedLevelPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UISuperSpecialSkillLearningPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UISkillLearningSuperSpecialSkillInformationData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampSkillLearningSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UISkillLearningInformationPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UISkillLearningListItemData).TypeHandle);
 
                 harmony.Patch(
                     AccessTools.Method(typeof(UICampWindow),
@@ -415,6 +433,18 @@ namespace SO2RAccess
                         nameof(AddMaterialSelector_Set_IC_Postfix))
                 );
 
+                // UISuperSpecialSkillInformationPresenter.Set fires when the super
+                // specialty info panel updates (CallerCount 1).
+                harmony.Patch(
+                    AccessTools.Method(typeof(UISuperSpecialSkillInformationPresenter), "Set",
+                        new Type[] {
+                            typeof(string), typeof(string), typeof(string),
+                            typeof(Il2CppSystem.Collections.Generic.List<string>)
+                        }),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(SuperSpecialSkillInfoPresenter_Set_Postfix))
+                );
+
                 _patchesApplied = true;
                 MelonLogger.Msg("CampMenuHandler: patches applied.");
             }
@@ -474,6 +504,7 @@ namespace SO2RAccess
             UpdateAssistSettingSelector();
             UpdateTacticsSelector();
             UpdateItemCreation();
+            UpdateSkillLearning();
             UpdateQuestList();
             UpdateMissionList();
             UpdateTutorialSelector();

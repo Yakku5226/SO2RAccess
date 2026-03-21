@@ -36,9 +36,9 @@
 ## Current Phase
 
 **Phase:** Phase 3 — Feature Implementation
-**Currently working on:** Ready for new feature work
+**Currently working on:** Nothing — ready for next task
 **Blocked by:** Nothing
-**Last completed:** Field shortcut IC menu accessibility + result announcement fix (2026-03-19)
+**Last completed:** Super Specialty menu accessibility for IC tab 2 and Enhance Skill Learning (2026-03-21)
 
 ### Fishing Accessibility (2026-03-18) — WORKING
 
@@ -62,9 +62,9 @@
   - `NavigationHandler.Patches.cs` — `FishingResultSet_Postfix()` for catch announcements
   - `Loc.cs` — 6 keys: nav_fishing, nav_fishing_n, fish_caught, fish_new_record, fish_new, fish_max_size
 
-### Item Creation Sub-screen (2026-03-19) — WORKING
+### Item Creation Sub-screen (2026-03-19) — CONFIRMED WORKING (2026-03-20)
 
-- **What works (tested 2026-03-19):**
+- **What works (confirmed 2026-03-20):**
   - Skill selection: skill name, description, level, tab switching — all working
   - Action list: category name, creation hook, character tab — working
   - "????" item names: fixed, now says "Unknown" (SanitizeItemName helper)
@@ -93,6 +93,26 @@
   - `CampMenuHandler.ItemCreation.cs` — all IC logic (skill, action, create mode, result, field shortcut flag)
   - `CampMenuHandler.cs` — selector caching in Open postfix, shortcut detection, 3 Harmony patches, Update call
   - `Loc.cs` — 18 localization keys (ic_screen, ic_shortcut_screen, ic_tab_*, ic_skill_*, ic_action_*, ic_result_*, ic_unknown_item)
+
+### Skill Development Screen Fix (2026-03-19) — CONFIRMED WORKING (2026-03-20)
+
+- **Bug:** Specialty skills (Scouting, Familiar, Art, etc.) showed wrong SP cost and max level.
+  - SP cost frozen at initial value (e.g. always "1" for Scouting, even when actual cost was 20+)
+  - Max level flag stale — some specialties showed no cost (implying max) when still levelable
+  - Knowledge skills (Determination, Biology, etc.) were correct — game refreshes their data
+- **Root cause:** `itemDataList` on `UICampSkillSelector` is stale for specialties after leveling.
+  The game updates the visual display but doesn't refresh the data objects for specialties.
+  `consumeSP` and `isLevelMax` stayed frozen at list-build-time values.
+- **Fix** (in `CampMenuHandler.Formation.cs`, `SkillInfoPresenter_Set_Postfix`):
+  - Specialties: calls `UICommon.CalcNeedSpecialSkillForLevelUp(charaParam, specialSkillID)` fresh
+    each time the hook fires. Sums `consumeSP` from returned list for total cost. Empty list = max.
+  - Knowledge skills: still uses `itemData.consumeSP` (reliable), but verifies `isLevelMax` against
+    `ConstSkillParameter.levelupSp.Count` instead of trusting the stale flag.
+  - Gets current character via `_skillSelector` → `UICharacterTabListSelectorBase.currentPlayerID`
+    → `ParameterManager.Instance.UserParameter.GetCharacterParameter()`
+- **Files changed:** `CampMenuHandler.Formation.cs` (postfix logic), `CampMenuHandler.cs` (5 new RuntimeHelpers)
+- **Build:** Succeeds, deployed to Mods folder
+- **Tested (2026-03-20):** All confirmed working — SP costs accurate, reads correctly.
 
 ### Camp Quest & Mission Lists (2026-03-16) — COMPLETE
 
@@ -386,12 +406,12 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Double period fix: AppendSentence strips trailing periods from game text
   - Hook: UIItemInformationPresenter.Set caches effect/factor data for polling
 
-- **Post-battle result announcements** (`BattleResultHandler.cs`) ✓ RETESTED (2026-03-05)
+- **Post-battle result announcements** (`BattleResultHandler.cs`) ✓ RETESTED (2026-03-21)
   - Announces SP and BSP totals after EXP/Fol
   - Level-ups include per-character BSP gained and learned battle skills
   - Learned skills now announce with description: "Learned Fire Bolt: Unleashes a fiery projectile."
     (via UICommon.CreateBattleSkillInformationData; falls back to name-only if description unavailable)
-  - Bonus announcements: chain bonus (after totals), per-character Training and Open Eyes bonuses
+  - Bonus announcements: chain bonus (after totals), per-character Training and Open Eyes bonuses ✓ TESTED
   - Skill names resolved via ParameterManager → TextManager chain
 
 - **Battle target announcements** (`BattleTargetHandler.cs`) ✓ TESTED
@@ -1044,6 +1064,15 @@ Stale-open check helper consolidation. Key changes:
 
 ## Notes for Next Session
 
+### Skill development fix awaiting test (2026-03-19)
+- Fix deployed. User reported: specialty SP costs showed "1" always, some skills showed max when not.
+- Log confirmed: Scouting cost 20 SP (125→105) but displayed "SP: 125 / 1".
+- Fix uses `UICommon.CalcNeedSpecialSkillForLevelUp()` for fresh specialty costs.
+- Knowledge skill max verified against `ConstSkillParameter.levelupSp.Count`.
+- See "Skill Development Screen Fix" section above for full test checklist.
+- If test fails: check MelonLoader log for errors in `SkillInfoPresenter_Set_Postfix`.
+  The `CalcNeedSpecialSkillForLevelUp` call (CallerCount 2) should be safe from managed code.
+
 ### Audio clip ready for integration
 - **File:** `E:\StarOcean\audio_cue.wav` — 10-second clip (PCM WAV, 44100 Hz, 16-bit mono, ~861 KB)
 - **Source:** YouTube clip trimmed from 5s to 15s
@@ -1120,6 +1149,20 @@ Stale-open check helper consolidation. Key changes:
   - Auto-saves to settings.json on close
   - Loc keys added, help text updated
 
+### Previous work (2026-03-21)
+- Super Specialty menu accessibility (CampMenuHandler.SuperSpecialty.cs) ✓ TESTED
+  - New file: CampMenuHandler.SuperSpecialty.cs (~300 lines, partial class)
+  - Context A: IC tab 2 ("Super Special Skills") — polls currentIndex, reads skillName/skillDescription
+    from UISpecialSkillInformationPresenter GameText fields, reads conditions from
+    superSpecialSkillLearningPresenter sub-presenter
+  - Context B: Enhance → Skill → R2 (Skill Learning) — completely separate menu system
+    using UICampSkillLearningSelector (on UICampSkillSelector.learningSelector)
+    Polls currentDataList items (UISkillLearningListItemData: skillName, level),
+    reads info from UISkillLearningInformationPresenter
+  - Both contexts share AppendLearningConditions() for condition1/condition2 text
+  - Loc keys: ss_screen, ss_not_learned, ss_requires, ss_position
+- BattleResultHandler: bonus announcements (chain, Training, Open Eyes) confirmed working
+
 ### Previous work (2026-03-04)
 - SubScreenState helper: stale-open check consolidation ✓
   - New file: SubScreenState.cs
@@ -1141,7 +1184,7 @@ Stale-open check helper consolidation. Key changes:
 
 ### Previous work (2026-03-02)
 - BattleResultHandler: learned skills now announce with description (UICommon.CreateBattleSkillInformationData)
-- BattleResultHandler: bonus announcements added (chain, Training, Open Eyes) — PENDING TEST
+- BattleResultHandler: bonus announcements added (chain, Training, Open Eyes) ✓ TESTED (2026-03-21)
 - Old Loc key `battle_result_learned_skills` replaced with `battle_result_learned_skill` (name + desc)
   and `battle_result_learned_skill_noDesc` (name only fallback)
 
