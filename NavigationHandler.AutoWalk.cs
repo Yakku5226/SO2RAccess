@@ -10,12 +10,6 @@ namespace SO2RAccess
 {
     public partial class NavigationHandler
     {
-        /// <summary>Cached camera forward direction for deterministic world map stick conversion.</summary>
-        private static Vector3 _wmLockedCamForward;
-
-        /// <summary>True when the world map camera angle is locked for auto-walk.</summary>
-        private static bool _wmCameraLocked;
-
         /// <summary>
         /// Starts auto-walking to the currently highlighted navigation item.
         /// Calculates a NavMesh path to the target and walks along waypoints via Update().
@@ -158,10 +152,8 @@ namespace SO2RAccess
             _staticAutoWalkStickDir = Vector2.zero;
             _staticCameraStickX     = 0f;
             _wmDirectMoveActive     = false;
-            _wmCameraLocked         = false;
             _lidarSmoothedDir       = Vector3.zero;
             _lidarCommittedDir      = Vector3.zero;
-            _lidarCommitTimer       = 0f;
             _pathCorners                = null;
             _pathCornerIndex            = 0;
             _pathRecalcTimer            = 0f;
@@ -249,10 +241,8 @@ namespace SO2RAccess
             _staticAutoWalkStickDir = Vector2.zero;
             _staticCameraStickX  = 0f;
             _wmDirectMoveActive  = false;
-            _wmCameraLocked      = false;
             _lidarSmoothedDir    = Vector3.zero;
             _lidarCommittedDir   = Vector3.zero;
-            _lidarCommitTimer    = 0f;
             _isAvoidingObstacle  = false;
             _pathCorners         = null;
         }

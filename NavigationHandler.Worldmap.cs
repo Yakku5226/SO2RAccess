@@ -486,9 +486,6 @@ namespace SO2RAccess
         /// <summary>Current committed LIDAR direction (world-space).</summary>
         private Vector3 _lidarCommittedDir = Vector3.zero;
 
-        /// <summary>Timer tracking how long we've been on the current LIDAR direction.</summary>
-        private float _lidarCommitTimer;
-
         /// <summary>Smoothed LIDAR direction using exponential moving average.</summary>
         private Vector3 _lidarSmoothedDir = Vector3.zero;
 
