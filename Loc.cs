@@ -733,6 +733,17 @@ namespace SO2RAccess
             Add("ic_material_create",         "Create");
             Add("ic_material_rate",           "Success rate: {0} percent.");
 
+            // Train switch selector (toggle ON/OFF per party member)
+            Add("ic_train_item",              "{0}, {1}. {2} of {3}.");
+            Add("ic_train_on",                "ON");
+            Add("ic_train_off",               "OFF");
+            Add("ic_train_all_on",            "Turn all on. {0} of {1}.");
+            Add("ic_train_all_off",           "Turn all off. {0} of {1}.");
+
+            // Pickpocket field menu
+            Add("pickpocket_heading",          "Pickpocket.");
+            Add("pickpocket_rate",             "{0} percent");
+
             // Super Specialty (IC overlay)
             Add("ss_screen",                  "Super Specialty.");
             Add("ss_not_learned",             "Not learned");

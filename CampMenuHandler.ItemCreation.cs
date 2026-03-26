@@ -50,6 +50,18 @@ namespace SO2RAccess
         private static readonly SubScreenState _icActionState = new SubScreenState();
         private static int _icLastCharTab = -1;
 
+        // --- Screen 2a: Active skill category (set by creation hook to gate polling) ---
+        private static string _icActiveSkillCategory;
+
+        // --- Screen 2a: Train switch selector (toggle ON/OFF per party member) ---
+        private static UICampSpecialSkillSwitchSelector _icTrainSwitchSelector;
+        private static int _icTrainSwitchLastIndex = -1;
+
+        // --- Screen 2a: Scout action selector (Search/Escape/Nothing) ---
+        private static UICampSpecialSkillScoutSelector _icScoutSelector;
+        private static UIListSelectorBase _icScoutActionListBase;
+        private static int _icScoutLastIndex = -1;
+
         // --- Screen 2b: Create mode (after selecting material) ---
         private static UICampSpecialSkillActionSelectorBase _icActionSelectorBase;
         private static UICampSpecialSkillActionPresenter _icActionPresenter;
@@ -101,6 +113,12 @@ namespace SO2RAccess
             _icActiveSelector = null;
             _icActionListBase = null;
             _icLastCharTab = -1;
+            _icActiveSkillCategory = null;
+            _icTrainSwitchSelector = null;
+            _icTrainSwitchLastIndex = -1;
+            _icScoutSelector = window.scoutSelector;
+            _icScoutActionListBase = null;
+            _icScoutLastIndex = -1;
             ResetCreateModeState();
             _icPendingSkillName = null;
             _icPendingSkillDesc = null;
@@ -448,20 +466,58 @@ namespace SO2RAccess
                     _icLastCharTab = -1;
                     _icCreationHookFired = false;
                     _icPendingCreationData = null;
+                    _icTrainSwitchSelector = null;
+                    _icTrainSwitchLastIndex = -1;
+                    _icScoutActionListBase = null;
+                    _icScoutLastIndex = -1;
+                    // Note: _icScoutSelector stays cached for the camp session.
                     ResetCreateModeState();
                 });
+
+            // Train and Scout have dedicated selectors that bypass the stale-active
+            // detection. Poll them regardless of whether shouldPoll is true.
+            // Gate on _icActiveSkillCategory set by creation hook.
+            if (_icActiveSkillCategory == "Train" && PollTrainSwitchSelector()) return;
+            if (_icActiveSkillCategory == "Scouting" && PollScoutActionSelector()) return;
 
             if (!shouldPoll) return;
 
             _icActiveSelector = foundSelector;
 
             // Get the action list base for polling.
+            // The stale-active selector may not be the real one, so scan all active
+            // selectors for one with a usable action list (non-empty currentDataList).
             if (_icActionListBase == null)
             {
                 try
                 {
-                    var actionSel = _icActiveSelector.actionSelector;
-                    _icActionListBase = actionSel?.TryCast<UIListSelectorBase>();
+                    // First try the foundSelector.
+                    var actionSel = _icActiveSelector?.actionSelector;
+                    var candidate = actionSel?.TryCast<UIListSelectorBase>();
+                    if (candidate?.currentDataList?.Count > 0)
+                    {
+                        _icActionListBase = candidate;
+                    }
+                    else
+                    {
+                        // Scan all active selectors for one with actual data.
+                        foreach (var sel in _icAllSelectors)
+                        {
+                            try
+                            {
+                                if (sel?.gameObject?.activeInHierarchy != true) continue;
+                                var selAction = sel.actionSelector?.TryCast<UIListSelectorBase>();
+                                if (selAction?.currentDataList?.Count > 0)
+                                {
+                                    _icActionListBase = selAction;
+                                    _icActiveSelector = sel;
+                                    DebugLogger.LogState($"CampIC: found real action list on {sel.GetType().Name}");
+                                    break;
+                                }
+                            }
+                            catch { /* skip */ }
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -523,6 +579,185 @@ namespace SO2RAccess
             {
                 DebugLogger.LogState($"CampIC: character tab error: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Polls the Train switch selector (ON/OFF toggle per party member).
+        /// Scans _icAllSelectors directly for UICampSpecialSkillTrainingSelector
+        /// because the stale-active selector may not be the Training one.
+        /// Returns true if Train is active and handled, false otherwise.
+        /// </summary>
+        private bool PollTrainSwitchSelector()
+        {
+            // Try to detect the Training selector by scanning all selectors.
+            if (_icTrainSwitchSelector == null)
+            {
+                foreach (var sel in _icAllSelectors)
+                {
+                    try
+                    {
+                        if (sel?.gameObject?.activeInHierarchy != true) continue;
+                        var trainingSel = sel.TryCast<UICampSpecialSkillTrainingSelector>();
+                        if (trainingSel?.switchSelector != null)
+                        {
+                            _icTrainSwitchSelector = trainingSel.switchSelector;
+                            _icTrainSwitchLastIndex = -1;
+                            DebugLogger.LogState("CampIC: Train switch selector found.");
+                            break;
+                        }
+                    }
+                    catch { /* skip */ }
+                }
+            }
+
+            if (_icTrainSwitchSelector == null) return false;
+
+            // Verify still active.
+            try
+            {
+                if (_icTrainSwitchSelector.gameObject?.activeInHierarchy != true)
+                {
+                    _icTrainSwitchSelector = null;
+                    _icTrainSwitchLastIndex = -1;
+                    return false;
+                }
+            }
+            catch
+            {
+                _icTrainSwitchSelector = null;
+                _icTrainSwitchLastIndex = -1;
+                return false;
+            }
+
+            try
+            {
+                int idx = _icTrainSwitchSelector.currentIndex;
+                int charCount = _icTrainSwitchSelector.currentDataCount;
+                if (charCount <= 0) return true; // Train active but no data yet.
+
+                if (idx == _icTrainSwitchLastIndex) return true;
+                _icTrainSwitchLastIndex = idx;
+
+                // Total items = characters + "All On" + "All Off".
+                int totalCount = charCount + 2;
+
+                if (idx < charCount)
+                {
+                    // Character toggle item — get name and ON/OFF state.
+                    UICampSpecialSkillTrainingSelector trainingSel = null;
+                    foreach (var sel in _icAllSelectors)
+                    {
+                        try
+                        {
+                            trainingSel = sel?.TryCast<UICampSpecialSkillTrainingSelector>();
+                            if (trainingSel != null) break;
+                        }
+                        catch { /* skip */ }
+                    }
+
+                    if (trainingSel != null)
+                    {
+                        var dataList = trainingSel.CreateDataList();
+                        if (dataList != null && idx >= 0 && idx < dataList.Count)
+                        {
+                            var item = dataList[idx];
+                            string name = item?.itemName ?? "";
+                            bool isOn = item?.isOn ?? false;
+                            string state = isOn ? Loc.Get("ic_train_on") : Loc.Get("ic_train_off");
+                            ScreenReader.Say(Loc.Get("ic_train_item", name, state, idx + 1, totalCount));
+                            DebugLogger.LogState($"CampIC: Train switch [{idx}] {name} = {(isOn ? "ON" : "OFF")}");
+                            return true;
+                        }
+                    }
+                }
+                else if (idx == charCount)
+                {
+                    ScreenReader.Say(Loc.Get("ic_train_all_on", idx + 1, totalCount));
+                    DebugLogger.LogState($"CampIC: Train switch [{idx}] All On");
+                    return true;
+                }
+                else if (idx == charCount + 1)
+                {
+                    ScreenReader.Say(Loc.Get("ic_train_all_off", idx + 1, totalCount));
+                    DebugLogger.LogState($"CampIC: Train switch [{idx}] All Off");
+                    return true;
+                }
+
+                ScreenReader.Say(Loc.Get("ic_action_position", idx + 1, totalCount));
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"CampIC: Train switch error: {ex.Message}");
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Polls the Scout action selector (Search / Escape / Do Nothing).
+        /// Uses the cached _icScoutSelector from camp open.
+        /// Returns true if Scout is active and handled, false otherwise.
+        /// </summary>
+        private bool PollScoutActionSelector()
+        {
+            if (_icScoutSelector == null) return false;
+
+            // Try to get the action list from the cached scout selector.
+            if (_icScoutActionListBase == null)
+            {
+                try
+                {
+                    var actionSel = _icScoutSelector.ActionSelector;
+                    var listBase = actionSel?.TryCast<UIListSelectorBase>();
+                    if (listBase != null)
+                    {
+                        _icScoutActionListBase = listBase;
+                        _icScoutLastIndex = -1;
+                    }
+                }
+                catch { /* skip */ }
+            }
+
+            if (_icScoutActionListBase == null) return false;
+
+            // Only poll when the scout action list has data (i.e. the sub-menu is open).
+            try
+            {
+                var list = _icScoutActionListBase.currentDataList;
+                int count = list?.Count ?? 0;
+                if (count <= 0) return false;
+
+                int idx = _icScoutActionListBase.currentIndex;
+                if (idx == _icScoutLastIndex) return true;
+                _icScoutLastIndex = idx;
+
+                if (idx < 0 || idx >= count) return true;
+
+                var item = list[idx]?.TryCast<UISpecialSkillConsumeListItemData>();
+                if (item != null)
+                {
+                    string name = item.actionName;
+                    if (!string.IsNullOrEmpty(name))
+                    {
+                        var sb = new StringBuilder();
+                        sb.Append(name);
+                        if (!item.canDecision)
+                            sb.Append(", ").Append(Loc.Get("ic_unavailable"));
+                        sb.Append(". ").Append(idx + 1).Append(" of ").Append(count).Append('.');
+                        ScreenReader.Say(sb.ToString());
+                        DebugLogger.LogState($"CampIC: Scout action [{idx}] {name}");
+                        return true;
+                    }
+                }
+
+                ScreenReader.Say(Loc.Get("ic_action_position", idx + 1, count));
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"CampIC: Scout action error: {ex.Message}");
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -815,7 +1050,20 @@ namespace SO2RAccess
             if (!IsICActive()) return;
 
             _icPendingCreationData = data;
+
+            // Skills like Scouting and Survival have no creation items —
+            // their action lists use UISpecialSkillConsumeListItemData.actionName.
+            // Don't announce or set hookFired so dedicated polls handle them.
+            var creationListCheck = data.dataList;
+            if (creationListCheck == null || creationListCheck.Count == 0)
+            {
+                _icActiveSkillCategory = data.categoryName;
+                DebugLogger.LogState($"CampIC: creation hook (no items): {data.categoryName ?? "?"}, activeSkill={_icActiveSkillCategory}");
+                return;
+            }
+
             _icCreationHookFired = true;
+            _icActiveSkillCategory = null; // Regular creation skill, clear special category.
 
             var sb = new StringBuilder();
 

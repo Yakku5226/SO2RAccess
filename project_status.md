@@ -36,9 +36,23 @@
 ## Current Phase
 
 **Phase:** Phase 3 — Feature Implementation
-**Currently working on:** World map auto-walk — flood fill and entrance waypoints working, asymmetric routing issue remaining
-**Blocked by:** Salva→Krosse route fails — need sighted assistance to map viable northward route
-**Last completed:** Super Specialty menu accessibility for IC tab 2 and Enhance Skill Learning (2026-03-21)
+**Currently working on:** Field shortcut menu accessibility (Train, Scout, Pickpocket sub-menus)
+**Blocked by:** Nothing
+**Last completed:** Train switch selector, Scout action menu, Pickpocket field menu (2026-03-26)
+
+### Field Shortcut & Specialty Sub-menus — DONE (2026-03-26)
+
+- Train switch selector: reads party member names + ON/OFF state + "Turn all on/off" items
+- Scout action menu: reads "Look for enemies" / "Avoid enemies" / "Do nothing" options
+- Pickpocket field menu: reads item names + success rate percentages
+- Fix: creation hook with empty dataList no longer blocks fallback polling
+- Fix: _icActiveSkillCategory gates Train/Scout polls to prevent stale-state cross-interference
+
+### TODO: Quick Heal Menu (D-pad Right)
+- UIFieldQuickRecoverySelector — field overlay, same pattern as pickpocket
+- Has recoveryDataList, listItemDataList, currentChoice, playerIDList
+- Needs new handler with FindObjectOfType polling + data count gate (like pickpocket)
+- No existing mod code handles it at all
 
 ### World Map Cached Grid System — PARTIALLY WORKING (2026-03-26)
 
