@@ -227,3 +227,57 @@ map location symbols and objects are physically larger than field NPCs/chests.
 - Location data: `ParameterManager.Instance.GetWorldmapSymbolParameter(WorldmapID)` -> `List<ConstWorldmapSymbolParameter>`
 - Locality names: `ParameterManager.Instance.GetLocalityParameter(LocalityID)` -> `.localityNameID` -> `TextManager.Instance.GetMessage(key, MessageType.System)`
 - World map detection: `FieldManager.Instance.IsWorldmap()`, `FieldManager.Instance.WorldmapID`
+
+---
+
+## UPDATE: SESSION 2026-03-26 FINDINGS
+
+### ROOT CAUSE CONFIRMED
+
+Town models on the world map (e.g., Wall_Salba) are L22 obstacle rings. The A* was routing
+through visual gaps in these rings that the player cannot physically traverse.
+
+Wall_Salba confirmed dimensions: 40 colliders, X=[-174.2,-147.6] Z=[-327.7,-295.1],
+size 26.6x32.6m.
+
+### Flood Fill Solution
+
+Flood fill implemented to seal town model interiors — works correctly. Town entrance
+triggers (FieldMapjumpCollision) are baked in as passable cells before the fill, creating
+safe approach waypoints for town entry.
+
+### CharaWall Boundaries (L23) — New Blocker
+
+CharaWall region boundaries (L23) also block the player. These are large invisible walls
+separating world map regions with narrow gaps for passage.
+
+- CharaWall_ArliaSalba: ~80x80m with narrow gaps (0.51m clearance)
+- CharaWall_SalvaKrosse: wider gaps (1.6-1.9m clearance)
+
+The A* routes east through ArliaSalba narrow gaps instead of west through SalvaKrosse
+wider gaps.
+
+### MinPassableClearance Threshold Testing
+
+Raising MinPassableClearance was tested at multiple values:
+- 1.01m: blocks too many corridors
+- 0.75m: blocks too many corridors
+- 0.55m: still blocks too many corridors — the Krosse-Salva corridor has pinch points that fail even at 0.55m
+
+Reverted to 0.50m for stability.
+
+### Current State
+
+- Flood fill + entrance clearing: WORKING
+- Safe exit waypoints when leaving towns: implemented but needs refinement
+- Krosse south side TO Salva: WORKS
+- Salva northward TO Krosse: FAILS — the pathfinder cannot find a route
+- The problem is asymmetric (direction-dependent)
+
+### Known Issue
+
+Need a sighted person to examine the world map terrain around Salva and identify the
+viable route from Salva northward to Krosse. The route exists (sighted players use it)
+but the pathfinder cannot find it with current grid data. The CharaWall_ArliaSalba
+region blocks the eastern approach, and corridor threshold tuning cannot resolve this
+without breaking other passages.

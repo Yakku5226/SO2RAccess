@@ -160,6 +160,7 @@ namespace SO2RAccess
             Add("nav_autowalk_entering",   "Entering {0}.");
             Add("nav_autowalk_enter_fail", "Arrived near {0}. Could not enter automatically. Try fast travel instead.");
             Add("nav_autowalk_arrived_npc","Arrived at {0}. Press action button to interact. NumPad 1 or L1 to stop following.");
+            Add("nav_autowalk_resuming", "Resuming walk to {0}.");
             Add("nav_autowalk_unreachable","Cannot reach {0}.");
             Add("nav_autowalk_no_navmesh", "No navigation data available.");
             Add("nav_autowalk_lost_path",  "Lost path to {0}.");

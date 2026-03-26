@@ -127,15 +127,6 @@ namespace SO2RAccess
         /// </summary>
         private const float FieldStuckMinMove = 0.5f;
 
-        /// <summary>Seconds between stuck checks during world map auto-walk.</summary>
-        private const float WorldmapStuckCheckInterval = 3f;
-
-        /// <summary>
-        /// Minimum distance the player must move during a stuck check interval
-        /// to be considered making progress. Below this, auto-walk is cancelled.
-        /// </summary>
-        private const float WorldmapStuckMinMove = 2f;
-
         /// <summary>
         /// Maximum seconds to spend walking toward a detour point before giving up
         /// and resuming normal pathfinding.
@@ -165,24 +156,6 @@ namespace SO2RAccess
         /// </summary>
         private const float CameraFollowScale = 1.5f;
 
-        /// <summary>Max distance to show chests on the world map.</summary>
-        private const float WorldmapChestMaxDistance = 200f;
-
-        /// <summary>Max distance to show enemies on the world map.</summary>
-        private const float WorldmapEnemyMaxDistance = 150f;
-
-        /// <summary>
-        /// Arrival radius for world map targets (larger than field because
-        /// world map symbols and objects are bigger).
-        /// </summary>
-        private const float WorldmapArrivalRadius = 15f;
-
-        /// <summary>
-        /// Number of CalcHeight samples along the line from player to target
-        /// for ocean barrier detection on the world map.
-        /// </summary>
-        private const int WorldmapCalcHeightSamples = 10;
-
         /// <summary>
         /// Minimum Y-position change (in world units) to count as a floor transition.
         /// Typical floor height in the game is ~4 units.
@@ -208,6 +181,12 @@ namespace SO2RAccess
         private float     _autoWalkSpeed;   // queried for world map movement via GetMoveSpeed(true)
         private Vector3   _autoWalkTarget;
         private string    _autoWalkLabel;
+
+        /// <summary>Last auto-walk target position (for diagnostics).</summary>
+        public static Vector3? LastAutoWalkTarget { get; private set; }
+
+        /// <summary>Last auto-walk target label (for diagnostics).</summary>
+        public static string LastAutoWalkLabel { get; private set; }
         /// <summary>
         /// Live transform of the current auto-walk target.
         /// Null for exits and when the target has no live reference.
@@ -361,6 +340,22 @@ namespace SO2RAccess
             {
                 MelonLoader.MelonLogger.Error(
                     $"NavigationHandler.ApplyPatches failed (GetFieldCameraRightStick): {ex.Message}");
+            }
+
+            // GetPlayerControlStick — world map movement reads this instead of GetLeftStick.
+            // CallerCount(0) but Harmony patches still intercept native calls.
+            try
+            {
+                harmony.Patch(
+                    AccessTools.Method(typeof(GameInputManager), "GetPlayerControlStick"),
+                    postfix: new HarmonyMethod(typeof(NavigationHandler),
+                        nameof(GetPlayerControlStick_Postfix)));
+                DebugLogger.LogState("NavigationHandler: GetPlayerControlStick postfix applied.");
+            }
+            catch (Exception ex)
+            {
+                MelonLoader.MelonLogger.Error(
+                    $"NavigationHandler.ApplyPatches failed (GetPlayerControlStick): {ex.Message}");
             }
 
             // Gamepad input suppression patches
@@ -576,14 +571,101 @@ namespace SO2RAccess
             CheckFieldmapChange();
             CheckFloorChange();
 
+            // Resume auto-walk after battle on world map.
+            if (_wmResumeActive && !_isAutoWalking && IsFieldFree())
+            {
+                try
+                {
+                    var fm = FieldManager.Instance;
+                    if (fm != null && fm.IsWorldmap())
+                    {
+                        _wmResumeActive = false;
+                        DebugLogger.LogState(
+                            $"NAV worldmap: resuming auto-walk to '{_wmResumeLabel}'.");
+
+                        // Restore auto-walk state and recompute path.
+                        _autoWalkTarget = _wmResumeTarget;
+                        _autoWalkLabel = _wmResumeLabel;
+                        _autoWalkCategoryIndex = _wmResumeCategoryIndex;
+                        _autoWalkTransform = _wmResumeTransform;
+                        _isWorldmap = true;
+
+                        // Update target from live transform if available.
+                        if (_autoWalkTransform != null)
+                            _autoWalkTarget = _autoWalkTransform.position;
+
+                        var player = fm.GetControlPlayer();
+                        if (player != null)
+                        {
+                            Vector3 playerPos = player.transform.position;
+                            WorldmapCalculateAndStorePath(playerPos, _autoWalkTarget,
+                                keepBlockedPositions: true);
+
+                            _isAutoWalking = true;
+                            _staticIsAutoWalking = true;
+                            _wmStuckTimer = 0f;
+                            _wmLastStuckCheckPos = playerPos;
+                            _wmDiagTimer = 0f;
+                            // Don't reset _wmRecalcCount or _wmBlockedPositions
+                            // so we keep memory of previously stuck areas.
+                            ScreenReader.Say(
+                                Loc.Get("nav_autowalk_resuming", _autoWalkLabel));
+                            DebugLogger.LogState(
+                                $"NAV auto-walk resumed. target={_autoWalkLabel} " +
+                                $"waypoints={_wmPathWaypoints?.Length ?? 0}");
+                        }
+                        else
+                        {
+                            _wmResumeActive = false;
+                        }
+                    }
+                    else
+                    {
+                        // No longer on world map — clear resume.
+                        _wmResumeActive = false;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _wmResumeActive = false;
+                    DebugLogger.LogState($"NAV resume error: {ex.Message}");
+                }
+            }
+
             if (!_isAutoWalking) return;
 
             // Cancel auto-walk if a dialogue, event, notification, or menu appeared.
+            // On the world map, EventManager.IsRunning flickers true briefly at
+            // terrain zone transitions. Tolerate up to 10 consecutive frames (~0.17s)
+            // of IsFieldFree failure before actually cancelling.
             if (!IsFieldFree())
             {
+                if (_isWorldmap)
+                {
+                    _wmFieldFreeFailCount++;
+                    if (_wmFieldFreeFailCount > 10)
+                    {
+                        // Save resume info before cancelling — battle will
+                        // return to the same world map, so we can auto-resume.
+                        _wmResumeActive = true;
+                        _wmResumeTarget = _autoWalkTarget;
+                        _wmResumeLabel = _autoWalkLabel;
+                        _wmResumeCategoryIndex = _autoWalkCategoryIndex;
+                        _wmResumeTransform = _autoWalkTransform;
+                        // Keep blocked positions across battles.
+                        DebugLogger.LogState(
+                            $"NAV worldmap: battle interrupt, saving resume for '{_autoWalkLabel}'.");
+                        CancelAutoWalk();
+                        return;
+                    }
+                    // Brief interruption — skip this frame but don't cancel.
+                    _staticAutoWalkStickDir = Vector2.zero;
+                    return;
+                }
                 CancelAutoWalk();
                 return;
             }
+            _wmFieldFreeFailCount = 0;
 
             try
             {
@@ -594,6 +676,13 @@ namespace SO2RAccess
                 if (player == null) { CancelAutoWalk(); return; }
 
                 Vector3 playerPos = player.transform.position;
+
+                // World map: entirely separate auto-walk logic in Worldmap.cs.
+                if (_isWorldmap)
+                {
+                    UpdateWorldmapAutoWalk(player, playerPos);
+                    return;
+                }
 
                 // If the target has a live transform (NPC, chest, marker), update
                 // the target position every frame so wandering NPCs are tracked.
@@ -608,14 +697,24 @@ namespace SO2RAccess
                 // Re-evaluate floor difference each frame: if the player has since
                 // moved to the same floor (e.g. walked upstairs), re-enable proximity
                 // arrival so NPCs on the now-same floor can be reached normally.
+                // Distance guard: only re-enable when the player is far enough from
+                // the target in XZ that the proximity arrival check won't fire
+                // immediately. Without this, climbing stairs near a target causes
+                // premature arrival (Y crosses threshold while XZ is already close).
                 if (_autoWalkDifferentFloor &&
                     Mathf.Abs(_autoWalkTarget.y - playerPos.y) <= FloorChangeThreshold)
                 {
-                    _autoWalkDifferentFloor = false;
-                    DebugLogger.LogState(
-                        $"NAV auto-walk: player now on same floor as target " +
-                        $"(playerY={playerPos.y:F1}, targetY={_autoWalkTarget.y:F1}). " +
-                        "Re-enabling proximity arrival.");
+                    float guardDx = _autoWalkTarget.x - playerPos.x;
+                    float guardDz = _autoWalkTarget.z - playerPos.z;
+                    float guardDist = Mathf.Sqrt(guardDx * guardDx + guardDz * guardDz);
+                    if (guardDist > AutoWalkArrivalRadius * 2f)
+                    {
+                        _autoWalkDifferentFloor = false;
+                        DebugLogger.LogState(
+                            $"NAV auto-walk: player now on same floor as target " +
+                            $"(playerY={playerPos.y:F1}, targetY={_autoWalkTarget.y:F1}). " +
+                            "Re-enabling proximity arrival.");
+                    }
                 }
 
                 float targetDx   = _autoWalkTarget.x - playerPos.x;
@@ -634,9 +733,8 @@ namespace SO2RAccess
                 bool isInteractable = _autoWalkCategoryIndex == CAT_CHEST
                     || _autoWalkCategoryIndex == CAT_SAVE
                     || _autoWalkCategoryIndex == CAT_INTERACTABLE;
-                float arrivalRadius = _isWorldmap
-                    ? WorldmapArrivalRadius
-                    : (isInteractable ? InteractableArrivalRadius : AutoWalkArrivalRadius);
+                float arrivalRadius = isInteractable
+                    ? InteractableArrivalRadius : AutoWalkArrivalRadius;
                 if (targetDist <= arrivalRadius)
                 {
                     // Face toward FacePosition if set (e.g. water center), else target.
@@ -662,28 +760,6 @@ namespace SO2RAccess
                         // Non-NPC target — fully stop.
                         StopAutoWalk();
 
-                        // World map locations: trigger entry via mapjump
-                        // (world map uses transform.position, not input injection).
-                        if (_isWorldmap && _autoWalkCategoryIndex == CAT_LOCATION)
-                        {
-                            if (TryEnterWorldmapLocation())
-                            {
-                                AnnounceArrival(Loc.Get("nav_autowalk_entering",
-                                    _autoWalkLabel));
-                                DebugLogger.LogState(
-                                    $"NAV auto-walk entering '{_autoWalkLabel}' via mapjump.");
-                            }
-                            else
-                            {
-                                AnnounceArrival(Loc.Get("nav_autowalk_enter_fail",
-                                    _autoWalkLabel));
-                                DebugLogger.LogState(
-                                    $"NAV auto-walk arrived at '{_autoWalkLabel}' " +
-                                    "but no mapjump found.");
-                            }
-                            return;
-                        }
-
                         // --- Diagnostic dump on non-NPC arrival ---
                         LogNpcArrivalDiagnostics(player, playerPos, targetDist);
 
@@ -694,7 +770,7 @@ namespace SO2RAccess
                         string arrivalMsg;
                         if (IsExitCategory(_autoWalkCategoryIndex))
                         {
-                            string compass = GetCompassDirection(playerPos, _autoWalkTarget, _isWorldmap);
+                            string compass = GetCompassDirection(playerPos, _autoWalkTarget);
                             arrivalMsg = Loc.Get("nav_autowalk_arrived_exit",
                                 _autoWalkLabel, compass);
                         }
@@ -734,70 +810,6 @@ namespace SO2RAccess
                 // --- Approach phase ---
                 _autoWalkArrived     = false;
                 _staticIsAutoWalking = true;
-
-                // World map: use per-frame WorldmapFindPath from real player
-                // position. The A* pathfinder gives a single next-step waypoint
-                // that avoids terrain obstacles. Stored waypoints are not used
-                // because coordinate wrapping shifts positions each frame.
-                if (_isWorldmap)
-                {
-                    // Stuck detection: cancel if no progress over interval.
-                    _wmStuckTimer += Time.deltaTime;
-                    if (_wmStuckTimer >= WorldmapStuckCheckInterval)
-                    {
-                        float movedDx = playerPos.x - _wmLastStuckCheckPos.x;
-                        float movedDz = playerPos.z - _wmLastStuckCheckPos.z;
-                        float movedSq = movedDx * movedDx + movedDz * movedDz;
-                        if (movedSq < WorldmapStuckMinMove * WorldmapStuckMinMove)
-                        {
-                            DebugLogger.LogState(
-                                $"NAV worldmap: stuck (moved {Mathf.Sqrt(movedSq):F1} in " +
-                                $"{WorldmapStuckCheckInterval}s). Cancelling.");
-                            ScreenReader.Say(Loc.Get("nav_autowalk_unreachable", _autoWalkLabel));
-                            CancelAutoWalk();
-                            return;
-                        }
-                        _wmLastStuckCheckPos = playerPos;
-                        _wmStuckTimer = 0f;
-                    }
-
-                    // Ask the A* pathfinder for the next step toward the target.
-                    Vector3 moveDir = targetDir; // fallback: straight toward target
-                    var pf = GetWorldmapPathFinder();
-                    if (pf != null)
-                    {
-                        try
-                        {
-                            Vector3 from = playerPos;
-                            Vector3 to = _autoWalkTarget;
-                            if (pf.WorldmapFindPath(ref from, ref to) &&
-                                pf.routeCount > 0 && pf.routes != null)
-                            {
-                                Vector3 nextStep = pf.routes[0];
-                                float nsDx = nextStep.x - playerPos.x;
-                                float nsDz = nextStep.z - playerPos.z;
-                                float nsDist = Mathf.Sqrt(nsDx * nsDx + nsDz * nsDz);
-                                if (nsDist > 0.1f)
-                                    moveDir = new Vector3(nsDx / nsDist, 0f, nsDz / nsDist);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            DebugLogger.LogState($"NAV worldmap FindPath: {ex.Message}");
-                        }
-                    }
-
-                    float step = _autoWalkSpeed * Time.deltaTime;
-                    float nx = playerPos.x + moveDir.x * step;
-                    float nz = playerPos.z + moveDir.z * step;
-                    float ny = Mathf.Lerp(playerPos.y, _autoWalkTarget.y, 0.15f);
-                    player.transform.position = new Vector3(nx, ny, nz);
-
-                    Quaternion moveRot = Quaternion.LookRotation(moveDir, Vector3.up);
-                    player.transform.rotation = Quaternion.RotateTowards(
-                        player.transform.rotation, moveRot, AutoWalkTurnSpeed * Time.deltaTime);
-                    return;
-                }
 
                 // --- Field map: waypoint-based approach ---
 
@@ -983,7 +995,7 @@ namespace SO2RAccess
                     player.transform.rotation = Quaternion.LookRotation(exhaustFaceDir, Vector3.up);
 
                     int meters = Mathf.RoundToInt(targetDist);
-                    string compass = GetCompassDirection(playerPos, _autoWalkTarget, _isWorldmap);
+                    string compass = GetCompassDirection(playerPos, _autoWalkTarget);
                     AnnounceArrival(Loc.Get("nav_autowalk_arrived", _autoWalkLabel));
                     Vector3 fwd = player.transform.forward;
                     DebugLogger.LogState(
@@ -1427,7 +1439,14 @@ namespace SO2RAccess
         /// </summary>
         private void CheckFloorChange()
         {
-            if (_isWorldmap) return;
+            // Use FieldManager.IsWorldmap() directly instead of _isWorldmap field,
+            // because CancelAutoWalk clears _isWorldmap — causing stale floor change
+            // announcements on the world map when auto-walk ends.
+            try
+            {
+                if (FieldManager.Instance?.IsWorldmap() == true) return;
+            }
+            catch { /* FieldManager unavailable — proceed with floor check */ }
 
             try
             {

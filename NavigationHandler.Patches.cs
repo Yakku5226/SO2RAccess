@@ -38,7 +38,20 @@ namespace SO2RAccess
         /// </summary>
         private static void GetLeftStick_Postfix(ref Vector2 __result)
         {
-            if (!_staticIsAutoWalking) return;
+            if (!_staticIsAutoWalking || _wmDirectMoveActive) return;
+            __result = _staticAutoWalkStickDir;
+        }
+
+        /// <summary>
+        /// Harmony postfix for GameInputManager.GetPlayerControlStick().
+        /// CallerCount(0) — called only from native IL2CPP code, but Harmony patches
+        /// still intercept the call. The world map's native movement pipeline reads
+        /// this method instead of GetLeftStick(), so both must be hooked for auto-walk
+        /// to work on both field maps and the world map.
+        /// </summary>
+        private static void GetPlayerControlStick_Postfix(ref Vector2 __result)
+        {
+            if (!_staticIsAutoWalking || _wmDirectMoveActive) return;
             __result = _staticAutoWalkStickDir;
         }
 

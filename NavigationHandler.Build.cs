@@ -1330,6 +1330,75 @@ namespace SO2RAccess
 
             items.Sort((a, b) => a.Distance.CompareTo(b.Distance));
             _categories[CAT_LOCATION].AddRange(items);
+
+            // Diagnostic: log all FieldMapjumpCollision colliders on world map.
+            LogWorldmapMapjumpColliders(playerPos);
+        }
+
+        /// <summary>
+        /// Logs position, collider type, and bounds of all FieldMapjumpCollision
+        /// objects on the world map. Used to determine how big town entry
+        /// trigger zones are for routing purposes.
+        /// </summary>
+        private void LogWorldmapMapjumpColliders(Vector3 playerPos)
+        {
+            try
+            {
+                var collisions = UnityEngine.Object
+                    .FindObjectsOfType<FieldMapjumpCollision>();
+                if (collisions == null || collisions.Length == 0)
+                {
+                    DebugLogger.LogState("NAV MAPJUMP DIAG: no FieldMapjumpCollision found.");
+                    return;
+                }
+
+                MelonLoader.MelonLogger.Msg(
+                    $"=== MAPJUMP COLLIDER DIAGNOSTICS ({collisions.Length} objects) ===");
+
+                for (int i = 0; i < collisions.Length; i++)
+                {
+                    var mj = collisions[i];
+                    if (mj == null) continue;
+
+                    var pos = mj.transform.position;
+                    float dist = Vector3.Distance(playerPos, pos);
+                    string fieldmap = "?";
+                    try { fieldmap = mj.FieldmapID.ToString(); } catch { }
+                    string mjType = "?";
+                    try { mjType = mj.mapjumpType.ToString(); } catch { }
+
+                    // Get all colliders on this object.
+                    var colliders = mj.GetComponents<UnityEngine.Collider>();
+                    string colInfo = "no collider";
+                    if (colliders != null && colliders.Length > 0)
+                    {
+                        var parts = new List<string>();
+                        for (int c = 0; c < colliders.Length; c++)
+                        {
+                            var col = colliders[c];
+                            if (col == null) continue;
+                            var b = col.bounds;
+                            string trigger = col.isTrigger ? "TRIGGER" : "SOLID";
+                            parts.Add(
+                                $"{col.GetType().Name}({trigger}) " +
+                                $"ctr=({b.center.x:F1},{b.center.y:F1},{b.center.z:F1}) " +
+                                $"size=({b.size.x:F1},{b.size.y:F1},{b.size.z:F1})");
+                        }
+                        colInfo = string.Join(" | ", parts);
+                    }
+
+                    MelonLoader.MelonLogger.Msg(
+                        $"[MAPJUMP] dest={fieldmap} type={mjType} " +
+                        $"pos=({pos.x:F1},{pos.y:F1},{pos.z:F1}) " +
+                        $"dist={dist:F0} {colInfo}");
+                }
+
+                MelonLoader.MelonLogger.Msg("=== END MAPJUMP DIAGNOSTICS ===");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV MAPJUMP DIAG error: {ex.Message}");
+            }
         }
 
         private void SortAndFilterUnreachable(List<NavItem> items, Vector3 playerPos)

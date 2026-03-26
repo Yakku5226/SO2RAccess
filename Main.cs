@@ -2,6 +2,7 @@ using HarmonyLib;
 using MelonLoader;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using System;
 using System.Collections;
 using System.IO;
 using Il2CppGame;
@@ -280,6 +281,288 @@ namespace SO2RAccess
             // Mod menu consumes all keyboard input while open
             if (_modMenuHandler.IsOpen)
                 return _modMenuHandler.ProcessKeyboard(kb);
+
+            // F5 — scan L22/L23 obstacle parents near player (debug only, world map)
+            if (DebugMode && kb[Key.F5].wasPressedThisFrame)
+            {
+                try
+                {
+                    var player = Il2CppGame.FieldManager.Instance?.GetControlPlayer();
+                    if (player != null)
+                    {
+                        Vector3 pos = player.transform.position;
+                        MelonLogger.Msg($"[F5] Scanning L22+L23 colliders within 50m of ({pos.x:F1},{pos.y:F1},{pos.z:F1})...");
+
+                        int layerMask = (1 << 22) | (1 << 23);
+                        var cols = UnityEngine.Physics.OverlapSphere(pos, 50f, layerMask);
+                        if (cols == null || cols.Length == 0)
+                        {
+                            MelonLogger.Msg("[F5] No L22/L23 colliders found within 50m.");
+                        }
+                        else
+                        {
+                            // Group by parent name
+                            var groups = new System.Collections.Generic.Dictionary<string,
+                                (int count, float minX, float maxX, float minZ, float maxZ, int layer)>();
+
+                            foreach (var col in cols)
+                            {
+                                if (col == null || col.isTrigger) continue;
+                                string parentName = "?";
+                                var parentT = col.transform.parent;
+                                if (parentT != null) parentName = parentT.gameObject.name;
+                                int layer = col.gameObject.layer;
+                                string key = $"{parentName}(L{layer})";
+
+                                var b = col.bounds;
+                                if (groups.ContainsKey(key))
+                                {
+                                    var g = groups[key];
+                                    g.count++;
+                                    if (b.min.x < g.minX) g.minX = b.min.x;
+                                    if (b.max.x > g.maxX) g.maxX = b.max.x;
+                                    if (b.min.z < g.minZ) g.minZ = b.min.z;
+                                    if (b.max.z > g.maxZ) g.maxZ = b.max.z;
+                                    groups[key] = g;
+                                }
+                                else
+                                {
+                                    groups[key] = (1, b.min.x, b.max.x, b.min.z, b.max.z, layer);
+                                }
+                            }
+
+                            MelonLogger.Msg($"[F5] Found {cols.Length} colliders in {groups.Count} groups:");
+                            foreach (var kv in groups)
+                            {
+                                var g = kv.Value;
+                                float sizeX = g.maxX - g.minX;
+                                float sizeZ = g.maxZ - g.minZ;
+                                MelonLogger.Msg(
+                                    $"[F5]   {kv.Key}: {g.count} colliders, " +
+                                    $"X=[{g.minX:F1},{g.maxX:F1}] Z=[{g.minZ:F1},{g.maxZ:F1}] " +
+                                    $"size={sizeX:F1}x{sizeZ:F1}m");
+                            }
+                        }
+
+                        ScreenReader.Say("Obstacle scan complete. Check log.");
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    MelonLogger.Msg($"[F5] Error: {ex.Message}");
+                }
+                return true;
+            }
+
+            // F6 — test AIMoveController.Destination (debug only, world map)
+            if (DebugMode && kb[Key.F6].wasPressedThisFrame)
+            {
+                try
+                {
+                    var fm = FieldManager.Instance;
+                    if (fm != null && fm.IsWorldmap())
+                    {
+                        var player = fm.GetControlPlayer();
+                        if (player != null)
+                        {
+                            var aiCtrl = player.FieldAIController;
+                            if (aiCtrl == null)
+                            {
+                                ScreenReader.Say("No AI controller on player.");
+                                MelonLogger.Msg("[F6] FieldAIController is null.");
+                            }
+                            else
+                            {
+                                var moveCtrl = aiCtrl.AIMoveController;
+                                if (moveCtrl == null)
+                                {
+                                    ScreenReader.Say("No move controller available.");
+                                    MelonLogger.Msg("[F6] AIMoveController is null.");
+                                }
+                                else
+                                {
+                                    var playerPos = player.transform.position;
+                                    var target = playerPos + new Vector3(0, 0, -10);
+
+                                    MelonLogger.Msg($"[F6] AIMoveController type: {moveCtrl.GetType().Name}");
+                                    MelonLogger.Msg($"[F6] Current Destination: ({moveCtrl.Destination.x:F1},{moveCtrl.Destination.y:F1},{moveCtrl.Destination.z:F1})");
+                                    MelonLogger.Msg($"[F6] Current moveState: {moveCtrl.MoveState}");
+                                    MelonLogger.Msg($"[F6] Setting Destination to ({target.x:F1},{target.y:F1},{target.z:F1}) (10m south)");
+
+                                    moveCtrl.Destination = target;
+                                    moveCtrl.FinalDestination = target;
+
+                                    MelonLogger.Msg($"[F6] After set — Destination: ({moveCtrl.Destination.x:F1},{moveCtrl.Destination.y:F1},{moveCtrl.Destination.z:F1})");
+                                    MelonLogger.Msg($"[F6] After set — moveState: {moveCtrl.MoveState}");
+
+                                    ScreenReader.Say("AIMoveController destination set 10m south. Watch player movement. Check log.");
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        ScreenReader.Say("F6 test only available on world map.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MelonLogger.Msg($"[F6] AIMoveController test error: {ex}");
+                    ScreenReader.Say($"F6 test failed: {ex.Message}");
+                }
+                return true;
+            }
+
+            // F7 — test game's WorldmapFindPath (debug only, world map)
+            if (DebugMode && kb[Key.F7].wasPressedThisFrame)
+            {
+                try
+                {
+                    var fm = FieldManager.Instance;
+                    if (fm != null && fm.IsWorldmap())
+                    {
+                        var player = fm.GetControlPlayer();
+                        if (player != null)
+                        {
+                            var aiCtrl = player.FieldAIController;
+                            var aiParam = aiCtrl?.aiParameter;
+                            var pf = aiParam?.aiPathFinder;
+
+                            if (pf == null)
+                            {
+                                ScreenReader.Say("No pathfinder available.");
+                                MelonLogger.Msg("[F7] AIPathFinder is null.");
+                            }
+                            else
+                            {
+                                var playerPos = player.transform.position;
+                                var target = NavigationHandler.LastAutoWalkTarget;
+                                if (!target.HasValue)
+                                {
+                                    ScreenReader.Say("No target. Auto-walk first, then press F7.");
+                                }
+                                else
+                                {
+                                    var targetPos = target.Value;
+                                    MelonLogger.Msg($"[F7] Testing WorldmapFindPath...");
+                                    MelonLogger.Msg($"[F7] Player: ({playerPos.x:F1},{playerPos.y:F1},{playerPos.z:F1})");
+                                    MelonLogger.Msg($"[F7] Target: ({targetPos.x:F1},{targetPos.y:F1},{targetPos.z:F1})");
+
+                                    bool result = pf.WorldmapFindPath(ref playerPos, ref targetPos);
+                                    int count = pf.routeCount;
+                                    MelonLogger.Msg($"[F7] Result: {result}, routeCount: {count}");
+
+                                    if (count > 0 && pf.routes != null)
+                                    {
+                                        int logCount = Math.Min(count, 10);
+                                        for (int i = 0; i < logCount; i++)
+                                        {
+                                            var wp = pf.routes[i];
+                                            float dist = UnityEngine.Vector3.Distance(playerPos, wp);
+                                            MelonLogger.Msg($"[F7] route[{i}]: ({wp.x:F1},{wp.y:F1},{wp.z:F1}) dist={dist:F1}m");
+                                        }
+                                    }
+
+                                    ScreenReader.Say($"WorldmapFindPath returned {result}, {count} routes. Check log.");
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        ScreenReader.Say("Only available on world map.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MelonLogger.Msg($"[F7] WorldmapFindPath error: {ex}");
+                    ScreenReader.Say($"WorldmapFindPath failed: {ex.Message}");
+                }
+                return true;
+            }
+
+            // F9 — generate world map grid (debug only)
+            if (DebugMode && kb[Key.F9].wasPressedThisFrame)
+            {
+                try
+                {
+                    WorldmapGridGenerator.GenerateAndSave();
+                    WorldmapPathfinder.ClearCache();
+                }
+                catch (Exception ex)
+                {
+                    MelonLoader.MelonLogger.Msg($"F9 grid generation error: {ex.Message}");
+                }
+                return true;
+            }
+
+            // F8 — CharaWall boundary scan (debug only, world map)
+            if (DebugMode && kb[Key.F8].wasPressedThisFrame)
+            {
+                try
+                {
+                    if (FieldManager.Instance != null &&
+                        FieldManager.Instance.IsWorldmap())
+                    {
+                        var player = FieldManager.Instance.GetControlPlayer();
+                        if (player != null)
+                        {
+                            WorldmapDiagnostics.ScanCharaWalls(
+                                player.transform.position);
+                        }
+                    }
+                    else
+                    {
+                        ScreenReader.Say("Wall scan only available on world map.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MelonLogger.Msg($"F8 wall scan error: {ex.Message}");
+                }
+                return true;
+            }
+
+            // F10 — player collider diagnostics (debug only)
+            if (DebugMode && kb[Key.F10].wasPressedThisFrame)
+            {
+                try
+                {
+                    WorldmapGridGenerator.LogPlayerCollider();
+                }
+                catch (Exception ex)
+                {
+                    MelonLogger.Msg($"F10 collider diagnostics error: {ex.Message}");
+                }
+                return true;
+            }
+
+            // F11 — world map pathfinder diagnostics (debug only)
+            if (DebugMode && kb[Key.F11].wasPressedThisFrame)
+            {
+                try
+                {
+                    if (FieldManager.Instance != null &&
+                        FieldManager.Instance.IsWorldmap())
+                    {
+                        var player = FieldManager.Instance.GetControlPlayer();
+                        if (player != null)
+                        {
+                            WorldmapDiagnostics.RunAll(
+                                player.transform.position);
+                        }
+                    }
+                    else
+                    {
+                        ScreenReader.Say("Diagnostics only available on world map.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MelonLogger.Msg($"F11 diagnostics error: {ex.Message}");
+                }
+                return true;
+            }
 
             // F12 — toggle debug mode
             if (kb[Key.F12].wasPressedThisFrame)

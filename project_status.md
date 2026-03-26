@@ -36,9 +36,33 @@
 ## Current Phase
 
 **Phase:** Phase 3 — Feature Implementation
-**Currently working on:** Nothing — ready for next task
-**Blocked by:** Nothing
+**Currently working on:** World map auto-walk — flood fill and entrance waypoints working, asymmetric routing issue remaining
+**Blocked by:** Salva→Krosse route fails — need sighted assistance to map viable northward route
 **Last completed:** Super Specialty menu accessibility for IC tab 2 and Enhance Skill Learning (2026-03-21)
+
+### World Map Cached Grid System — PARTIALLY WORKING (2026-03-26)
+
+Grid format WMGH. 20+ approaches tried (WMG1-WMGH). MinPassableClearance at 0.50m (stable).
+Full investigation record in docs/worldmap-pathfinding.md and memory file worldmap-navigation.md.
+
+**What WORKS:**
+- Flood fill seals town model interiors (L22 obstacle rings)
+- Safe approach waypoints for town entry via FieldMapjumpCollision triggers
+- Safe exit waypoints when leaving towns (implemented, needs refinement)
+- Krosse → Salva: auto-walk navigates through corridor, enters Salva
+- Battle interrupt + resume: working
+- Grid generation with clearance offsets and clearance values: working
+
+**BLOCKED:**
+- A* cannot route from Salva northward to Krosse
+- CharaWall_ArliaSalba (L23, ~80x80m) blocks eastern approach with 0.51m gaps
+- CharaWall_SalvaKrosse has wider gaps (1.6-1.9m) but A* prefers east route
+- MinPassableClearance threshold tested at 1.01m, 0.75m, 0.55m — all block too many corridors
+- Problem is asymmetric: Krosse→Salva works, Salva→Krosse fails
+
+**Pending:**
+- Need sighted assistance to map viable routes around Salva northward
+- Grid format still WMGH, needs F9 regeneration after code changes
 
 ### Fishing Accessibility (2026-03-18) — WORKING
 
@@ -919,18 +943,50 @@ bypass managed stubs) with polling UIConversationSelector.currentVoiceController
   E.g. "Arrived at Building entrance to Arlia. Exit is to the North East." Directions are computed
   relative to the camera orientation (North = stick forward/up), not world axes.
 
-- **World map navigation** — IMPLEMENTED AND TESTED (2026-03-07):
-  - World map has no Unity NavMesh — uses game's custom A* pathfinder instead
-  - Reachability: CalcHeight path sampling (10 points along line to target) detects ocean barriers
-  - Distance caps: chests max 200m, enemies max 150m (reduces 50+ items to nearby handful)
-  - Locations category: cities/dungeons from ConstWorldmapSymbolParameter, scenario-progress filtered
-  - Location names resolved via localityID -> GetLocalityParameter -> localityNameID -> TextManager
-  - No reachability filter on locations (false negatives would hide targets permanently for blind users)
-  - Auto-walk: per-frame WorldmapFindPath (game's A* pathfinder), navigates around terrain
-  - Stuck detection: cancels if player moves < 2 units in 3 seconds
-  - Coordinate wrapping handled: fresh positions each frame (stored waypoints go stale)
-  - Arrival radius: 15m (vs 1.8m for field maps) due to larger world map objects
-  - Full technical documentation: docs/worldmap-pathfinding.md
+- **World map navigation** — OVERHAUL IN PROGRESS (2026-03-22):
+  - **Architecture (completed 2026-03-21):**
+    - NavigationHandler.Worldmap.cs fully separated from field map logic (no shared Update code)
+    - Movement: stick injection via GetPlayerControlStick postfix (GetLeftStick doesn't work on world map — native pipeline)
+    - GetPlayerControlStick CallerCount(0) but Harmony patches still intercept native calls (proven pattern)
+  - **WorldmapPathfinder.cs — REWRITTEN (2026-03-22), NEEDS TESTING:**
+    - **Two-layer walkability system:**
+      - Layer 1: FieldManager.CanMove(x, y) — game's baked 1m walkability grid (terrain, ocean, cliffs)
+      - Layer 2: Physics.OverlapSphere on layers 22/23 — Col_Obstacle colliders projected onto grid
+    - Both layers combined give complete obstacle knowledge at 1m resolution
+    - Binary heap A* priority queue — handles 200K+ cell grids efficiently
+    - Grid: 1m cells (Stride=1), 300-cell padding, max 800x800 dimension
+    - Snap-to-walkable: 30 cell radius (locations like Krosse City sit on non-walkable cells)
+    - Stuck detection: 2s interval, diagnostic logging of colliders at stuck position
+  - **Key discoveries (2026-03-22):**
+    - FieldManager.CanMove(x, y) — game's own walkability grid at 1m resolution!
+      Uses WorldGridData.alightFlag. CallerCount(3), safe to call.
+    - GetWorldGridDataGridPosition(ref Vector3) — world-to-grid conversion
+    - GetWorldGridDataPosition(int x, int y) — grid-to-world conversion
+    - IsExistWorldGridData() — checks if grid is loaded
+    - Game grid cell size is exactly 1.0m in both X and Z
+    - CanMove tracks terrain/ocean/cliffs but NOT Col_Obstacle colliders
+    - Col_Obstacle (layers 22/23) DO block player on world map (unlike field maps)
+    - Col_Obstacle colliders are NOT stored in any game data structure — only exist as live Unity physics objects
+    - CalcHeight with different layer masks shows NO difference (obstacles invisible to all CalcHeight variants)
+    - CalcHeight with ref tag returns "Untagged" or "Rock" — not useful for obstacle detection
+    - WorldGridData fields: encountIDList, footstepType, continentID, survivalAreaID, alightFlag, fishingWaterPlaceID, locationID (NO obstacle data)
+    - Previous CalcHeight-only approach failed because it couldn't see Col_Obstacle physical barriers
+    - Previous OverlapSphere-only approach (without CanMove) blocked too many cells (5193 obstacles)
+    - Combined approach (CanMove + OverlapSphere) is the correct architecture
+  - **Other fixes completed (2026-03-21):**
+    - IsFieldFree grace period: tolerates 10 frames of EventManager.IsRunning flicker at terrain transitions
+    - CheckFloorChange: uses FieldManager.IsWorldmap() directly instead of _isWorldmap flag
+    - _autoWalkDifferentFloor: distance guard prevents premature arrival on stairs (field maps)
+    - Arrival radii: chests 1.3m, enemies 1.8m, locations 10m fallback via TryEnterWorldmapLocation
+  - **Next steps (testing needed):**
+    - Test Salva → Arlia (short distance, previously worked)
+    - Test Salva → Krosse City (long distance, previously failed)
+    - If Col_Obstacle blocking is too aggressive again (no path), may need to reduce padding or
+      use ClosestPoint checks instead of bounding box projection for obstacle marking
+    - If path found but character still gets stuck, investigate if specific Col_Obstacles don't
+      actually block movement (some may be passable like on field maps)
+    - Future: Psynard (flying mount) support
+    - Future: use pathfinder for nav list reachability filtering
 
 - **Floor change announcements** — IMPLEMENTED AND TESTED (2026-03-07):
   - Polls player Y position each frame in CheckFloorChange()
