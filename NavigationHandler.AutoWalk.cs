@@ -24,6 +24,10 @@ namespace SO2RAccess
 
             var item = cat[_currentItemIndex];
 
+            // Allow the hard map-exit barrier to be bypassed ONLY when the target
+            // itself is an exit (the player explicitly wants to walk through it).
+            _autoWalkAllowExit = IsExitCategory(_currentCategoryIndex);
+
             // Calculate a NavMesh path before committing to the walk.
             Vector3 playerPos;
             try
@@ -43,6 +47,11 @@ namespace SO2RAccess
                 return;
             }
 
+            // Cross-area routing is handled inside CalculateAndStorePath
+            // (complete NavMesh path, else recorded traversal). The old NavMesh
+            // island/bridge multi-segment system is retired.
+
+            // Same island (or no island graph) — use standard single-path auto-walk.
             // Accept partial NavMesh paths when the target is behind a barrier
             // (counter NPCs), on a different floor, or on a disconnected NavMesh
             // surface that passed IsReachable (e.g. nearby exit with small Y gap).
@@ -64,10 +73,15 @@ namespace SO2RAccess
 
             if (!pathFound)
             {
-                ScreenReader.Say(Loc.Get("nav_autowalk_unreachable", item.Label));
+                ScreenReader.Say(Loc.Get(
+                    _lastPathBlockedByExit
+                        ? "nav_autowalk_route_exits"
+                        : "nav_autowalk_unreachable",
+                    item.Label));
                 return;
             }
 
+            _crossingExitZones     = null; // single-target walk: no exit steering
             _autoWalkTarget        = item.Position;
             _autoWalkLabel         = item.Label;
             LastAutoWalkTarget     = item.Position;
@@ -162,7 +176,524 @@ namespace SO2RAccess
             _isAvoidingObstacle         = false;
             _avoidanceAttempt           = 0;
             _isWorldmap                 = false;
+            _routeSegments              = null;
+            _routeSegmentIndex          = 0;
+            _routeIsSpeculative         = false;
+            _isCrossingPhase            = false;
+            _crossingTimer              = 0f;
+            _crossingExitZones          = null;
             DebugLogger.LogState("NAV auto-walk cancelled.");
+        }
+
+        /// <summary>
+        /// Starts a multi-segment auto-walk across multiple islands.
+        /// Calculates the first segment's NavMesh path and begins walking.
+        /// </summary>
+        private void StartMultiSegmentWalk(NavItem item, Vector3 playerPos,
+            RouteResult route)
+        {
+            _routeSegments = route.Segments;
+            _routeSegmentIndex = 0;
+            _routeIsSpeculative = route.HasSpeculativeSegments;
+            _isCrossingPhase = false;
+            _routeFinalTarget = item.Position;
+            _routeFinalLabel = item.Label;
+
+            // Cache map-exit trigger zones so the crossing phase can steer
+            // around them (a straight-line crossing must not trip a transition).
+            CacheCrossingExitZones(item.Position);
+
+            // Set up core auto-walk state.
+            _autoWalkTarget = _routeSegments[0].WalkTarget;
+            _autoWalkLabel = item.Label;
+            LastAutoWalkTarget = item.Position;
+            LastAutoWalkLabel = item.Label;
+            _autoWalkTransform = null; // Multi-segment doesn't track live transforms per segment.
+            _autoWalkIsCounter = false;
+            _autoWalkEventRef = null;
+            _autoWalkTriggerBounds = null;
+            _autoWalkFacePosition = null;
+            _autoWalkDifferentFloor = true; // Cross-island = different elevation.
+            _autoWalkCategoryIndex = _currentCategoryIndex;
+
+            // Calculate NavMesh path for the first segment.
+            bool pathFound;
+            try
+            {
+                pathFound = CalculateAndStorePath(playerPos,
+                    _routeSegments[0].WalkTarget, allowPartial: true);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState(
+                    $"NAV multi-segment: first segment path failed: {ex.Message}");
+                ScreenReader.Say(Loc.Get("nav_autowalk_unreachable", item.Label));
+                return;
+            }
+
+            if (!pathFound)
+            {
+                ScreenReader.Say(Loc.Get(
+                    _lastPathBlockedByExit
+                        ? "nav_autowalk_route_exits"
+                        : "nav_autowalk_unreachable",
+                    item.Label));
+                DebugLogger.LogState(
+                    $"NAV multi-segment refused for '{item.Label}' " +
+                    $"(blockedByExit={_lastPathBlockedByExit}).");
+                return;
+            }
+
+            _isAutoWalking = true;
+            _autoWalkArrived = false;
+            _staticIsAutoWalking = true;
+            _fieldStuckTimer = 0f;
+            _fieldLastStuckCheckPos = playerPos;
+            _fieldStuckRecalcAttempted = false;
+            _isAvoidingObstacle = false;
+            _avoidanceAttempt = 0;
+
+            // Close the navigation list.
+            _isOpen = false;
+            for (int i = 0; i < CAT_COUNT; i++) _categories[i].Clear();
+
+            // Get run speed.
+            try
+            {
+                var player = FieldManager.Instance?.GetControlPlayer();
+                _autoWalkSpeed = player != null ? player.GetMoveSpeed(true) : 10f;
+            }
+            catch { _autoWalkSpeed = 10f; }
+
+            int crossings = _routeSegments.Count;
+            if (_routeIsSpeculative)
+            {
+                ScreenReader.Say(Loc.Get("nav_island_exploring", item.Label,
+                    route.SpeculativeCount.ToString()));
+            }
+            else
+            {
+                ScreenReader.Say(Loc.Get("nav_island_route", item.Label,
+                    crossings.ToString()));
+            }
+
+            DebugLogger.LogState(
+                $"NAV multi-segment started: '{item.Label}', " +
+                $"{crossings} segments, speculative={_routeIsSpeculative}");
+        }
+
+        /// <summary>
+        /// True if the given NavMesh path would carry the player THROUGH a
+        /// map-exit trigger (FieldMapjumpCollision). Samples densely along each
+        /// path segment and tests against every exit collider's bounds (expanded
+        /// by <see cref="MapExitBarrierMargin"/>). Used as a hard barrier so a
+        /// route to a non-exit target can never walk the player out of the area.
+        /// </summary>
+        private bool PathCrossesMapExit(Vector3[] corners)
+        {
+            if (corners == null || corners.Length < 2) return false;
+            try
+            {
+                var exits = UnityEngine.Object.FindObjectsOfType<FieldMapjumpCollision>();
+                if (exits == null || exits.Length == 0) return false;
+
+                var zones = new List<Bounds>();
+                foreach (var exit in exits)
+                {
+                    if (exit == null) continue;
+                    var col = exit.GetComponent<Collider>();
+                    if (col == null) continue;
+                    var b = col.bounds;
+                    b.Expand(MapExitBarrierMargin * 2f); // Expand() takes full size
+                    zones.Add(b);
+                }
+                if (zones.Count == 0) return false;
+
+                for (int i = 0; i < corners.Length - 1; i++)
+                {
+                    Vector3 a = corners[i];
+                    Vector3 b = corners[i + 1];
+                    float segLen = Vector3.Distance(a, b);
+                    int steps = Mathf.Max(1, Mathf.CeilToInt(segLen / 0.75f));
+                    for (int s = 0; s <= steps; s++)
+                    {
+                        Vector3 p = Vector3.Lerp(a, b, (float)s / steps);
+                        for (int z = 0; z < zones.Count; z++)
+                        {
+                            if (zones[z].Contains(p))
+                            {
+                                DebugLogger.LogState(
+                                    $"NAV: path crosses map-exit zone at " +
+                                    $"({p.x:F1},{p.y:F1},{p.z:F1}).");
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV: PathCrossesMapExit error: {ex.Message}");
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Returns the set of island IDs that contain a map-exit trigger
+        /// (FieldMapjumpCollision). Route planning avoids passing through these
+        /// islands so the player isn't walked into a map transition.
+        /// </summary>
+        private HashSet<int> GetExitIslandSet()
+        {
+            var set = new HashSet<int>();
+            if (!_islandNav.HasGraph) return set;
+            try
+            {
+                var exits = UnityEngine.Object.FindObjectsOfType<FieldMapjumpCollision>();
+                if (exits == null) return set;
+                foreach (var exit in exits)
+                {
+                    if (exit == null) continue;
+                    int isl = _islandNav.GetIsland(exit.transform.position);
+                    if (isl >= 0) set.Add(isl);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV: GetExitIslandSet failed: {ex.Message}");
+            }
+
+            if (set.Count > 0)
+                DebugLogger.LogState(
+                    $"NAV: exit-bearing islands to avoid as transit: " +
+                    string.Join(",", set));
+            return set;
+        }
+
+        /// <summary>
+        /// Caches the world-space bounds of every map-exit trigger
+        /// (FieldMapjumpCollision) on the current map, so the crossing phase
+        /// can steer around them. Zones that sit near a route waypoint (the
+        /// destination may legitimately be next to an exit) are excluded.
+        /// </summary>
+        private void CacheCrossingExitZones(Vector3 finalTarget)
+        {
+            _crossingExitZones = null;
+            try
+            {
+                var exits = UnityEngine.Object.FindObjectsOfType<FieldMapjumpCollision>();
+                if (exits == null || exits.Length == 0) return;
+
+                var zones = new List<Bounds>();
+                foreach (var exit in exits)
+                {
+                    if (exit == null) continue;
+                    var col = exit.GetComponent<Collider>();
+                    if (col == null) continue;
+
+                    Bounds b = col.bounds;
+
+                    // Skip exits adjacent to a route waypoint or the final
+                    // target — those are part of where we're going, not hazards.
+                    if (IsNearRouteWaypoint(b.center, finalTarget))
+                        continue;
+
+                    zones.Add(b);
+                }
+
+                if (zones.Count > 0)
+                {
+                    _crossingExitZones = zones;
+                    DebugLogger.LogState(
+                        $"NAV crossing: cached {zones.Count} exit zone(s) to avoid.");
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV crossing: exit zone cache failed: {ex.Message}");
+                _crossingExitZones = null;
+            }
+        }
+
+        /// <summary>
+        /// True if <paramref name="pos"/> is within
+        /// <see cref="ExitZoneWaypointExclusion"/> of any route walk target,
+        /// arrival point, or the final target (XZ distance only).
+        /// </summary>
+        private bool IsNearRouteWaypoint(Vector3 pos, Vector3 finalTarget)
+        {
+            float r2 = ExitZoneWaypointExclusion * ExitZoneWaypointExclusion;
+            if (FlatSqrDistance(pos, finalTarget) <= r2) return true;
+
+            if (_routeSegments != null)
+            {
+                foreach (var seg in _routeSegments)
+                {
+                    if (FlatSqrDistance(pos, seg.WalkTarget) <= r2) return true;
+                    if (FlatSqrDistance(pos, seg.ArrivalPoint) <= r2) return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>Squared XZ-plane distance between two points (ignores Y).</summary>
+        private static float FlatSqrDistance(Vector3 a, Vector3 b)
+        {
+            float dx = a.x - b.x;
+            float dz = a.z - b.z;
+            return dx * dx + dz * dz;
+        }
+
+        /// <summary>
+        /// Adjusts a desired walk direction to steer around cached map-exit
+        /// trigger zones. Uses a TANGENTIAL deflection (arc around the zone)
+        /// plus a mild direct push when very close, so a head-on approach slips
+        /// past the gate instead of stalling against it. Returns the input
+        /// direction unchanged when no zones are near.
+        /// </summary>
+        private Vector3 AvoidExitZones(Vector3 playerPos, Vector3 desiredDir)
+        {
+            if (_crossingExitZones == null || _crossingExitZones.Count == 0)
+                return desiredDir;
+
+            Vector3 steer = desiredDir;
+            foreach (var zone in _crossingExitZones)
+            {
+                // Closest point on the zone to the player, in the XZ plane.
+                Vector3 closest = zone.ClosestPoint(playerPos);
+                Vector3 away = new Vector3(
+                    playerPos.x - closest.x, 0f, playerPos.z - closest.z);
+                float d = away.magnitude;
+                if (d >= ExitZoneAvoidRadius) continue;
+
+                float strength = (ExitZoneAvoidRadius - d) / ExitZoneAvoidRadius; // 0..1
+
+                // Which side of the zone is the player on? Used to pick the
+                // tangent that arcs AWAY from the zone center.
+                Vector3 fromCenter = new Vector3(
+                    playerPos.x - zone.center.x, 0f, playerPos.z - zone.center.z);
+                if (fromCenter.sqrMagnitude < 0.0001f)
+                    fromCenter = new Vector3(-desiredDir.z, 0f, desiredDir.x);
+
+                // Tangent perpendicular to the desired direction, chosen on the
+                // side that points away from the zone center → player arcs around.
+                Vector3 perp = new Vector3(-desiredDir.z, 0f, desiredDir.x);
+                if (Vector3.Dot(perp, fromCenter) < 0f) perp = -perp;
+
+                steer += perp * (strength * ExitZoneAvoidWeight);
+
+                // Direct push-away grows quadratically only at very close range,
+                // to prevent actually touching the trigger.
+                Vector3 awayDir = d > 0.01f ? away / d : fromCenter.normalized;
+                steer += awayDir * (strength * strength * ExitZoneAvoidWeight);
+            }
+
+            steer.y = 0f;
+            if (steer.sqrMagnitude < 0.0001f)
+                return desiredDir;
+            return steer.normalized;
+        }
+
+        /// <summary>
+        /// Called from Update() when a multi-segment route is active.
+        /// Handles transitions between segments: detects when the current
+        /// segment's path is exhausted, starts the crossing phase, detects
+        /// island arrival, and starts the next segment.
+        /// Returns true if this method handled the frame (caller should skip
+        /// normal auto-walk processing).
+        /// </summary>
+        private bool CheckSegmentTransition(Vector3 playerPos)
+        {
+            if (_routeSegments == null) return false;
+
+            // --- Crossing phase: walking toward bridge/gap edge ---
+            if (_isCrossingPhase)
+            {
+                _crossingTimer += Time.deltaTime;
+
+                var seg = _routeSegments[_routeSegmentIndex];
+                int currentIsland = _islandNav.GetIsland(playerPos);
+
+                // Check if we've arrived on the target island.
+                if (currentIsland == seg.ToIsland)
+                {
+                    // Crossing successful!
+                    _isCrossingPhase = false;
+
+                    if (!seg.IsConfirmed)
+                    {
+                        ScreenReader.Say(Loc.Get("nav_island_crossing_confirmed"));
+                        DebugLogger.LogState(
+                            $"NAV crossing confirmed: island {seg.FromIsland} -> {seg.ToIsland}");
+                    }
+
+                    // Advance to next segment.
+                    _routeSegmentIndex++;
+
+                    if (_routeSegmentIndex >= _routeSegments.Count)
+                    {
+                        // All crossings done. Walk to the final target.
+                        StartFinalSegment(playerPos);
+                        return true;
+                    }
+
+                    // Start next segment's NavMesh path.
+                    StartNextSegment(playerPos);
+                    return true;
+                }
+
+                // Check timeout.
+                float timeout = seg.IsConfirmed
+                    ? ConfirmedCrossingTimeout
+                    : SpeculativeCrossingTimeout;
+
+                if (_crossingTimer >= timeout)
+                {
+                    if (!seg.IsConfirmed)
+                    {
+                        // Speculative crossing failed — mark gap as blocked.
+                        _islandNav.MarkGapBlocked(seg.FromIsland, seg.ToIsland);
+                        ScreenReader.Say(Loc.Get("nav_island_crossing_blocked"));
+                        DebugLogger.LogState(
+                            $"NAV crossing blocked: island {seg.FromIsland} -> " +
+                            $"{seg.ToIsland} (gap marked blocked)");
+                    }
+                    else
+                    {
+                        ScreenReader.Say(Loc.Get("nav_island_crossing_stuck"));
+                        DebugLogger.LogState(
+                            $"NAV crossing stuck: island {seg.FromIsland} -> " +
+                            $"{seg.ToIsland} (confirmed bridge, timeout)");
+                    }
+                    CancelAutoWalk();
+                    return true;
+                }
+
+                // Still crossing — inject stick input toward the arrival point,
+                // steering around any map-exit trigger zones in the way.
+                Vector3 crossTarget = seg.ArrivalPoint;
+                Vector3 toTarget = crossTarget - playerPos;
+                toTarget.y = 0f;
+
+                if (toTarget.sqrMagnitude > 0.01f)
+                {
+                    Vector3 dir = AvoidExitZones(playerPos, toTarget.normalized);
+                    _staticAutoWalkStickDir = WorldDirToCameraStick(dir);
+                }
+                return true;
+            }
+
+            // --- Not in crossing phase: check if current segment path is exhausted ---
+            if (_pathCorners != null && _pathCornerIndex >= _pathCorners.Length)
+            {
+                // Current segment path exhausted. Enter crossing phase.
+                var seg = _routeSegments[_routeSegmentIndex];
+                _isCrossingPhase = true;
+                _crossingTimer = 0f;
+
+                if (!seg.IsConfirmed)
+                {
+                    ScreenReader.Say(Loc.Get("nav_island_crossing_attempt"));
+                }
+                else
+                {
+                    ScreenReader.Say(Loc.Get("nav_island_crossing"));
+                }
+
+                DebugLogger.LogState(
+                    $"NAV entering crossing phase: island {seg.FromIsland} -> " +
+                    $"{seg.ToIsland}, confirmed={seg.IsConfirmed}");
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Calculates and starts walking the next segment's NavMesh path.
+        /// </summary>
+        private void StartNextSegment(Vector3 playerPos)
+        {
+            var seg = _routeSegments[_routeSegmentIndex];
+            int remaining = _routeSegments.Count - _routeSegmentIndex;
+
+            ScreenReader.Say(Loc.Get("nav_island_continuing", _routeFinalLabel,
+                remaining.ToString()));
+
+            // Calculate NavMesh path to this segment's walk target.
+            _autoWalkTarget = seg.WalkTarget;
+            bool pathFound = false;
+            try
+            {
+                pathFound = CalculateAndStorePath(playerPos, seg.WalkTarget,
+                    allowPartial: true);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState(
+                    $"NAV multi-segment: segment path failed: {ex.Message}");
+            }
+
+            if (!pathFound)
+            {
+                // Can't pathfind on this island — try walking directly.
+                DebugLogger.LogState(
+                    "NAV multi-segment: no path for segment, entering crossing directly.");
+                _isCrossingPhase = true;
+                _crossingTimer = 0f;
+                return;
+            }
+
+            // Reset stuck detection for the new segment.
+            _fieldStuckTimer = 0f;
+            _fieldLastStuckCheckPos = playerPos;
+            _fieldStuckRecalcAttempted = false;
+            _isAvoidingObstacle = false;
+            _avoidanceAttempt = 0;
+        }
+
+        /// <summary>
+        /// All crossings complete. Calculate final NavMesh path to the
+        /// actual target (chest, NPC, etc.) on the destination island.
+        /// </summary>
+        private void StartFinalSegment(Vector3 playerPos)
+        {
+            ScreenReader.Say(Loc.Get("nav_island_final", _routeFinalLabel));
+            DebugLogger.LogState(
+                $"NAV multi-segment: all crossings done, final walk to '{_routeFinalLabel}'");
+
+            // Switch to normal single-path auto-walk for the final target.
+            _routeSegments = null;
+            _routeSegmentIndex = 0;
+            _isCrossingPhase = false;
+            _autoWalkTarget = _routeFinalTarget;
+            _autoWalkDifferentFloor = false; // Now on the same island.
+
+            bool pathFound = false;
+            try
+            {
+                pathFound = CalculateAndStorePath(playerPos, _routeFinalTarget,
+                    allowPartial: true);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState(
+                    $"NAV multi-segment: final path failed: {ex.Message}");
+            }
+
+            if (!pathFound)
+            {
+                ScreenReader.Say(Loc.Get("nav_autowalk_unreachable", _routeFinalLabel));
+                CancelAutoWalk();
+                return;
+            }
+
+            // Reset stuck detection.
+            _fieldStuckTimer = 0f;
+            _fieldLastStuckCheckPos = playerPos;
+            _fieldStuckRecalcAttempted = false;
+            _isAvoidingObstacle = false;
+            _avoidanceAttempt = 0;
         }
 
         /// <summary>
@@ -245,6 +776,7 @@ namespace SO2RAccess
             _lidarCommittedDir   = Vector3.zero;
             _isAvoidingObstacle  = false;
             _pathCorners         = null;
+            _crossingExitZones   = null;
         }
 
         /// <summary>
@@ -342,74 +874,112 @@ namespace SO2RAccess
             return true;
         }
 
+        /// <summary>
+        /// Probe offsets (XZ) around the player used to overcome NavMesh
+        /// fragmentation: the player's exact spot can snap to a tiny disconnected
+        /// sliver even when the main walkable mesh — and a full path — is a meter
+        /// or two away. We try the exact spot first, then nearby points.
+        /// </summary>
+        private static readonly Vector3[] _completePathProbes =
+        {
+            Vector3.zero,
+            new Vector3( 1.5f, 0f,  0f), new Vector3(-1.5f, 0f,  0f),
+            new Vector3( 0f,   0f,  1.5f), new Vector3( 0f,   0f, -1.5f),
+            new Vector3( 1.5f, 0f,  1.5f), new Vector3(-1.5f, 0f,  1.5f),
+            new Vector3( 1.5f, 0f, -1.5f), new Vector3(-1.5f, 0f, -1.5f),
+            new Vector3( 3f,   0f,  0f), new Vector3(-3f,   0f,  0f),
+            new Vector3( 0f,   0f,  3f), new Vector3( 0f,   0f, -3f),
+        };
+
+        /// <summary>
+        /// Tries hard to find a COMPLETE NavMesh path from the player to the
+        /// target, leaving the result in <paramref name="result"/>. Because the
+        /// dungeon NavMesh is fragmented, the player's exact position can snap to
+        /// a disconnected sliver; so we probe several nearby points (same floor)
+        /// and accept the first snap that yields a complete path. This turns many
+        /// false "no route" cases into real, reliable walks. Returns false if no
+        /// probe produces a complete path.
+        /// </summary>
+        private bool TryFindCompletePath(Vector3 playerPos, Vector3 targetPos,
+            NavMeshPath result)
+        {
+            if (!SampleNavMeshFloorAware(targetPos, out NavMeshHit targetHit))
+                return false;
+
+            for (int i = 0; i < _completePathProbes.Length; i++)
+            {
+                Vector3 probe = playerPos + _completePathProbes[i];
+                if (!NavMesh.SamplePosition(probe, out NavMeshHit pHit,
+                    1.5f, NavMesh.AllAreas))
+                    continue;
+                // Keep the snap on the player's own level.
+                if (Mathf.Abs(pHit.position.y - playerPos.y) > FloorChangeThreshold)
+                    continue;
+
+                NavMesh.CalculatePath(pHit.position, targetHit.position,
+                    NavMesh.AllAreas, result);
+                if (result.status == NavMeshPathStatus.PathComplete)
+                {
+                    if (i != 0)
+                        DebugLogger.LogState(
+                            $"NAV: complete path found via probe offset " +
+                            $"({_completePathProbes[i].x:F1},{_completePathProbes[i].z:F1}) " +
+                            "— player was snapped to a disconnected sliver.");
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>Copies an IL2CPP NavMeshPath corner array into a managed array.</summary>
+        private static Vector3[] CopyCorners(NavMeshPath path)
+        {
+            var il = path.corners;
+            var arr = new Vector3[il.Length];
+            for (int i = 0; i < il.Length; i++) arr[i] = il[i];
+            return arr;
+        }
+
+        /// <summary>
+        /// Returns true if a COMPLETE NavMesh path connects the two positions,
+        /// probing around the player to overcome NavMesh fragmentation. When a
+        /// complete path exists a normal single-path walk is correct (and avoids
+        /// bogus multi-segment routes through map exits). Returns false on
+        /// partial/invalid paths or any error.
+        /// </summary>
+        private bool HasCompleteNavMeshPath(Vector3 playerPos, Vector3 targetPos)
+        {
+            try
+            {
+                bool complete = TryFindCompletePath(playerPos, targetPos, _navPath);
+                if (complete)
+                    DebugLogger.LogState(
+                        "NAV: NavMesh path is COMPLETE — using direct walk, " +
+                        "skipping island routing.");
+                return complete;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState(
+                    $"NAV: HasCompleteNavMeshPath error: {ex.Message}");
+                return false;
+            }
+        }
+
         private bool IsReachable(Vector3 playerPos, Vector3 targetPos)
         {
             // World map: use CalcHeight path sampling to detect ocean barriers.
             if (_isWorldmap)
                 return WorldmapIsReachableViaCalcHeight(playerPos, targetPos);
 
-            try
-            {
-                if (!SampleNavMeshFloorAware(playerPos, out NavMeshHit playerHit))
-                    return true; // no NavMesh near player — fallback, don't filter
-
-                if (!SampleNavMeshFloorAware(targetPos, out NavMeshHit targetHit))
-                {
-                    DebugLogger.LogState(
-                        $"NAV: IsReachable=false — target not on NavMesh " +
-                        $"(target={targetPos}, sampleRadius={NavMeshSampleRadius})");
-                    return false; // target not near any NavMesh surface — unreachable
-                }
-
-                NavMesh.CalculatePath(playerHit.position, targetHit.position,
-                    NavMesh.AllAreas, _navPath);
-
-                if (_navPath.status == NavMeshPathStatus.PathComplete)
-                    return true;
-
-                if (_navPath.status == NavMeshPathStatus.PathPartial)
-                {
-                    // Partial paths occur when NavMesh surfaces are disconnected
-                    // (different floors, stairs, or small elevation changes like
-                    // the Krosse Guild entrance). Accept partial paths when:
-                    //  1. Target is on a clearly different floor (Y >= threshold), OR
-                    //  2. The partial path makes meaningful progress — endpoint is
-                    //     significantly closer to the target than the player is.
-                    bool differentFloor =
-                        Mathf.Abs(targetPos.y - playerPos.y) >= FloorChangeThreshold;
-                    if (differentFloor)
-                        return true;
-
-                    var corners = _navPath.corners;
-                    if (corners.Length > 0)
-                    {
-                        Vector3 pathEnd = corners[corners.Length - 1];
-                        float playerToTarget = Vector3.Distance(playerHit.position,
-                            targetHit.position);
-                        float pathEndToTarget = Vector3.Distance(pathEnd,
-                            targetHit.position);
-                        // Accept if the path gets at least 30% closer to the target.
-                        if (pathEndToTarget < playerToTarget * 0.7f)
-                            return true;
-                    }
-                }
-
-                if (_navPath.status != NavMeshPathStatus.PathComplete)
-                {
-                    float directDist = Vector3.Distance(playerPos, targetPos);
-                    DebugLogger.LogState(
-                        $"NAV: IsReachable=false — path status={_navPath.status}, " +
-                        $"directDist={directDist:F1}, " +
-                        $"player={playerHit.position}, target={targetHit.position}");
-                }
-                return false;
-            }
-            catch (System.Exception ex)
-            {
-                DebugLogger.LogState($"NAV: IsReachable exception: {ex.Message}");
-                // NavMesh API unavailable — preserve current behavior, don't filter.
+            // Reliable, in priority order: a complete NavMesh path (towns and
+            // connected areas), then a recorded traversal route (dungeons the
+            // player has actually walked).
+            if (HasCompleteNavMeshPath(playerPos, targetPos))
                 return true;
-            }
+            if (UseTraversal() && _traversal.IsReachable(playerPos, targetPos))
+                return true;
+            return false;
         }
 
         /// <summary>
@@ -425,26 +995,48 @@ namespace SO2RAccess
             // World map has no NavMesh — use the game's A* pathfinder instead.
             if (_isWorldmap) return WorldmapCalculateAndStorePath(playerPos, targetPos);
 
-            if (!SampleNavMeshFloorAware(playerPos, out NavMeshHit playerHit))
+            Vector3[] corners;
+            bool fromTraversal = false;
+            _lastPathBlockedByExit = false;
+
+            // 1. A COMPLETE NavMesh path (towns / connected areas) — smooth and
+            //    reliable. Probe around the player to beat NavMesh fragmentation.
+            if (TryFindCompletePath(playerPos, targetPos, _navPath))
+            {
+                corners = CopyCorners(_navPath);
+            }
+            // 2. A recorded traversal route (dungeons the player has walked). The
+            //    waypoints are real walked positions, so the route is walkable.
+            else if (UseTraversal() &&
+                     _traversal.FindPath(playerPos, targetPos, out var tc) && tc != null)
+            {
+                corners = tc;
+                fromTraversal = true;
+            }
+            // 3. Partial NavMesh path, only when allowed (e.g. counter NPCs).
+            else
+            {
+                if (!allowPartial) return false;
+                if (!SampleNavMeshFloorAware(playerPos, out NavMeshHit playerHit))
+                    return false;
+                if (!SampleNavMeshFloorAware(targetPos, out NavMeshHit targetHit))
+                    return false;
+                NavMesh.CalculatePath(playerHit.position, targetHit.position,
+                    NavMesh.AllAreas, _navPath);
+                if (_navPath.status == NavMeshPathStatus.PathInvalid)
+                    return false;
+                corners = CopyCorners(_navPath);
+            }
+
+            // Hard map-exit barrier for NavMesh paths. Traversal paths are skipped
+            // — they are real walked routes, so they never leave the area.
+            if (!fromTraversal && !_autoWalkAllowExit && PathCrossesMapExit(corners))
+            {
+                _lastPathBlockedByExit = true;
+                DebugLogger.LogState(
+                    "NAV: path rejected — it would cross a map exit.");
                 return false;
-
-            if (!SampleNavMeshFloorAware(targetPos, out NavMeshHit targetHit))
-                return false;
-
-            NavMesh.CalculatePath(playerHit.position, targetHit.position,
-                NavMesh.AllAreas, _navPath);
-
-            if (_navPath.status == NavMeshPathStatus.PathInvalid)
-                return false;
-
-            if (_navPath.status == NavMeshPathStatus.PathPartial && !allowPartial)
-                return false;
-
-            // Copy corners from IL2CPP array into managed array.
-            var il2cppCorners = _navPath.corners;
-            var corners = new Vector3[il2cppCorners.Length];
-            for (int i = 0; i < il2cppCorners.Length; i++)
-                corners[i] = il2cppCorners[i];
+            }
 
             _pathCorners = corners;
             _pathCornerIndex = corners.Length > 1 ? 1 : 0;

@@ -1405,10 +1405,36 @@ namespace SO2RAccess
         {
             items.Sort((a, b) => a.Distance.CompareTo(b.Distance));
 
+            // The NavMesh island/bridge system is retired. Reachability is
+            // decided by IsReachable() below (complete NavMesh path, else a
+            // recorded traversal route).
+            int playerIsland = -1;
+            bool hasIslandGraph = false;
+            if (hasIslandGraph)
+                playerIsland = _islandNav.GetIsland(playerPos);
+
             var unreachableIndices = new List<int>();
             for (int i = items.Count - 1; i >= 0; i--)
             {
                 if (items[i].IsCounterNpc) continue;
+
+                // If island graph is available, check if the item is on a
+                // different island that has a route (confirmed or speculative).
+                // If so, keep it — the multi-segment router will handle it.
+                if (hasIslandGraph && playerIsland >= 0)
+                {
+                    int itemIsland = _islandNav.GetIsland(items[i].Position);
+                    if (itemIsland >= 0 && itemIsland != playerIsland)
+                    {
+                        // Different island — check if any route exists.
+                        var route = _islandNav.PlanRoute(playerIsland, itemIsland);
+                        if (route != null)
+                            continue; // Routable via island graph — keep it.
+                        // No route at all — fall through to IsReachable check
+                        // (which will also fail, removing the item).
+                    }
+                }
+
                 if (!IsReachable(playerPos, items[i].Position))
                     unreachableIndices.Add(i);
             }

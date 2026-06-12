@@ -162,6 +162,7 @@ namespace SO2RAccess
             Add("nav_autowalk_arrived_npc","Arrived at {0}. Press action button to interact. NumPad 1 or L1 to stop following.");
             Add("nav_autowalk_resuming", "Resuming walk to {0}.");
             Add("nav_autowalk_unreachable","Cannot reach {0}.");
+            Add("nav_autowalk_route_exits","Cannot reach {0} without leaving the area. No safe route found.");
             Add("nav_autowalk_no_navmesh", "No navigation data available.");
             Add("nav_autowalk_lost_path",  "Lost path to {0}.");
             Add("nav_autowalk_stuck",      "Path blocked to {0}. Auto-walk stopped.");
@@ -183,6 +184,23 @@ namespace SO2RAccess
             Add("nav_event_pa",                 "Private action");
             Add("nav_autowalk_arrived_above",   "Arrived near {0}. Target is above you — look for stairs or a ramp.");
             Add("nav_autowalk_arrived_below",   "Arrived near {0}. Target is below you — look for stairs or a ramp.");
+            // Honest "could not reach" messages — used when the path stops short
+            // of the real target so we never falsely claim arrival.
+            Add("nav_autowalk_cannot_reach",       "Could not reach {0}. Stopped {1} meters {2}.");
+            Add("nav_autowalk_cannot_reach_above", "Could not reach {0}. It is above you, {1} meters {2} — look for stairs or a ramp.");
+            Add("nav_autowalk_cannot_reach_below", "Could not reach {0}. It is below you, {1} meters {2} — look for stairs or a ramp.");
+
+            // Navigation — cross-island routing
+            Add("nav_island_route",             "Walking to {0}. Route crosses {1} levels.");
+            Add("nav_island_exploring",         "No confirmed route to {0}. Exploring {1} unconfirmed connections.");
+            Add("nav_island_no_route",          "Cannot reach {0}. No known route exists. Try exploring the area manually.");
+            Add("nav_island_crossing",          "Crossing to next level.");
+            Add("nav_island_crossing_attempt",  "Attempting unconfirmed crossing.");
+            Add("nav_island_crossing_confirmed","Connection confirmed. Continuing.");
+            Add("nav_island_crossing_blocked",  "Blocked. Cannot cross here. Cancelling auto-walk.");
+            Add("nav_island_crossing_stuck",    "Stuck at crossing. Cancelling auto-walk.");
+            Add("nav_island_continuing",        "Continuing to {0}. {1} crossings remaining.");
+            Add("nav_island_final",             "Final approach to {0}.");
             Add("nav_event_side",               "Side event");
             Add("nav_event_side_reward",        "Side event (reward)");
             Add("nav_event_side_battle",        "Side event (battle)");

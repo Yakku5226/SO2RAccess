@@ -15,6 +15,14 @@
     <Compile Remove="templates\**" />
   </ItemGroup>
 
+  <!-- Pre-recorded traversal maps, compiled into the DLL for release. The mod
+       loads these when the user has no recording of their own. To refresh,
+       copy UserData\SO2RAccess\traversals\*.json into the project's traversals\
+       folder and rebuild. -->
+  <ItemGroup>
+    <EmbeddedResource Include="traversals\*.json" />
+  </ItemGroup>
+
   <!-- MelonLoader (net6 runtime) -->
   <ItemGroup>
     <Reference Include="MelonLoader">

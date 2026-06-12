@@ -254,6 +254,7 @@ namespace SO2RAccess
         /// </summary>
         public override void OnApplicationQuit()
         {
+            _navigationHandler?.SaveTraversal();
             SpatialAudioPlayer.Shutdown();
             ScreenReader.Shutdown();
             AudioCuePlayer.Shutdown();
@@ -539,24 +540,29 @@ namespace SO2RAccess
                 return true;
             }
 
-            // F11 — world map pathfinder diagnostics (debug only)
+            // F11 — diagnostics (world map or field map NavMesh islands)
             if (DebugMode && kb[Key.F11].wasPressedThisFrame)
             {
                 try
                 {
-                    if (FieldManager.Instance != null &&
-                        FieldManager.Instance.IsWorldmap())
+                    var fm = FieldManager.Instance;
+                    if (fm != null)
                     {
-                        var player = FieldManager.Instance.GetControlPlayer();
+                        var player = fm.GetControlPlayer();
                         if (player != null)
                         {
-                            WorldmapDiagnostics.RunAll(
-                                player.transform.position);
+                            if (fm.IsWorldmap())
+                            {
+                                WorldmapDiagnostics.RunAll(
+                                    player.transform.position);
+                            }
+                            else
+                            {
+                                // Recorded-traversal reachability report.
+                                _navigationHandler.LogTraversalDiagnostic(
+                                    player.transform.position);
+                            }
                         }
-                    }
-                    else
-                    {
-                        ScreenReader.Say("Diagnostics only available on world map.");
                     }
                 }
                 catch (Exception ex)

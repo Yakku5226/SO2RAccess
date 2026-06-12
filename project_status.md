@@ -36,9 +36,33 @@
 ## Current Phase
 
 **Phase:** Phase 3 — Feature Implementation
-**Currently working on:** Field shortcut menu accessibility (Train, Scout, Pickpocket sub-menus)
-**Blocked by:** Nothing
-**Last completed:** Train switch selector, Scout action menu, Pickpocket field menu (2026-03-26)
+**Currently working on:** Dungeon navigation via OBSERVED TRAVERSALS (2026-06-12) — WORKING
+**Last completed:** Traversal recording + routing + release bundling (2026-06-12)
+
+### Dungeon Navigation — OBSERVED TRAVERSALS (2026-06-12) — WORKING
+
+After exhausting every static approach (NavMesh = 12% coverage + fragmented;
+CalcHeight FAILs in dungeons; OffMeshLink stripped from IL2CPP build; collision
+raycasts can't tell walls from ramps), the reliable solution is to record where a
+player ACTUALLY walks and route over that. See the detailed "PIVOT TO
+OBSERVED-TRAVERSAL NAVIGATION" entry lower in this file.
+
+- **TraversalGraph.cs:** breadcrumb every ~1m of real movement, A* routing, per-map
+  JSON persistence. User tested: walked the whole of Krosse Cave; 1035+ breadcrumbs,
+  94% one connected component, multi-floor. Load/save/connectivity all verified.
+- **Release bundling (DONE):** recorded JSONs live in project `traversals/`, embedded
+  into the DLL via `<EmbeddedResource Include="traversals\*.json" />`. TraversalGraph.Load
+  uses UserData first, else the embedded copy. Verified 4 maps embedded as
+  `SO2RAccess.traversals.MF_000X_01A.json`. To refresh: copy
+  UserData\SO2RAccess\traversals\*.json into project traversals\ and rebuild.
+  (Tiny near-empty maps MF_0005/0007 can be pruned from project traversals\ before release.)
+- **Cleanup done:** deleted dead experimental files (DungeonNavGraph, DungeonGraphDiagnostics,
+  OffMeshLinkSpike); island/bridge runtime calls removed from Update.
+- **TODO next session:** (1) jump-prompt audio cue — ledge "press X to jump" shows via
+  UIFieldIconSelector.ShowFieldIcon (UIDefine.FieldIconType); hook it. (2) Fully delete the
+  island/multi-segment system (IslandScanner/IslandNavigator/NavMeshIslandDiagnostics +
+  ~45 refs in NavigationHandler.AutoWalk.cs: StartMultiSegmentWalk, CheckSegmentTransition,
+  GetExitIslandSet, exit-avoidance, _routeSegments). (3) Blind-exploration mode for unmapped areas.
 
 ### Field Shortcut & Specialty Sub-menus — DONE (2026-03-26)
 
@@ -48,35 +72,219 @@
 - Fix: creation hook with empty dataList no longer blocks fallback polling
 - Fix: _icActiveSkillCategory gates Train/Scout polls to prevent stale-state cross-interference
 
+### Cross-Island Navigation System — IN PROGRESS (2026-06-12)
+
+Core architecture built. Ground verification approach identified but has bugs to fix.
+
+**What's built and working:**
+- IslandScanner.cs: NavMesh scanning, BFS island grouping, gap detection
+- IslandNavigator.cs: Data structures, JSON persistence, BFS route planning
+- Multi-segment auto-walk: RouteSegment execution, crossing phase, segment transitions
+- NavigationHandler: Deferred island scan (1.5s delay), bridge recording polling at 4Hz
+- Island-aware filtering in Build.cs, 10 Loc keys, F11 field map diagnostics
+- Ground verification via Physics.RaycastAll + surface normal check
+
+**Bug fixes applied (2026-06-12) — PENDING IN-GAME TEST:**
+1. [FIXED] Raycast hits wrong floor: VerifyGapsWithGround now raycasts from
+   `expectedY + offset` where expectedY = Lerp(ptA.y, ptB.y, t), and picks the
+   ground hit CLOSEST to expectedY (not the highest). Upper-floor overhangs are
+   no longer selected over the ramp. (IslandScanner.cs)
+2. [FIXED] Bridge deduplication: MergeBridges now seeds a HashSet of the fresh
+   scan's island pairs (unordered, via NormalizePair) and skips any cached bridge
+   whose pair already exists. Bridges no longer grow on scene reload. (IslandNavigator.cs)
+3. [FIXED] MaxGroundStepY raised 3f -> 5f for gradual ramps. (IslandScanner.cs)
+4. [FIXED — REVISED] Player warps to world map mid-walk. LOG ANALYSIS (11:34:39,
+   route to "Opened chest 3", 3 segments): warp happened during the NORMAL
+   segment-0 walk, NOT the crossing phase. Segment-0 path ran from (-8,46) to a
+   bridge edge at (0,0.1,7.6), passing the EXPEL town gate at ~(0,~12) on the way.
+   Two-part fix:
+   (a) ROOT CAUSE — route planning now avoids passing THROUGH islands that contain
+       a map exit. GetExitIslandSet() maps each FieldMapjumpCollision to its island;
+       PlanRoute/BfsIslandPath skip those as transit (still allowed as final dest).
+       Falls back to allowing them only if no safe route exists. (IslandNavigator.cs)
+   (b) SAFETY NET — exit-zone steering (AvoidExitZones) now applied to ALL auto-walk
+       movement during a cross-island route (normal segment walk + obstacle detour),
+       not just the crossing phase. Steering is now TANGENTIAL (arcs around the gate)
+       instead of pure repulsion, so a head-on approach slips past instead of stalling.
+       (NavigationHandler.cs/.AutoWalk.cs)
+   Cache cleared for single-target walks so normal walks are unaffected.
+5. [WON'T FIX — limitation] FieldStairs empty on Krosse Cave — ramps are plain
+   geometry, not game objects. Ground verification (fix #1) is the universal bridge
+   source, so FieldStairs is not needed. Diagnostic logging retained for reference.
+
+**ROOT CAUSE FOUND (2026-06-12, log 11:43) — island routing was firing when it
+shouldn't.** Krosse Cave scans into 16 flood-fill islands; bridges connect only
+{0,1,4,6,7,11,13}. Player spawns on island 1 (entrance sliver); its ONLY bridge is
+1<->0 whose crossing point (0,7.6) is on the far side of the EXPEL gate. So every
+route off island 1 walks south through the gate. Chest 1 is on island 3, which has
+NO bridge -> false "unreachable" even though the chest was physically opened.
+KEY INSIGHT: flood-fill island IDs are FINER than real NavMesh connectivity. A
+single walkable floor gets split into many islands, so "different island" does NOT
+mean "needs multi-segment routing."
+FIX: AutoWalkTo now calls HasCompleteNavMeshPath(player, target) BEFORE island
+routing. If NavMesh returns a COMPLETE path, it does a normal single-path walk and
+skips island routing entirely (logs "NavMesh path is COMPLETE"). Island routing now
+only fires for genuine NavMesh disconnection (partial/invalid path — separate floors
+via ramps). This fixes both symptoms: chest 1 no longer false-unreachable, and far
+chests route directly (deeper into the cave) instead of south through the entrance.
+(NavigationHandler.AutoWalk.cs)
+NOTE: if a chest is genuinely on a partial-path floor AND its island has no bridge,
+it can still be unreachable — that's a real bridge-gap to address separately, but the
+common case (complete NavMesh path) is now handled. Watch the F12 log for "COMPLETE".
+
+**FALSE-ARRIVAL FIX (2026-06-12, log 11:56) — the actual user-facing bug.**
+Log proved every false "Arrived" came from arrival being announced against the
+WRONG position: e.g. "Arrived at Unopened chest 2" with ARRIVAL DIAG distXZ=1.20
+to target (17.88,120.64) — a multi-segment bridge waypoint — while the real chest
+was 81m away. Also "Arrived near ... target is above/below you" fired with
+playerY==targetY (identical) from StartMultiSegmentWalk hardcoding
+_autoWalkDifferentFloor=true.
+FIX — single arrival authority: new IsAtRealTarget(playerPos) checks the REAL
+final target (_routeFinalTarget for multi-segment, else _autoWalkTarget) in full
+3D — within arrival radius horizontally AND |vertGap| <= 2.0m. All three
+announcement sites now gated through it:
+  1. Proximity arrival: only fires when _routeSegments==null AND on the target's
+     level (never on a bridge waypoint, never from another floor).
+  2. Path-exhausted: announces real arrival only if IsAtRealTarget; otherwise an
+     honest "Could not reach {0}. Stopped/above/below ..." message.
+  3. Different-floor partial handler: same — never says "Arrived", says
+     "Could not reach ... above/below" instead.
+  4. Multi-segment segment-path exhaustion now hands off to CheckSegmentTransition
+     (crossing) instead of leaking into the normal arrival handlers.
+New Loc keys: nav_autowalk_cannot_reach[_above|_below]. Result: the mod can no
+longer claim arrival unless the player is genuinely at the real chest.
+(NavigationHandler.cs, Loc.cs)
+
+**WALK-OUT ROOT CAUSE + HARD EXIT BARRIER (2026-06-12, log 12:29).**
+Mechanism: player's NavMesh island is huge (cave deep z=86 down to entrance z=7.6).
+For an un-navigated chest (no complete path), island routing picks a bridge whose
+crossing point is (0,0.1,7.6) — PAST the exit gate (~z=10.5). Segment-0's NavMesh
+path therefore runs from deep cave straight down through the gate → Overworld.
+Exit-zone steering can't help (the bridge destination is on the far side of the gate);
+"avoid exit island 1" can't help (the bridge belongs to island 0, gate sits between 0/1).
+Only inferred-bridge routes do this; complete-path direct walks go deep correctly.
+FIX (hard barrier): PathCrossesMapExit(corners) samples every NavMesh path densely and
+tests against all FieldMapjumpCollision bounds (+0.5m). CalculateAndStorePath now rejects
+any path that crosses a map exit UNLESS the target itself is an exit (_autoWalkAllowExit,
+set from IsExitCategory). Rejected routes announce nav_autowalk_route_exits ("Cannot reach
+{0} without leaving the area"). Centralized in CalculateAndStorePath so it covers single
++ all multi-segment paths. (NavigationHandler.cs/.AutoWalk.cs, Loc.cs)
+CONSEQUENCE: chests whose only inferred route is through the gate now say "cannot reach
+without leaving the area" instead of walking the player out. Honest, but does NOT yet make
+them reachable — that needs reliable OBSERVED-crossing bridges (next step, see
+feedback-navigation-reliability memory + confirmed/unconfirmed design).
+
+**NAVMESH FRAGMENTATION / SNAP-TO-SLIVER FIX (2026-06-12, log 13:05).**
+Smoking gun: standing at (0.5,1.1,18.5) the mod found a 59-waypoint COMPLETE path that
+runs THROUGH the player's later z=40 spot and goes deep to (108.6,8.3,82.2) — so the main
+dungeon IS one connected, auto-walkable NavMesh. Yet standing at (-2,1.5,40) the same deep
+chests returned "no complete path" → island routing → refused at the gate (every unopened
+chest, save, event). Root cause: the dungeon NavMesh is fragmented into slivers, and the
+player's exact footing sometimes snaps onto a tiny disconnected sliver ~1-2m off the main
+floor; from there CalculatePath can't see the connection that obviously exists.
+FIX: TryFindCompletePath probes ~13 nearby points (same floor, ≤3m) and accepts the first
+snap that yields a COMPLETE path. HasCompleteNavMeshPath and CalculateAndStorePath both use
+it — preferring a complete path, falling back to partial only when allowed. Logs "complete
+path found via probe offset ..." when a sliver snap was rescued. Still 100% reliable (requires
+a genuine complete path); turns many false "no route" cases into real deep walks that never
+go through the gate. (NavigationHandler.AutoWalk.cs)
+EXPECTATION: most chests on the connected main mesh should now route directly and correctly.
+Truly disconnected chests (separate NavMesh joined only by un-baked ramps) will still need the
+observed-bridge approach; those remain "cannot reach without leaving the area".
+
+**NEW DIRECTION — CUSTOM COLLISION WALKABILITY MAP (2026-06-12, plan approved).**
+Root cause accepted: the baked NavMesh is fragmented and unfixable at runtime
+(NavMesh.AddLink/bake are IL2CPP stubs). The player actually moves by collision
+physics (Il2CppCommon.Physics2), so the TRUE walkable space is the collision
+geometry (ramps the NavMesh omits). Plan: build our OWN walkability graph from
+downward collision raycasts → flood-fill components → reachability + A* paths that
+follow real ramps and never route through the exit gate. Replaces island/bridge
+system for field maps; world map unchanged. Full plan:
+C:\Users\Jaco\.claude\plans\woolly-frolicking-cray.md (Phases 0-5).
+Two design pillars (from our own past notes): do NOT use CalcHeight on dungeon
+floors (use raw Physics.RaycastAll + normal.y>=0.4); do NOT trust wall masks
+(connect cells by FLOOR CONTINUITY / step-delta, not wall-presence).
+
+**PHASE 0 (validation diagnostic) — BUILT, AWAITING IN-GAME TEST.**
+New file DungeonGraphDiagnostics.cs. Wired to F11 (debug mode) on field maps,
+alongside the existing island diagnostic. Builds the collision walkability graph
+in-memory (1.5m cells, RaycastAll-down, 8-neighbour step-delta connect, flood-fill),
+marks map-exit nodes, then logs for EVERY treasure chest: reachable (same component
+as player) / component / snapY / hops / viaExit. Also logs RaycastAll-vs-CalcHeight
+primitive test and an OverlapSphere wall-mask probe. Changes NOTHING in live nav.
+GO/NO-GO GATE: do the previously-"unreachable" UNOPENED chests log reachable=true
+with viaExit=false? If yes → build Phases 1-5. If no → they're truly disconnected.
+HOW TO TEST: enter Krosse Cave, ensure debug on (F12), press F11, send the log
+lines tagged [DUNGEONGRAPH].
+
+**PHASE 0 RESULT — PASSED DECISIVELY (2026-06-12, log 16:02).** Krosse Cave: graph
+built 31612 nodes / 184 components / 240ms. ALL 14 chests (incl. all 9 unopened ones
+the NavMesh called unreachable) reported reachable=True, comp=1 (= player), viaExit=False,
+snapY matching targetY within 0.1m. CalcHeight=FAIL everywhere (confirms raw-RaycastAll
+choice). Approach proven.
+
+**PHASES 1+2+4 — BUILT & INTEGRATED, AWAITING IN-GAME TEST.**
+- DungeonNavGraph.cs (NEW): collision walkability graph — Build (coarse-AABB then 1.5m
+  RaycastAll fine grid, 8-neighbour step-delta connect, flood-fill components, exit-node
+  flags), SnapToNode (Y-weighted), IsReachable (same component), FindPath (A* with binary
+  min-heap, excludes exit nodes unless target is an exit) → Vector3[] corners.
+- Integration (NavigationHandler.cs/.AutoWalk.cs/.Build.cs): _dungeonGraph field; deferred
+  Build in CheckDeferredIslandScan (on map load); UseDungeonGraph() predicate
+  (!worldmap && graph ready). When active it supersedes island routing: IsReachable (nav
+  list filter + pre-walk), AutoWalkTo (island block guarded off), CalculateAndStorePath
+  (new DungeonCalculateAndStorePath via graph A*). NavMesh/island kept as fallback only.
+- Old island/bridge/multi-segment code still PRESENT but bypassed — retire in Phase 5
+  after this is verified. Disk caching (Phase 3) deferred — 240ms build is acceptable.
+HOW TO TEST: restart game, enter Krosse Cave, wait ~2s for "DUNGEONGRAPH: built" in log,
+open nav list, pick a previously-unreachable UNOPENED chest, auto-walk. Expect it to
+follow real ramps to the chest and announce real arrival (no walk-out, no false arrival).
+Watch for the player clipping/sticking on walls (the one known risk of continuity-only
+connection — would need a wall-refinement pass).
+
+**PIVOT TO OBSERVED-TRAVERSAL NAVIGATION (2026-06-12) — collision graph retired.**
+Why: exhaustive iteration proved NO static walkability source is reliable in dungeons —
+NavMesh covers only 12% of walkable floor AND is fragmented; CalcHeight FAILs in dungeons;
+OffMeshLink is stripped from the IL2CPP build (can't extend NavMesh); collision raycasts
+can't distinguish walls from ramps/wall-tops (every heuristic rammed walls or over-segmented).
+The ONLY 100%-reliable walkability signal is the player's ACTUAL movement (physics).
+NEW SYSTEM (TraversalGraph.cs): records a breadcrumb every ~1m as the player walks a field
+map (manual or auto), links consecutive + nearby breadcrumbs into a graph, persists per map
+to UserData/SO2RAccess/traversals/{mapId}.json. Auto-walk/reachability route over breadcrumbs
+(A*) — guaranteed walkable because a real player walked them. No raycasts, no wall guessing.
+INTEGRATION: NavigationHandler records in Update (CheckTraversalRecording, gated on IsFieldFree;
+BreakTrail on cutscene/menu; autosave every 10s + on map change via StartMap). IsReachable =
+complete NavMesh path (towns) OR traversal-connected (dungeons). CalculateAndStorePath = complete
+NavMesh path, else traversal A* path, else partial (counters). Island/multi-segment + collision
+DungeonNavGraph fully bypassed (files kept, unused — delete later). F11 = LogTraversalDiagnostic
+(breadcrumb count + per-chest navMeshComplete/traversal reachability).
+TEST PLAN (user): sighted player walks the whole dungeon (records breadcrumbs, autosaves),
+then load save + auto-walk over the recorded routes. Caveat: only reaches where the sighted
+player actually walked; player must start near a breadcrumb (<6m).
+NEXT (future): true blind-exploration mode for discovering unmapped areas.
+
+**Build:** Succeeds (0 warnings, 0 errors), deployed to Mods folder.
+
+**Key findings (documented for next session):**
+- Krosse Cave (MF_0008_01A): 16 islands, 9 significant, single scene, no internal triggers
+- CalcHeight does NOT work on dungeon floors (world-map-specific)
+- GameRenderManager.LayerMaskHeight too restrictive — misses ramp geometry
+- Physics.RaycastAll with normal.y>0.4 works but needs floor-aware origin height
+- NavMesh not ready on scene load — 1.5s deferred scan required
+- FindIsland via CalculatePath to island centers works (bounding box was unreliable)
+
+**Files:** IslandScanner.cs, IslandNavigator.cs, NavMeshIslandDiagnostics.cs (new);
+NavigationHandler.cs/.AutoWalk.cs/.Build.cs, Loc.cs, Main.cs (modified)
+
 ### TODO: Quick Heal Menu (D-pad Right)
 - UIFieldQuickRecoverySelector — field overlay, same pattern as pickpocket
 - Has recoveryDataList, listItemDataList, currentChoice, playerIDList
 - Needs new handler with FindObjectOfType polling + data count gate (like pickpocket)
 - No existing mod code handles it at all
 
-### World Map Cached Grid System — PARTIALLY WORKING (2026-03-26)
+### World Map Cached Grid System — WORKING (resolved 2026-06-12)
 
-Grid format WMGH. 20+ approaches tried (WMG1-WMGH). MinPassableClearance at 0.50m (stable).
+Grid format WMGH. Salva↔Krosse routing issue resolved by user during break.
 Full investigation record in docs/worldmap-pathfinding.md and memory file worldmap-navigation.md.
-
-**What WORKS:**
-- Flood fill seals town model interiors (L22 obstacle rings)
-- Safe approach waypoints for town entry via FieldMapjumpCollision triggers
-- Safe exit waypoints when leaving towns (implemented, needs refinement)
-- Krosse → Salva: auto-walk navigates through corridor, enters Salva
-- Battle interrupt + resume: working
-- Grid generation with clearance offsets and clearance values: working
-
-**BLOCKED:**
-- A* cannot route from Salva northward to Krosse
-- CharaWall_ArliaSalba (L23, ~80x80m) blocks eastern approach with 0.51m gaps
-- CharaWall_SalvaKrosse has wider gaps (1.6-1.9m) but A* prefers east route
-- MinPassableClearance threshold tested at 1.01m, 0.75m, 0.55m — all block too many corridors
-- Problem is asymmetric: Krosse→Salva works, Salva→Krosse fails
-
-**Pending:**
-- Need sighted assistance to map viable routes around Salva northward
-- Grid format still WMGH, needs F9 regeneration after code changes
 
 ### Fishing Accessibility (2026-03-18) — WORKING
 
