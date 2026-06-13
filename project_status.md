@@ -37,17 +37,154 @@
 
 **Phase:** Phase 3 — Feature Implementation
 **Currently working on:** —
-**Last completed:** One-way ledge fix for traversal nav (2026-06-13) — TESTED, WORKING
+**Last completed:** Item Creation — Appraise result announcement (2026-06-13) — TESTED & WORKING
 
-### NEXT SESSION: Jump-down prompt sound cue
+### Item Creation — Appraise result announcement (2026-06-13) — TESTED & WORKING
+
+User confirmed via log: appraisals read cleanly — "Sandals. Success. 1 of 1.",
+"Water Ring. Success. 1 of 1.", "?JEWELRY. Failure. 1 of 1.", "Talisman. Success. 1 of 1."
+Trigger fired on all attempts, no doubled status, no double-announce.
+
+Appraisal results were silent: after "Implement IC? -> Yes", the shared result selector
+(UICampSpecialSkillResultSelector, sid=APPRAISAL) DOES populate (log: cur=1, e.g.
+"Sandals/Success", "?ARMOR/Failure"), but appraisal bypasses the create-count flow that
+normally schedules the result announcement, so _icResultState.LastIndex stayed 0 == result
+idx 0 and UpdateICResult's poll bailed.
+
+Fix (CampMenuHandler.ItemCreation.cs): `DetectNewResult()` (called from UpdateICResult)
+watches the result list's first-item signature (count:itemName:isSuccess); when it changes
+to a new non-empty value it schedules the announcement via the shared _icResultReadyTime
+(+0.5s). Coexists with the create-count path (single _icResultReadyTime -> one announce, no
+double for regular creation). Also dedup: skip the result-text field when it equals the
+success/failure status (appraisal stores "Success"/"Failure" in both) so it reads
+"Sandals. Success. 1 of 1." not doubled. Debug DIAG `CampIC_Result DIAG` left in place.
+
+Known limitation: two appraisals in a row with an identical result string won't re-announce
+the second (no content change). Distinct results always read.
+
+### Item Creation action-list focus-tracking (2026-06-13)
+
+Fixed several Create sub-menus reading NO options (Writing, Appraise, Alchemy, Compounding,
+Machinist) and wrong "X of N" positions on the ones that did read (Cooking, Art).
+
+Root cause: all ~28 special-skill selectors report activeInHierarchy == true for the whole
+IC session (stale-active); `isPause`/`isDisableInput` don't distinguish focus either. Old
+code picked the first "active" selector and cached `_icActionListBase` once (cleared only in
+an onHidden that never fired), so the reader was stuck on whichever list was opened first.
+Has-items skills (Cooking/Art) still spoke via the creation hook but read position from the
+stale list ("4 of 5"); no-items skills fell to the fallback poll on the stale list → silence.
+
+Fix (CampMenuHandler.ItemCreation.cs): `ResolveFocusedActionSelector()` finds the focused
+skill each frame as the selector whose action list just became populated (entry) or whose
+cursor index changed (navigation) — lists you're not on never move, and menu pre-load moves
+no cursor, so it's a clean signal. On focus switch, re-point `_icActiveSelector` /
+`_icActionListBase`, reset `_icActionState.LastIndex = -1`, and seed `_icLastCharTab` to the
+selector's current tab (so entry no longer blurts the character name). Seeded on camp open
+via `SeedActionFocusTracking()` to avoid spurious reads when scrolling past the IC root item.
+Log confirms correct names + positions for Appraise/Writing/Crafting/etc.
+
+Known minor: first item on entering a has-items skill reads without "X of N" (game hook fires
+one frame before focus is set). Debug DIAG (`CampIC_Action DIAG` / `focus -> #N`) left in place.
+
+PENDING USER TEST: entry no longer blurts character name; L/R character switch still announces.
+
+### Jump-down prompt cue — TESTED & WORKING (2026-06-13)
+
+User confirmed: "It works perfectly." Audio cue + once-only speech fire when the "X Jump"
+prompt appears at a one-way ledge; both toggles work independently in the F4 menu.
+
+Built on the confirmed UIFieldOperationPresenter.Set hook (see test result below). When the
+"X Jump" prompt appears above the player at a one-way ledge, the mod now plays an audio cue
+AND speaks it once ("Press Cross to jump down."). Both are independently toggleable in the
+F4 mod menu (user request: sound-only / speech-only / both / neither).
+
+- **FieldPromptHandler.cs** (renamed from FieldPromptDiagnostics.cs): Set postfix detects the
+  jump prompt by ACTION WORD ("Jump") parsed from operationList (NOT isPlayer — it's false).
+  Announces ONCE on appearance (cue if JumpPromptSoundEnabled + speech if JumpPromptSpeechEnabled).
+  Hide is native-only ([CallerCount(0)]) so Update() polls the presenter (activeInHierarchy +
+  jump text still present) to clear the flag, allowing re-announce on a later re-appearance.
+  Still logs every prompt under [GAME] FieldPrompt in debug mode for cataloguing Talk/Open/etc.
+  Parses button glyph from "<sprite name=Cross>Jump" → speech names the button (controller-aware).
+- **AudioCuePlayer.cs**: LoadJumpSound / PlayJumpCue / IsJumpSoundLoaded (mirrors dodge cue;
+  volume = ModSettings.JumpPromptSoundVolume, winmm.dll playback).
+- **ModSettings.cs**: JumpPromptSoundEnabled (def true), JumpPromptSoundVolume (def 0.8, JSON
+  only — not in menu yet), JumpPromptSpeechEnabled (def true). Persisted in settings.json.
+- **ModMenuHandler.cs**: two new F4 toggles — "Jump prompt sound", "Jump prompt speech".
+- **Loc.cs**: jump_prompt "Press {0} to jump down.", jump_prompt_no_button, + 2 menu labels.
+- **Main.cs**: loads Jump.wav from UserData/SO2RAccess/Sounds; _fieldPromptHandler wired into
+  InitializeHandlers / ApplyPatches / UpdateHandlers.
+- **Jump.wav**: generated placeholder cue (descending G5->C5 two-tone, 16-bit mono PCM, ~0.3s)
+  written to UserData/SO2RAccess/Sounds/Jump.wav. RELEASE NOTE: ship this WAV with the mod
+  (or replace with a nicer cue). User can swap the file freely.
+- Build clean (0/0), deployed to Mods.
+
+CLEANUP (2026-06-13, post-test /simplify pass):
+- Removed duplicated _spritePrefixes + StripControllerPrefix from FieldPromptHandler;
+  now reuses NotificationHandler.StripControllerPrefixPublic (new public wrapper). DRY.
+- Collapsed the three-way Set-postfix branch (appearing/staying/replaced) into the
+  announce-once + always-track-presenter form; same behavior, less code.
+- IsJumpStillShowing now substring-checks the RAW operationTextList text for "Jump"
+  (action word survives tag-stripping) instead of running StripTagsPublic every frame —
+  cheaper on the per-frame hide-poll path.
+- SKIPPED (deliberate, not over-engineering for now): generalizing to an action-keyed
+  registry for future Talk/Open/Examine cues. Jump-only is the right scope; the diagnostic
+  log still captures other prompts when encountered. English-literal "Jump" filter and
+  static-field handler pattern are intentional/consistent with the codebase.
+
+OPEN ITEM FOR RELEASE: Jump.wav currently lives only in UserData/SO2RAccess/Sounds (a
+generated placeholder cue). It must ship with the mod's Sounds for distribution, or be
+replaced with a nicer cue. Known minor risk (untriggered so far): if the prompt flickers
+on/off at the ledge boundary the cue could repeat — add a debounce if it surfaces.
+
+### NEXT SESSION: Jump-down prompt sound cue — HOOK IDENTIFIED, diagnostic deployed (2026-06-13)
 
 Auto-walk now reliably parks the player AT a one-way ledge (see "One-way jump-down
 ledges" below). Build an audio cue there. Confirmed facts (user, 2026-06-13):
 - Descending a ledge REQUIRES a manual X (Cross) button press — it is NOT automatic.
 - The game shows a visual indicator above the player's head reading "X Jump" when at a
   ledge. So the cue is a "press X to jump down here" prompt, not just an alert.
-- Hook candidate: UIFieldIconSelector.ShowFieldIcon (UIDefine.FieldIconType) — verify the
-  icon type that corresponds to the jump prompt, then play a cue when it appears.
+
+**CORRECTION (2026-06-13 code analysis):** the jump prompt is NOT a UIFieldIconSelector
+icon. UIDefine.FieldIconType has only { LocationPoint, Fishing } — neither is the jump
+prompt. The "X Jump" indicator is a field "operation" (button-guide) prompt. Full analysis
+in docs/game-api.md Section 18. Key facts:
+- Render path: UIFieldController.ShowOperation(...) [CallerCount(2)] →
+  UIFieldOperationPresenter.Set(operationList, followTransform, canvas, ref worldOffset,
+  isCancelLocalPosition, isPlayer, textColorList) [CallerCount(7)] — HOOKABLE.
+- BEST HOOK = UIFieldOperationPresenter.Set. operationList = raw strings; isPlayer=true means
+  it's anchored over the player (the jump case). presenter.operationTextList (List<GameText>)
+  exposes the actual rendered text, so we can read the literal "Jump" + button glyph.
+- Hide = native-only (HideOperation / Hide both [CallerCount(0)]) → a hook will NOT fire on
+  hide; detect disappearance by polling presenter.gameObject.activeInHierarchy.
+- The presenter is SHARED with other button guides (talk/interact prompts), so the cue must
+  filter on the prompt content (jump) and/or isPlayer=true, not just "a prompt appeared."
+
+**DIAGNOSTIC DEPLOYED — AWAITING IN-GAME TEST.** New file FieldPromptDiagnostics.cs patches
+UIFieldOperationPresenter.Set (postfix) and logs every operation prompt under [GAME] when
+debug mode is on. Wired into Main (field + InitializeHandlers + ApplyPatches). Announces
+nothing, changes no behaviour. Build clean (0/0), deployed to Mods.
+HOW TO TEST: F12 to enable debug, walk to a one-way ledge (and around town past NPCs/chests),
+send the log lines tagged `[GAME] FieldPrompt = ...`. We want to see the exact raw/display
+strings + isPlayer for the jump prompt vs other prompts, to pick the filter and decide
+audio-cue-vs-speech per prompt type.
+
+**TEST RESULT (2026-06-13, Latest.log 17:17) — JUMP PROMPT CONFIRMED.** Captured prompts:
+- Jump:  isPlayer=False anchor='cp_0001_01(Clone)' raw=`[0]=<sprite name=Cross>Jump`  display='CrossJump'
+- Save:  isPlayer=False anchor='ob_1001_02a(Clone)' raw=`[0]=<sprite name=Cross>Save`  display='CrossSave'
+KEY FINDINGS:
+- Jump prompt DOES flow through UIFieldOperationPresenter.Set. Format = single entry,
+  `<sprite name=BUTTON>ACTION` (button glyph tag + action word).
+- isPlayer is FALSE even for the jump prompt (anchor cp_0001_01 = player char object). So
+  DO NOT filter on isPlayer — filter on the ACTION WORD ("Jump") in operationList[0].
+- StripTags merges sprite name into the word ("CrossJump"). For speech, parse button name +
+  action separately (e.g. regex split the sprite tag from the trailing word).
+- Only Jump + Save captured (user only triggered those). Talk/Open/Examine not yet seen — can
+  capture more if we want the full inventory, but the jump target is confirmed.
+
+NOTE: corner toasts (item/EXP/Fol/level-up/skill/talent) are ALREADY announced via
+NotificationHandler (UIFieldInformationStackSelector.ShowInformation) — not part of this work.
+Other uncovered above-head families catalogued in Section 18: ShowEmotion (17 EmotionTypes,
+the !/? bubbles) and ShowSymbolName/ShowMode area banners.
 
 ### One-way jump-down ledges (2026-06-13) — TESTED, WORKING
 

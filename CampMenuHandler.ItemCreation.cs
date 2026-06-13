@@ -92,6 +92,35 @@ namespace SO2RAccess
         // --- Diagnostics (first open only) ---
         private static bool _icDiagDone;
 
+        /// <summary>
+        /// Last logged active-selector signature for the action screen.
+        /// Used to change-gate the per-frame diagnostic so it only logs on change.
+        /// </summary>
+        private static string _icActiveSetSig;
+
+        // --- Action-screen focus tracking ---
+        /// <summary>
+        /// Per-selector last-seen action-list currentIndex, parallel to
+        /// _icAllSelectors. -1 means the selector's list is not populated / unseen.
+        /// Used to detect which skill the user is actually navigating, since every
+        /// selector reports activeInHierarchy == true for the whole IC session.
+        /// </summary>
+        private static int[] _icSelLastIndex;
+
+        /// <summary>Index (into _icAllSelectors) of the focused skill's selector, or -1.</summary>
+        private static int _icFocusedIdx = -1;
+
+        /// <summary>Last logged result-selector diagnostic signature (change-gated).</summary>
+        private static string _icResultDiagSig;
+
+        /// <summary>
+        /// Signature of the result content we last reacted to. Used to detect a freshly
+        /// appeared result (e.g. an appraisal outcome) and trigger its announcement, since
+        /// appraisal bypasses the create-count flow that normally schedules the result.
+        /// Cleared when the user navigates the action list again (so a later result reads).
+        /// </summary>
+        private static string _icResultSeenSig;
+
         #endregion
 
         #region Item Creation Caching (called from Open postfix)
@@ -108,11 +137,14 @@ namespace SO2RAccess
 
             _icResultSelector = window.specialSkillResultSelector;
             _icResultState.Reset();
+            _icResultDiagSig = null;
+            _icResultSeenSig = null;
 
             _icActionState.Reset();
             _icActiveSelector = null;
             _icActionListBase = null;
             _icLastCharTab = -1;
+            _icActiveSetSig = null;
             _icActiveSkillCategory = null;
             _icTrainSwitchSelector = null;
             _icTrainSwitchLastIndex = -1;
@@ -258,8 +290,42 @@ namespace SO2RAccess
 
             DebugLogger.LogState($"CampIC: {_icAllSelectors.Count} skill type selectors cached.");
 
+            // Seed focus-tracking state. Record each selector's current action-list
+            // index (rather than leaving it -1) so an already-populated list on open
+            // is NOT mistaken for a fresh entry — otherwise scrolling past ItemCreation
+            // in the root menu would announce a spurious item. Same intent as the
+            // stale-open suppression above.
+            SeedActionFocusTracking();
+
             // Super Specialty selector (separate overlay, not on UICampWindow).
             CacheSuperSpecialtySelector();
+        }
+
+        /// <summary>
+        /// Allocates and seeds <see cref="_icSelLastIndex"/> from the current state of
+        /// each selector's action list, and clears <see cref="_icFocusedIdx"/>.
+        /// Called once per camp open after _icAllSelectors is built.
+        /// </summary>
+        private static void SeedActionFocusTracking()
+        {
+            _icFocusedIdx = -1;
+            _icSelLastIndex = new int[_icAllSelectors.Count];
+            for (int i = 0; i < _icAllSelectors.Count; i++)
+            {
+                int seeded = -1;
+                try
+                {
+                    var sel = _icAllSelectors[i];
+                    if (sel?.gameObject?.activeInHierarchy == true)
+                    {
+                        var listBase = sel.actionSelector?.TryCast<UIListSelectorBase>();
+                        int count = listBase?.currentDataList?.Count ?? 0;
+                        if (count > 0) seeded = listBase.currentIndex;
+                    }
+                }
+                catch { /* leave -1 */ }
+                _icSelLastIndex[i] = seeded;
+            }
         }
 
         private static void TryAddSelector(Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase selector)
@@ -424,106 +490,42 @@ namespace SO2RAccess
 
         private void UpdateICActionList()
         {
-            // Scan all skill selectors to find which one is active.
-            UICampSpecialSkillSelectorBase foundSelector = null;
-            foreach (var sel in _icAllSelectors)
-            {
-                try
-                {
-                    if (sel?.gameObject?.activeInHierarchy == true)
-                    {
-                        foundSelector = sel;
-                        break;
-                    }
-                }
-                catch { /* skip broken refs */ }
-            }
-
-            bool isActive = foundSelector != null;
-
-            bool shouldPoll = _icActionState.CheckEntry(
-                isActive,
-                () =>
-                {
-                    // Announce heading from hook data if available.
-                    if (_icPendingCreationData != null)
-                    {
-                        string heading = BuildCreationHeading(_icPendingCreationData);
-                        ScreenReader.Say(heading);
-                    }
-                    else
-                    {
-                        ScreenReader.Say(Loc.Get("ic_action_screen"));
-                    }
-                },
-                "CampIC_Action",
-                onHidden: () =>
-                {
-                    _icActiveSelector = null;
-                    _icActionListBase = null;
-                    _icActionSelectorBase = null;
-                    _icActionPresenter = null;
-                    _icLastCharTab = -1;
-                    _icCreationHookFired = false;
-                    _icPendingCreationData = null;
-                    _icTrainSwitchSelector = null;
-                    _icTrainSwitchLastIndex = -1;
-                    _icScoutActionListBase = null;
-                    _icScoutLastIndex = -1;
-                    // Note: _icScoutSelector stays cached for the camp session.
-                    ResetCreateModeState();
-                });
-
-            // Train and Scout have dedicated selectors that bypass the stale-active
-            // detection. Poll them regardless of whether shouldPoll is true.
-            // Gate on _icActiveSkillCategory set by creation hook.
+            // Train and Scout have dedicated selectors with their own detection.
+            // Gate on _icActiveSkillCategory (set by the creation hook) and handle
+            // them before generic focus tracking so they never interfere.
             if (_icActiveSkillCategory == "Train" && PollTrainSwitchSelector()) return;
             if (_icActiveSkillCategory == "Scouting" && PollScoutActionSelector()) return;
 
-            if (!shouldPoll) return;
+            // Every selector reports activeInHierarchy == true for the whole IC session,
+            // so we can't use that flag to know which skill is on screen. Instead, find
+            // the selector the user is actually navigating: the one whose action list
+            // just became populated (entry) or whose cursor just moved (navigation).
+            int focused = ResolveFocusedActionSelector();
 
-            _icActiveSelector = foundSelector;
+            LogActiveActionSelectorsDiag(focused >= 0 ? _icAllSelectors[focused] : null);
 
-            // Get the action list base for polling.
-            // The stale-active selector may not be the real one, so scan all active
-            // selectors for one with a usable action list (non-empty currentDataList).
-            if (_icActionListBase == null)
+            if (focused >= 0 && focused != _icFocusedIdx)
             {
-                try
-                {
-                    // First try the foundSelector.
-                    var actionSel = _icActiveSelector?.actionSelector;
-                    var candidate = actionSel?.TryCast<UIListSelectorBase>();
-                    if (candidate?.currentDataList?.Count > 0)
-                    {
-                        _icActionListBase = candidate;
-                    }
-                    else
-                    {
-                        // Scan all active selectors for one with actual data.
-                        foreach (var sel in _icAllSelectors)
-                        {
-                            try
-                            {
-                                if (sel?.gameObject?.activeInHierarchy != true) continue;
-                                var selAction = sel.actionSelector?.TryCast<UIListSelectorBase>();
-                                if (selAction?.currentDataList?.Count > 0)
-                                {
-                                    _icActionListBase = selAction;
-                                    _icActiveSelector = sel;
-                                    DebugLogger.LogState($"CampIC: found real action list on {sel.GetType().Name}");
-                                    break;
-                                }
-                            }
-                            catch { /* skip */ }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    DebugLogger.LogState($"CampIC: action list cast error: {ex.Message}");
-                }
+                // Focus switched to a different skill's action list. Re-point all the
+                // cached state at it and force the current item to re-announce.
+                _icFocusedIdx = focused;
+                _icActiveSelector = _icAllSelectors[focused];
+                try { _icActionListBase = _icActiveSelector.actionSelector?.TryCast<UIListSelectorBase>(); }
+                catch { _icActionListBase = null; }
+                _icActionState.LastIndex = -1;
+                // Seed the character tab to the new selector's current value (not -1)
+                // so merely entering a skill does NOT blurt the character name —
+                // TrackCharacterTab then only speaks on a real L/R tab change.
+                try { _icLastCharTab = _icActiveSelector.currentTabIndex; }
+                catch { _icLastCharTab = -1; }
+                ResetCreateModeState();
+                _icActionPresenter = null;
+                DebugLogger.LogState($"CampIC_Action: focus -> #{focused}.");
             }
+
+            if (_icFocusedIdx < 0 || _icActionListBase == null) return;
+
+            _icActiveSelector = _icAllSelectors[_icFocusedIdx];
 
             // Track character tab changes.
             TrackCharacterTab();
@@ -531,21 +533,131 @@ namespace SO2RAccess
             // Track Create mode (material confirmed, count adjustable).
             PollCreateMode();
 
-            // If hook fired, it handles announcements. Otherwise poll.
+            // If the creation hook fired, it handles the announcement (rich data).
+            // Otherwise poll the action list directly.
             if (_icCreationHookFired)
             {
                 _icCreationHookFired = false;
-                // Hook already announced — just update LastIndex.
-                if (_icActionListBase != null)
-                {
-                    try { _icActionState.LastIndex = _icActionListBase.currentIndex; }
-                    catch { /* ignore */ }
-                }
+                try { _icActionState.LastIndex = _icActionListBase.currentIndex; }
+                catch { /* ignore */ }
                 return;
             }
 
-            // Fallback: poll action list directly.
             PollActionListFallback();
+        }
+
+        /// <summary>
+        /// Finds the skill selector the user is currently navigating, working around
+        /// the fact that every selector stays activeInHierarchy == true for the whole
+        /// IC session. A selector qualifies when its action list just became populated
+        /// (the user entered it) or its cursor index changed since last frame (the user
+        /// moved within it). Lists the user is not on never move, and the menu pre-load
+        /// does not move any cursor, so this is a clean focus signal.
+        ///
+        /// Updates <see cref="_icSelLastIndex"/> for every selector as a side effect.
+        /// Returns the index into _icAllSelectors of the focused selector, or -1 if
+        /// nothing changed this frame. A "moved" detection wins over a fresh "entry"
+        /// detection if both happen in the same frame, to avoid focus flicker.
+        /// </summary>
+        private static int ResolveFocusedActionSelector()
+        {
+            if (_icSelLastIndex == null || _icSelLastIndex.Length != _icAllSelectors.Count)
+                return -1;
+
+            int entryIdx = -1;
+            int moveIdx = -1;
+
+            for (int i = 0; i < _icAllSelectors.Count; i++)
+            {
+                try
+                {
+                    var sel = _icAllSelectors[i];
+                    var listBase = (sel?.gameObject?.activeInHierarchy == true)
+                        ? sel.actionSelector?.TryCast<UIListSelectorBase>()
+                        : null;
+                    int count = listBase?.currentDataList?.Count ?? 0;
+
+                    if (count <= 0)
+                    {
+                        _icSelLastIndex[i] = -1; // not populated
+                        continue;
+                    }
+
+                    int idx = listBase.currentIndex;
+                    int prev = _icSelLastIndex[i];
+                    _icSelLastIndex[i] = idx;
+
+                    if (prev == -1)
+                        entryIdx = i;        // newly populated = entry
+                    else if (idx != prev)
+                        moveIdx = i;         // cursor moved = navigation
+                }
+                catch { /* skip broken refs */ }
+            }
+
+            return moveIdx >= 0 ? moveIdx : entryIdx;
+        }
+
+        /// <summary>
+        /// Debug-only diagnostic for the action screen. The log confirmed that EVERY
+        /// skill selector reports activeInHierarchy == true for the whole IC session
+        /// (stale-active), so that flag can't tell us which skill is on screen. This
+        /// version instead lists only selectors whose action list has options
+        /// (count &gt; 0) and, for each, the UISelectorBase.isPause / isDisableInput
+        /// flags — the candidate signal for "which list is actually focused".
+        ///
+        /// Format per entry: <c>#index:count:pause:input</c>
+        ///   - index   = position in _icAllSelectors (0 craft, 1 alchemy, 2 cooking,
+        ///               3 art, 4 machinery, 5 writing, 6 duplicate, 7 appraisal, ...).
+        ///   - count   = action-list item count.
+        ///   - pause   = "PAUSE" if isPause else "-".
+        ///   - input   = "NOINPUT" if isDisableInput else "-".
+        /// If the focused skill is the one with pause="-" (input enabled), that flag
+        /// is the fix's selection signal; if all read the same, we fall back to
+        /// per-selector index-change detection instead.
+        ///
+        /// Logs only when this signature changes. Build cost is gated behind
+        /// Main.DebugMode, so zero overhead when off.
+        /// </summary>
+        private static void LogActiveActionSelectorsDiag(UICampSpecialSkillSelectorBase picked)
+        {
+            if (!Main.DebugMode) return;
+
+            var sb = new StringBuilder();
+            for (int i = 0; i < _icAllSelectors.Count; i++)
+            {
+                var sel = _icAllSelectors[i];
+                try
+                {
+                    if (sel?.gameObject?.activeInHierarchy != true) continue;
+
+                    var actionSel = sel.actionSelector;
+                    int cnt = actionSel?.TryCast<UIListSelectorBase>()?.currentDataList?.Count ?? -1;
+                    if (cnt <= 0) continue; // only selectors that actually hold options
+
+                    string pause = "-", input = "-";
+                    try
+                    {
+                        var selBase = actionSel?.TryCast<UISelectorBase>();
+                        if (selBase != null)
+                        {
+                            if (selBase.isPause) pause = "PAUSE";
+                            if (selBase.isDisableInput) input = "NOINPUT";
+                        }
+                    }
+                    catch { /* leave defaults */ }
+
+                    if (sb.Length > 0) sb.Append(", ");
+                    sb.Append('#').Append(i).Append(':').Append(cnt)
+                      .Append(':').Append(pause).Append(':').Append(input);
+                }
+                catch { /* skip broken refs */ }
+            }
+
+            string sig = $"populated={{{sb}}} picked={picked?.GetType().Name ?? "none"}";
+            if (sig == _icActiveSetSig) return;
+            _icActiveSetSig = sig;
+            DebugLogger.LogState($"CampIC_Action DIAG: {sig}");
         }
 
         private void TrackCharacterTab()
@@ -919,6 +1031,15 @@ namespace SO2RAccess
         {
             if (_icResultSelector == null) return;
 
+            LogResultDiag();
+
+            // Detect a freshly appeared result and schedule its announcement. The
+            // create-count flow (PollCreateMode) handles regular item creation, but
+            // appraisal bypasses it — so trigger off the result list gaining content.
+            // Both paths funnel through the single _icResultReadyTime, so a regular
+            // creation that fires both still resets LastIndex once -> one announcement.
+            DetectNewResult();
+
             // Delayed reset: wait for result animation before announcing.
             if (_icResultReadyTime > 0f && UnityEngine.Time.time >= _icResultReadyTime)
             {
@@ -962,7 +1083,10 @@ namespace SO2RAccess
 
                 var sb = new StringBuilder();
                 sb.Append(name).Append(". ").Append(status);
-                if (!string.IsNullOrEmpty(resultText))
+                // Skip resultText when it just repeats the success/failure status
+                // (appraisal stores "Success"/"Failure" in both fields).
+                if (!string.IsNullOrEmpty(resultText) &&
+                    !string.Equals(resultText.Trim(), status.Trim(), StringComparison.OrdinalIgnoreCase))
                     sb.Append(". ").Append(resultText);
                 sb.Append(". ").Append(idx + 1).Append(" of ").Append(count).Append('.');
 
@@ -973,6 +1097,92 @@ namespace SO2RAccess
             {
                 DebugLogger.LogState($"CampIC: result error: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Detects when the result list gains a new result (e.g. an appraisal outcome)
+        /// by watching its first item's content signature, and schedules the
+        /// announcement via the shared <see cref="_icResultReadyTime"/>. Regular item
+        /// creation is handled by the create-count flow (PollCreateMode); appraisal
+        /// bypasses that, so this is what makes its result speak. Both paths write the
+        /// single _icResultReadyTime, so a creation that triggers both still resets the
+        /// cursor once -> one announcement.
+        ///
+        /// Known limitation: two appraisals in a row that yield an identical result
+        /// string won't re-announce the second (no content change to detect). Distinct
+        /// results — the normal case — always read.
+        /// </summary>
+        private void DetectNewResult()
+        {
+            string sig;
+            try
+            {
+                var listBase = _icResultSelector.TryCast<UIListSelectorBase>();
+                var list = listBase?.currentDataList;
+                sig = "";
+                if (list != null && list.Count > 0)
+                {
+                    var it = list[0]?.TryCast<UICampSpecialSkillResultListItemData>();
+                    if (it != null)
+                        sig = $"{list.Count}:{it.itemName}:{it.isSuccess}";
+                }
+            }
+            catch { return; }
+
+            if (sig == _icResultSeenSig) return;
+            _icResultSeenSig = sig;
+
+            if (!string.IsNullOrEmpty(sig))
+            {
+                // Small delay lets the result view settle; the ready-time handler then
+                // resets LastIndex so the poll reads the result item.
+                _icResultReadyTime = UnityEngine.Time.time + 0.5f;
+                DebugLogger.LogState($"CampIC: new result detected ({sig}), announce scheduled.");
+            }
+        }
+
+        /// <summary>
+        /// Debug-only diagnostic for the result selector. Appraisal does not go through
+        /// the create-count flow that schedules the normal result announcement, so its
+        /// result is currently never read. This logs the result selector's observable
+        /// state — activeInHierarchy, list count, resultDataList count, specialSkillID,
+        /// and the first result item's name/result — whenever it changes, so we can see
+        /// exactly how an appraisal result surfaces and pick the right trigger.
+        /// Change-gated; build cost gated behind Main.DebugMode (zero overhead when off).
+        /// </summary>
+        private void LogResultDiag()
+        {
+            if (!Main.DebugMode) return;
+
+            bool act = false;
+            try { act = _icResultSelector.gameObject.activeInHierarchy; } catch { }
+
+            var listBase = _icResultSelector.TryCast<UIListSelectorBase>();
+            int cur = listBase?.currentDataList?.Count ?? -1;
+
+            int rdl = -1;
+            try { rdl = _icResultSelector.resultDataList?.Count ?? -1; } catch { }
+
+            string sid = "?";
+            try { sid = _icResultSelector.specialSkillID.ToString(); } catch { }
+
+            string first = "none";
+            try
+            {
+                var list = listBase?.currentDataList;
+                if (list != null && list.Count > 0)
+                {
+                    var it = list[0]?.TryCast<UICampSpecialSkillResultListItemData>();
+                    if (it != null)
+                        first = $"{it.itemName}/{it.result}/{(it.isSuccess ? "ok" : "fail")}";
+                }
+            }
+            catch { }
+
+            string sig = $"act={act} cur={cur} rdl={rdl} sid={sid} first={first} ready={_icResultReadyTime > 0f} last={_icResultState.LastIndex}";
+            if (sig == _icResultDiagSig) return;
+            _icResultDiagSig = sig;
+            DebugLogger.LogState($"CampIC_Result DIAG: {sig}");
         }
 
         #endregion
@@ -1151,25 +1361,6 @@ namespace SO2RAccess
         #endregion
 
         #region Helpers
-
-        private static string BuildCreationHeading(UIItemCreationInformationData data)
-        {
-            if (data == null) return Loc.Get("ic_action_screen");
-
-            var sb = new StringBuilder();
-            string catName = data.categoryName;
-            if (!string.IsNullOrEmpty(catName))
-                sb.Append(catName);
-
-            if (data.isLevel && data.level > 0)
-            {
-                if (sb.Length > 0) sb.Append(", ");
-                sb.Append(Loc.Get("ic_skill_level", data.level));
-            }
-
-            sb.Append('.');
-            return sb.ToString();
-        }
 
         /// <summary>
         /// Replaces punctuation-only item names (e.g. "????") with "Unknown"
