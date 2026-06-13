@@ -547,6 +547,7 @@ namespace SO2RAccess
             Add("mod_menu_label_player_damage",     "Player damage dealt");
             Add("mod_menu_label_gauge_volume",      "Bonus gauge sound volume");
             Add("mod_menu_label_gauge_break_announce", "Bonus gauge break announcement");
+            Add("mod_menu_label_gauge_percent",     "Bonus gauge percentage announcement");
 
             // Battle target (L2 target change mode)
             Add("battle_target_hp_pct",         "HP {0}%.");
@@ -606,6 +607,7 @@ namespace SO2RAccess
 
             // Bonus gauge (during active combat)
             Add("bonus_gauge_break",                "Bonus level {0}, {1}.");
+            Add("gauge_percent",                    "Gauge {0}.");
             Add("bonus_buff_unknown",               "Unknown buff");
             Add("bonus_buff_sphere_up",             "Sphere up");
             Add("bonus_buff_guts_up",               "Guts up");

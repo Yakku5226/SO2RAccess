@@ -65,6 +65,12 @@ namespace SO2RAccess
         /// <summary>Whether the bonus gauge break level/buff announcement is enabled.</summary>
         public static bool BonusGaugeBreakAnnouncementEnabled { get; set; } = true;
 
+        /// <summary>
+        /// Whether the bonus gauge fill percentage is spoken (every 5%) as it rises.
+        /// Independent of the beep cue. Default off.
+        /// </summary>
+        public static bool BonusGaugePercentAnnounceEnabled { get; set; } = false;
+
         #endregion
 
         #region Persistence
@@ -110,6 +116,7 @@ namespace SO2RAccess
                     PrivateActionSoundVolume = Math.Clamp(data.PrivateActionSoundVolume, 0f, 1f);
                     BonusGaugeSoundVolume = Math.Clamp(data.BonusGaugeSoundVolume, 0f, 1f);
                     BonusGaugeBreakAnnouncementEnabled = data.BonusGaugeBreakAnnouncementEnabled;
+                    BonusGaugePercentAnnounceEnabled = data.BonusGaugePercentAnnounceEnabled;
                 }
                 MelonLogger.Msg("ModSettings: loaded.");
             }
@@ -142,7 +149,8 @@ namespace SO2RAccess
                     PlayerDamageDealtEnabled = PlayerDamageDealtEnabled,
                     PrivateActionSoundVolume = PrivateActionSoundVolume,
                     BonusGaugeSoundVolume = BonusGaugeSoundVolume,
-                    BonusGaugeBreakAnnouncementEnabled = BonusGaugeBreakAnnouncementEnabled
+                    BonusGaugeBreakAnnouncementEnabled = BonusGaugeBreakAnnouncementEnabled,
+                    BonusGaugePercentAnnounceEnabled = BonusGaugePercentAnnounceEnabled
                 };
 
                 var options = new JsonSerializerOptions { WriteIndented = true };
@@ -174,6 +182,7 @@ namespace SO2RAccess
             public float PrivateActionSoundVolume { get; set; } = 0.7f;
             public float BonusGaugeSoundVolume { get; set; } = 0.7f;
             public bool BonusGaugeBreakAnnouncementEnabled { get; set; } = true;
+            public bool BonusGaugePercentAnnounceEnabled { get; set; } = false;
         }
 
         #endregion

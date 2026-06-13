@@ -36,7 +36,106 @@
 ## Current Phase
 
 **Phase:** Phase 3 — Feature Implementation
-**Currently working on:** Dungeon navigation via OBSERVED TRAVERSALS (2026-06-12) — WORKING
+**Currently working on:** —
+**Last completed:** One-way ledge fix for traversal nav (2026-06-13) — TESTED, WORKING
+
+### NEXT SESSION: Jump-down prompt sound cue
+
+Auto-walk now reliably parks the player AT a one-way ledge (see "One-way jump-down
+ledges" below). Build an audio cue there. Confirmed facts (user, 2026-06-13):
+- Descending a ledge REQUIRES a manual X (Cross) button press — it is NOT automatic.
+- The game shows a visual indicator above the player's head reading "X Jump" when at a
+  ledge. So the cue is a "press X to jump down here" prompt, not just an alert.
+- Hook candidate: UIFieldIconSelector.ShowFieldIcon (UIDefine.FieldIconType) — verify the
+  icon type that corresponds to the jump prompt, then play a cue when it appears.
+
+### One-way jump-down ledges (2026-06-13) — TESTED, WORKING
+
+CONFIRMED in-game (log 12:28–12:32): F11 reported 9 one-way drops; end-dungeon Recovery
+save point (118.3,5.9,177.5) traversal=True (legit detour exists) and the player ARRIVED
+("Arrived at Recovery save point (above)" 12:32:39) across ~7 battle resumes — no
+wall-climb stuck loop. Chests up one-way ledges stay reachable via navMeshComplete=True
+(IsReachable OR). No regressions observed.
+
+Bug: auto-walk to "Recovery save point (above)" got stuck walking into a wall
+(log 11:14:22–11:14:45). Root cause: TraversalGraph edges were bidirectional, so a
+ledge the player JUMPED DOWN during recording became a two-way "staircase" and A*
+routed the player back UP a wall they can only descend. Logged path climbs 3.4m over
+~0.6m horizontal — a ~80° face — vs real ramps at 0.6m over 4m.
+
+Fix (TraversalGraph.cs, public API unchanged):
+- IsSteepDrop(a,b): a near-vertical edge (|Δy|>=DropMinDy 1.0m AND Δy/Δxz>=DropMinRatio
+  1.2). Ledges score ~4–6; steepest ramp ~0.15 — no overlap, stairs unaffected.
+- Adjacency is now DIRECTED. Steep edges are downhill-only by default (you can fall, not
+  climb). Connect(a,b,observedFrom) replaces AddEdge: gentle→both ways; steep→high→low,
+  plus low→high ONLY if the player was observed travelling uphill (climb point).
+- Observed-climb awareness: _climbEdges set, persisted as optional JSON "ClimbEdges".
+  Old files (no ClimbEdges) → all steep edges downhill-only (correct for Krosse Cave,
+  no ladders). New recordings auto-detect ladders because the player climbed them.
+  NO re-recording needed for this fix; works on existing + embedded data.
+- IsReachable → directed BFS (was undirected components). FindPath A* respects direction
+  automatically. Removed _comp/EnsureComponents.
+- F11 diagnostic (NavigationHandler.cs LogTraversalDiagnostic) now logs DropSummary
+  (count + sample coords of one-way drops) and save-point reachability, not just chests.
+
+Why downhill stays routable: a target below a ledge remains reachable and the router
+walks the player TO the ledge (where the future jump-prompt cue will hook). A target only
+reachable by climbing up is now honestly unreachable (drops off the nav list) instead of
+producing a wall-climb. Resume-after-battle falls through to partial-walk + honest
+"cannot reach (above)" rather than the stuck loop.
+
+TEST (F12 debug, then F11 in Krosse Cave MF_0008_01A end-of-dungeon save):
+1. Log should report >=2 one-way drops near the known ledges.
+2. Note the save point's traversal= value (reachable via detour, or genuinely not).
+3. Auto-walk to the save: no wall-climb/stuck loop — either routes around or says
+   cannot reach.
+4. Auto-walk to a target below/beyond a downward ledge: player should still be routed TO
+   the ledge top and stop there (descent needs manual X) — confirms jump points stay
+   reachable for cue development.
+5. Sanity: normal same-floor auto-walk still works.
+
+### QOL: Field auto-walk battle-resume + bonus gauge percentage (2026-06-13) — TESTED, WORKING
+
+Two user-requested quality-of-life features. Build clean, deployed, both confirmed working in-game.
+Status: (1) field battle-resume CONFIRMED WORKING; (2) bonus gauge percentage CONFIRMED WORKING
+(toggle in F4 menu, default OFF; speaks "Gauge 5/10/15..." every 5% as the gauge fills).
+
+**1. Field auto-walk resumes after a battle.**
+The world map already resumed after battle (`_wmResume*` in NavigationHandler.Worldmap.cs);
+field maps just called `CancelAutoWalk()` on any interruption. Field maps now mirror that,
+but battle-gated so dialogue/cutscenes/menus do NOT trigger a resume.
+- On a field interruption, `SaveFieldResume()` snapshots target/label/category/transform/
+  facePosition/isCounter/eventRef/triggerBounds/mapId, then CancelAutoWalk (NavigationHandler.cs ~749).
+- `UpdateFieldResume()` (called from Update before the `!_isAutoWalking` return) classifies:
+  `IsBattleActive()` (BattleManager + battlePlayerList, same signal as BonusGaugeHandler) sets
+  `_fieldResumeBattleSeen`. When field is free again: battle seen → `ResumeFieldAutoWalk()`
+  (re-routes from current pos via CalculateAndStorePath, announces nav_autowalk_resuming);
+  no battle within `FieldResumeDiscardDelay` (0.6s) of becoming free → discard.
+- Discards if map changed (story warp). Pending cleared on a new explicit AutoWalkTo.
+- All new code in NavigationHandler.AutoWalk.cs (Field Battle-Resume region). Relies on the
+  proven fact that IsFieldFree() is false during battle (same as world map resume).
+- FIX (2026-06-13, log 10:54): first test resumed correctly ("auto-walk resumed after battle")
+  but a single-frame IsFieldFree flicker ~21ms later re-triggered SaveFieldResume+Cancel and the
+  walk was discarded as non-battle. Root cause: field path had NO flicker tolerance (cancelled on
+  the first non-free frame). Fix: added `_fieldFreeFailCount` (>10 frames) mirroring the world
+  map's `_wmFieldFreeFailCount`. Brief blips now zero the stick for a frame instead of cancelling.
+  RE-TESTED 2026-06-13 — resumes correctly after battle; non-battle interruptions do not resume.
+
+**2. Bonus gauge exact percentage to screen reader (toggle, default OFF).**
+New setting `ModSettings.BonusGaugePercentAnnounceEnabled`. Mod menu (F4) toggle
+`mod_menu_label_gauge_percent`. When on, speaks "Gauge N." every 5% as the gauge climbs
+(`gauge_percent` Loc key, SayQueued). Independent of the 25/50/75 beep cue — both can be on.
+- BonusGaugeHandler.Update restructured: level/ratio now read BEFORE the sound gating so the
+  spoken percentage works even when the beep volume is 0 / sound not loaded. Bails only if
+  BOTH beep and percent are off.
+- `_lastAnnouncedGaugeBucket` (5% bucket) tracks last spoken; seeded on battle entry (no backlog),
+  reset to -1 on level change and in break postfix + Reset(). Capped below 100% (break hook owns 100%).
+
+**Test plan:** (1) Auto-walk to a field target, walk into an enemy en route → after the battle it
+should announce "Resuming walk to X" and continue; talking to an NPC mid-walk should NOT resume.
+(2) Turn on "Bonus gauge percentage announcement" in F4 menu, enter battle, fill the gauge → hear
+"Gauge 5/10/15..." every 5%.
+
 **Last completed:** Traversal recording + routing + release bundling (2026-06-12)
 
 ### Dungeon Navigation — OBSERVED TRAVERSALS (2026-06-12) — WORKING

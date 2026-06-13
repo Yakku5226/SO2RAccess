@@ -28,6 +28,14 @@ namespace SO2RAccess
         private static readonly HashSet<int> _announcedThresholds = new();
         private static bool _wasInBattle;
 
+        // Highest 5% bucket already spoken for the current level (-1 = none yet).
+        // Separate from the beep thresholds so the spoken percentage and the
+        // beep cue stay independent.
+        private static int _lastAnnouncedGaugeBucket = -1;
+
+        /// <summary>Step (in percent) between spoken bonus-gauge percentages.</summary>
+        private const int GaugePercentStep = 5;
+
         // Pre-break buff snapshot for detecting newly granted buff.
         private static readonly Dictionary<BonusBuffType, float> _preBreakValues = new();
         // Pre-break level to detect spurious BreakBonusGauge calls (e.g. initialization).
@@ -141,19 +149,28 @@ namespace SO2RAccess
                     if (seedPct >= 25) _announcedThresholds.Add(25);
                     if (seedPct >= 50) _announcedThresholds.Add(50);
                     if (seedPct >= 75) _announcedThresholds.Add(75);
+                    // Seed the spoken-percentage bucket so we don't replay the
+                    // backlog from a gauge already partially filled on entry.
+                    _lastAnnouncedGaugeBucket = seedPct - (seedPct % GaugePercentStep);
                     DebugLogger.LogState($"BonusGauge: battle entered, level={_lastLevel}, ratio={seedRatio:F2}, seeded {_announcedThresholds.Count} thresholds.");
                 }
                 catch { }
             }
 
-            // Skip if gauge sound disabled (volume at 0).
-            if (ModSettings.BonusGaugeSoundVolume < 0.01f) return;
-            if (!AudioCuePlayer.IsGaugeFillSoundLoaded) return;
+            // The beep cue and the spoken percentage are independent features —
+            // either can be on while the other is off. Bail only if BOTH are off.
+            bool beepEnabled = ModSettings.BonusGaugeSoundVolume >= 0.01f
+                && AudioCuePlayer.IsGaugeFillSoundLoaded;
+            bool percentEnabled = ModSettings.BonusGaugePercentAnnounceEnabled;
+            if (!beepEnabled && !percentEnabled) return;
 
             int level = bm.sphereBonusBuffLevel;
             if (level != _lastLevel)
             {
                 _announcedThresholds.Clear();
+                // New level — the gauge ratio resets toward zero, so allow the
+                // spoken percentage to announce from the start of this level.
+                _lastAnnouncedGaugeBucket = -1;
                 _lastLevel = level;
             }
 
@@ -169,13 +186,30 @@ namespace SO2RAccess
 
             int pct = (int)(ratio * 100f);
 
-            if (pct >= 25 && _announcedThresholds.Add(25))
-                MelonCoroutines.Start(PlayGaugeFillCoroutine(1));
-            if (pct >= 50 && _announcedThresholds.Add(50))
-                MelonCoroutines.Start(PlayGaugeFillCoroutine(2));
-            if (pct >= 75 && _announcedThresholds.Add(75))
-                MelonCoroutines.Start(PlayGaugeFillCoroutine(3));
-            // 100% handled by BreakBonusGauge hook.
+            // Beep cue at 25% / 50% / 75% thresholds.
+            if (beepEnabled)
+            {
+                if (pct >= 25 && _announcedThresholds.Add(25))
+                    MelonCoroutines.Start(PlayGaugeFillCoroutine(1));
+                if (pct >= 50 && _announcedThresholds.Add(50))
+                    MelonCoroutines.Start(PlayGaugeFillCoroutine(2));
+                if (pct >= 75 && _announcedThresholds.Add(75))
+                    MelonCoroutines.Start(PlayGaugeFillCoroutine(3));
+                // 100% handled by BreakBonusGauge hook.
+            }
+
+            // Spoken exact percentage, every GaugePercentStep percent as it climbs.
+            // Capped below 100% — the break announcement covers the level-up.
+            if (percentEnabled)
+            {
+                int bucket = pct - (pct % GaugePercentStep);
+                if (bucket >= GaugePercentStep && bucket < 100
+                    && bucket > _lastAnnouncedGaugeBucket)
+                {
+                    _lastAnnouncedGaugeBucket = bucket;
+                    ScreenReader.SayQueued(Loc.Get("gauge_percent", bucket));
+                }
+            }
         }
 
         #endregion
@@ -231,6 +265,7 @@ namespace SO2RAccess
 
                 // Reset thresholds for the new level.
                 _announcedThresholds.Clear();
+                _lastAnnouncedGaugeBucket = -1;
                 _lastLevel = postLevel;
 
                 // Spurious call check: if the level didn't increase, this is
@@ -317,6 +352,7 @@ namespace SO2RAccess
             _wasInBattle = false;
             _lastLevel = -1;
             _preBreakLevel = -1;
+            _lastAnnouncedGaugeBucket = -1;
             _announcedThresholds.Clear();
             _preBreakValues.Clear();
         }

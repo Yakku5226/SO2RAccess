@@ -10,6 +10,52 @@ namespace SO2RAccess
 {
     public partial class NavigationHandler
     {
+        #region Field Battle-Resume State
+
+        // Mirrors the world map battle-resume (see NavigationHandler.Worldmap.cs),
+        // but field maps get interrupted by many things that are NOT battles
+        // (dialogue, cutscenes, menus). So a saved resume is only "pending" until
+        // its cause is classified: it resumes after a battle, and is discarded for
+        // every other interruption (see UpdateFieldResume / ResumeFieldAutoWalk).
+
+        /// <summary>True when a field auto-walk was interrupted and may resume.</summary>
+        private bool _fieldResumePending;
+
+        /// <summary>True once a battle was detected during the pending window.</summary>
+        private bool _fieldResumeBattleSeen;
+
+        /// <summary>
+        /// Consecutive frames that IsFieldFree returned false during a field
+        /// auto-walk. Tolerates brief flicker (event transitions, and the
+        /// post-battle return settling) so a 1-frame blip doesn't cancel the walk
+        /// — in particular, it must not re-cancel a freshly resumed walk.
+        /// </summary>
+        private int _fieldFreeFailCount;
+
+        /// <summary>Seconds the field has been continuously free while pending.</summary>
+        private float _fieldResumeFreeTimer;
+
+        /// <summary>Saved auto-walk target snapshot for the resume.</summary>
+        private Vector3 _fieldResumeTarget;
+        private string _fieldResumeLabel;
+        private int _fieldResumeCategoryIndex;
+        private Transform _fieldResumeTransform;
+        private Vector3? _fieldResumeFacePosition;
+        private bool _fieldResumeIsCounter;
+        private FieldEventCollision _fieldResumeEventRef;
+        private Bounds? _fieldResumeTriggerBounds;
+        private FieldmapID _fieldResumeMapId;
+
+        /// <summary>
+        /// How long (seconds) the field may stay free without a battle appearing
+        /// before a pending resume is discarded as a non-battle interruption.
+        /// Long enough to cover the brief encounter-transition gap before the
+        /// battle scene loads.
+        /// </summary>
+        private const float FieldResumeDiscardDelay = 0.6f;
+
+        #endregion
+
         /// <summary>
         /// Starts auto-walking to the currently highlighted navigation item.
         /// Calculates a NavMesh path to the target and walks along waypoints via Update().
@@ -21,6 +67,9 @@ namespace SO2RAccess
             if (!_isOpen) return;
             var cat = _categories[_currentCategoryIndex];
             if (cat.Count == 0 || _currentItemIndex >= cat.Count) return;
+
+            // A new explicit walk supersedes any pending battle-resume.
+            ClearFieldResume();
 
             var item = cat[_currentItemIndex];
 
@@ -184,6 +233,197 @@ namespace SO2RAccess
             _crossingExitZones          = null;
             DebugLogger.LogState("NAV auto-walk cancelled.");
         }
+
+        #region Field Battle-Resume
+
+        /// <summary>
+        /// Returns true if a battle is currently active. Uses the same signal as
+        /// the bonus gauge handler: BattleManager exists with a populated player list.
+        /// </summary>
+        private static bool IsBattleActive()
+        {
+            try
+            {
+                var bm = BattleManager.Instance;
+                if (bm == null) return false;
+                var players = bm.battlePlayerList;
+                return players != null && players.Count > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Snapshots the current field auto-walk target so it can be resumed after
+        /// a battle. Must be called BEFORE <see cref="CancelAutoWalk"/> (which clears
+        /// the live auto-walk fields). The resume only actually fires if a battle is
+        /// detected during the pending window — see <see cref="UpdateFieldResume"/>.
+        /// </summary>
+        private void SaveFieldResume()
+        {
+            _fieldResumePending       = true;
+            _fieldResumeBattleSeen    = false;
+            _fieldResumeFreeTimer     = 0f;
+            _fieldResumeTarget        = _autoWalkTarget;
+            _fieldResumeLabel         = _autoWalkLabel;
+            _fieldResumeCategoryIndex = _autoWalkCategoryIndex;
+            _fieldResumeTransform     = _autoWalkTransform;
+            _fieldResumeFacePosition  = _autoWalkFacePosition;
+            _fieldResumeIsCounter     = _autoWalkIsCounter;
+            _fieldResumeEventRef      = _autoWalkEventRef;
+            _fieldResumeTriggerBounds = _autoWalkTriggerBounds;
+            try { _fieldResumeMapId = FieldManager.Instance?.currentFieldmapID ?? FieldmapID.INVALID; }
+            catch { _fieldResumeMapId = FieldmapID.INVALID; }
+            DebugLogger.LogState(
+                $"NAV field: interruption, saving potential resume for '{_autoWalkLabel}'.");
+        }
+
+        /// <summary>Clears a pending field resume without resuming.</summary>
+        private void ClearFieldResume()
+        {
+            _fieldResumePending    = false;
+            _fieldResumeBattleSeen = false;
+            _fieldResumeFreeTimer  = 0f;
+            _fieldResumeTransform  = null;
+            _fieldResumeEventRef   = null;
+        }
+
+        /// <summary>
+        /// Per-frame handler for a pending field auto-walk resume. Called from
+        /// Update() while a resume is pending and auto-walk is not running.
+        /// Classifies the interruption: if a battle becomes active it resumes once
+        /// the battle ends and the field is free again; any other interruption
+        /// (dialogue, cutscene, menu) is discarded after a short grace period.
+        /// </summary>
+        private void UpdateFieldResume()
+        {
+            try
+            {
+                if (IsBattleActive())
+                {
+                    _fieldResumeBattleSeen = true;
+                    _fieldResumeFreeTimer = 0f;
+                }
+
+                if (!IsFieldFree())
+                {
+                    _fieldResumeFreeTimer = 0f;
+                    return;
+                }
+
+                // Field is free again. Discard if the player left the original map
+                // (e.g. a story warp after the fight) — resuming elsewhere is wrong.
+                var fm = FieldManager.Instance;
+                if (fm != null && _fieldResumeMapId != FieldmapID.INVALID
+                    && fm.currentFieldmapID != _fieldResumeMapId)
+                {
+                    DebugLogger.LogState("NAV field resume: map changed, discarding.");
+                    ClearFieldResume();
+                    return;
+                }
+
+                if (_fieldResumeBattleSeen)
+                {
+                    // Battle finished and the field is usable again — resume.
+                    ResumeFieldAutoWalk();
+                    return;
+                }
+
+                // No battle seen yet. Wait out a short grace period (covers the
+                // encounter-transition gap before the battle scene loads) before
+                // concluding this was a non-battle interruption and dropping it.
+                _fieldResumeFreeTimer += Time.deltaTime;
+                if (_fieldResumeFreeTimer >= FieldResumeDiscardDelay)
+                {
+                    DebugLogger.LogState("NAV field resume: non-battle interruption, discarding.");
+                    ClearFieldResume();
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV field resume error: {ex.Message}");
+                ClearFieldResume();
+            }
+        }
+
+        /// <summary>
+        /// Restores the saved field auto-walk target, re-routes from the player's
+        /// current position, and resumes walking with a spoken confirmation.
+        /// </summary>
+        private void ResumeFieldAutoWalk()
+        {
+            var fm = FieldManager.Instance;
+            var player = fm?.GetControlPlayer();
+            if (player == null) { ClearFieldResume(); return; }
+
+            Vector3 playerPos = player.transform.position;
+
+            // The live transform may have been destroyed during the battle —
+            // fall back to the saved position.
+            Vector3 target = _fieldResumeTarget;
+            if (_fieldResumeTransform != null)
+            {
+                try { target = _fieldResumeTransform.position; }
+                catch { _fieldResumeTransform = null; }
+            }
+
+            _autoWalkAllowExit = IsExitCategory(_fieldResumeCategoryIndex);
+
+            bool pathFound;
+            try
+            {
+                pathFound = CalculateAndStorePath(playerPos, target, allowPartial: true);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV field resume: path error: {ex.Message}");
+                ClearFieldResume();
+                return;
+            }
+
+            if (!pathFound)
+            {
+                DebugLogger.LogState("NAV field resume: no path after battle, discarding.");
+                ClearFieldResume();
+                return;
+            }
+
+            _crossingExitZones      = null;
+            _autoWalkTarget         = target;
+            _autoWalkLabel          = _fieldResumeLabel;
+            LastAutoWalkTarget      = target;
+            LastAutoWalkLabel       = _fieldResumeLabel;
+            _autoWalkTransform      = _fieldResumeTransform;
+            _autoWalkIsCounter      = _fieldResumeIsCounter;
+            _autoWalkEventRef       = _fieldResumeEventRef;
+            _autoWalkTriggerBounds  = _fieldResumeTriggerBounds;
+            _autoWalkFacePosition   = _fieldResumeFacePosition;
+            _autoWalkDifferentFloor = Mathf.Abs(target.y - playerPos.y) >= FloorChangeThreshold;
+            _autoWalkCategoryIndex  = _fieldResumeCategoryIndex;
+            _isAutoWalking          = true;
+            _autoWalkArrived        = false;
+            _staticIsAutoWalking    = true;
+            _isWorldmap             = false;
+
+            _fieldStuckTimer            = 0f;
+            _fieldLastStuckCheckPos     = playerPos;
+            _fieldStuckRecalcAttempted  = false;
+            _isAvoidingObstacle         = false;
+            _avoidanceAttempt           = 0;
+
+            try { _autoWalkSpeed = player.GetMoveSpeed(true); }
+            catch { _autoWalkSpeed = 10.0f; }
+
+            string label = _autoWalkLabel;
+            ClearFieldResume();
+
+            ScreenReader.Say(Loc.Get("nav_autowalk_resuming", label));
+            DebugLogger.LogState($"NAV field auto-walk resumed after battle. target={label}");
+        }
+
+        #endregion
 
         /// <summary>
         /// Starts a multi-segment auto-walk across multiple islands.

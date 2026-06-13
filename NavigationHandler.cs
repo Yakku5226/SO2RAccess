@@ -716,6 +716,12 @@ namespace SO2RAccess
                 }
             }
 
+            // Resume auto-walk after a battle on a field map. Mirrors the world
+            // map resume above, but only fires for battle interruptions — dialogue,
+            // cutscenes, and menus are discarded (see UpdateFieldResume).
+            if (_fieldResumePending && !_isAutoWalking)
+                UpdateFieldResume();
+
             if (!_isAutoWalking) return;
 
             // Cancel auto-walk if a dialogue, event, notification, or menu appeared.
@@ -746,10 +752,25 @@ namespace SO2RAccess
                     _staticAutoWalkStickDir = Vector2.zero;
                     return;
                 }
-                CancelAutoWalk();
+                // Field map: tolerate brief field-free flicker before treating it
+                // as a real interruption. Event transitions blip non-free, and the
+                // post-battle return to the field settles over several frames — a
+                // 1-frame blip right after a resume must not re-cancel the walk.
+                _fieldFreeFailCount++;
+                if (_fieldFreeFailCount > 10)
+                {
+                    // Save a potential resume (only fires if a battle caused the
+                    // interruption — see UpdateFieldResume), then cancel.
+                    SaveFieldResume();
+                    CancelAutoWalk();
+                    return;
+                }
+                // Brief interruption — skip this frame but don't cancel.
+                _staticAutoWalkStickDir = Vector2.zero;
                 return;
             }
             _wmFieldFreeFailCount = 0;
+            _fieldFreeFailCount = 0;
 
             try
             {
@@ -1601,6 +1622,31 @@ namespace SO2RAccess
                 MelonLoader.MelonLogger.Msg(
                     $"[SO2RAccess] TRAVERSAL DIAG: {_traversal.NodeCount} breadcrumbs, " +
                     $"player snap node {_traversal.SnapToNode(playerPos)}.");
+
+                // One-way drops detected (jump-down ledges): should match the known
+                // ledges on the map. Their uphill direction is blocked.
+                MelonLoader.MelonLogger.Msg(
+                    $"[SO2RAccess] TRAVERSAL DIAG: {_traversal.DropSummary()}");
+
+                // Save points (the reported failure target). Report reachability so
+                // we can tell "routes the long way" from "genuinely cannot climb up".
+                var fm = FieldManager.Instance;
+                var saves = fm?.FieldSavePointList;
+                if (saves != null)
+                {
+                    for (int i = 0; i < saves.Count; i++)
+                    {
+                        var sp = saves[i];
+                        if (sp == null) continue;
+                        Vector3 p = sp.transform.position;
+                        bool nav = HasCompleteNavMeshPath(playerPos, p);
+                        bool trav = _traversal.HasData && _traversal.IsReachable(playerPos, p);
+                        MelonLoader.MelonLogger.Msg(
+                            $"[SO2RAccess] TRAVERSAL DIAG: save {i} " +
+                            $"({p.x:F1},{p.y:F1},{p.z:F1}) navMeshComplete={nav} traversal={trav}");
+                    }
+                }
+
                 var chests = UnityEngine.Object.FindObjectsOfType<FieldTreasureBox>();
                 if (chests == null) return;
                 int n = 0;

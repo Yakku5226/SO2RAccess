@@ -335,6 +335,14 @@ namespace SO2RAccess
                     Type = ModMenuItemType.Toggle,
                     GetValue = () => Loc.Get(ModSettings.BonusGaugeBreakAnnouncementEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.BonusGaugeBreakAnnouncementEnabled = !ModSettings.BonusGaugeBreakAnnouncementEnabled; }
+                },
+                // Bonus gauge percentage announcement toggle
+                new ModMenuItem
+                {
+                    LabelKey = "mod_menu_label_gauge_percent",
+                    Type = ModMenuItemType.Toggle,
+                    GetValue = () => Loc.Get(ModSettings.BonusGaugePercentAnnounceEnabled ? "mod_menu_on" : "mod_menu_off"),
+                    Change = _ => { ModSettings.BonusGaugePercentAnnounceEnabled = !ModSettings.BonusGaugePercentAnnounceEnabled; }
                 }
             };
         }

@@ -36,17 +36,27 @@ namespace SO2RAccess
         private const float SnapYWeight = 2.0f;
         /// <summary>Spatial-hash cell size (m).</summary>
         private const float HashCell = 2.0f;
+        /// <summary>An edge is a one-way "drop" (jump-down ledge) when its vertical
+        /// fall is at least this large (m)...</summary>
+        private const float DropMinDy = 1.0f;
+        /// <summary>...AND it is steeper than this (vertical fall / horizontal run).
+        /// Real ramps/stairs stay far below; observed jump-down ledges are ~4-6.</summary>
+        private const float DropMinRatio = 1.2f;
 
         private static readonly string Dir =
             Path.Combine(Directory.GetCurrentDirectory(), "UserData", "SO2RAccess", "traversals");
 
         // ── Graph state ──────────────────────────────────────────────────────
         private readonly List<Vector3> _nodes = new List<Vector3>();
+        // Directed out-neighbours. A steep "drop" edge appears only in the high
+        // node's list (downhill), never the low node's — you can fall down a ledge
+        // but not climb it. Gentle edges appear in both directions.
         private readonly List<List<int>> _adj = new List<List<int>>();
         private readonly Dictionary<(int, int), List<int>> _hash =
             new Dictionary<(int, int), List<int>>();
-        private int[] _comp;
-        private bool _compDirty = true;
+        // Steep edges the player was OBSERVED to climb upward (ladders / climb
+        // points). Stored normalised (low,high). These keep their uphill direction.
+        private readonly HashSet<(int, int)> _climbEdges = new HashSet<(int, int)>();
         private int _lastNode = -1;
         private string _mapId;
         private bool _dirty;
@@ -71,8 +81,8 @@ namespace SO2RAccess
 
         private void Clear()
         {
-            _nodes.Clear(); _adj.Clear(); _hash.Clear();
-            _comp = null; _compDirty = true; _lastNode = -1; _dirty = false;
+            _nodes.Clear(); _adj.Clear(); _hash.Clear(); _climbEdges.Clear();
+            _lastNode = -1; _dirty = false;
         }
 
         // ── Recording ────────────────────────────────────────────────────────
@@ -94,13 +104,15 @@ namespace SO2RAccess
             {
                 current = AddNode(pos);
                 // Link to nearby existing breadcrumbs (merge overlapping passes).
+                // Proximity links have no direction of travel, so a steep one is
+                // treated as downhill-only.
                 foreach (int n in NodesWithin(pos, MergeRadius))
                 {
                     if (n == current) continue;
                     if (Mathf.Abs(_nodes[n].y - pos.y) > MergeMaxDy) continue;
-                    AddEdge(current, n);
+                    Connect(current, n, observedFrom: -1);
                 }
-                _compDirty = true; _dirty = true;
+                _dirty = true;
             }
 
             if (_lastNode >= 0 && _lastNode != current)
@@ -108,8 +120,11 @@ namespace SO2RAccess
                 float d = Vector3.Distance(_nodes[_lastNode], _nodes[current]);
                 if (d <= TrailMaxStep) // ignore teleports / scene jumps
                 {
-                    AddEdge(_lastNode, current);
-                    _compDirty = true; _dirty = true;
+                    // The trail link carries a real direction of travel
+                    // (_lastNode -> current), which lets a steep edge be recognised
+                    // as a climb when the player actually moved uphill.
+                    Connect(_lastNode, current, observedFrom: _lastNode);
+                    _dirty = true;
                 }
             }
             _lastNode = current;
@@ -129,22 +144,91 @@ namespace SO2RAccess
             return idx;
         }
 
-        private void AddEdge(int a, int b)
+        /// <summary>
+        /// Links two breadcrumbs, honouring one-way drops. A gentle edge is
+        /// bidirectional. A steep edge (jump-down ledge) is downhill-only by
+        /// default; its uphill direction is added only when the player was
+        /// OBSERVED to climb it — i.e. <paramref name="observedFrom"/> is the lower
+        /// node — marking it a climb point (ladder). Pass observedFrom = -1 for
+        /// links with no direction of travel (proximity merges, loaded edges).
+        /// </summary>
+        private void Connect(int a, int b, int observedFrom)
         {
             if (a == b) return;
-            if (!_adj[a].Contains(b)) _adj[a].Add(b);
-            if (!_adj[b].Contains(a)) _adj[b].Add(a);
+
+            if (!IsSteepDrop(a, b))
+            {
+                AddDirected(a, b);
+                AddDirected(b, a);
+                return;
+            }
+
+            int hi = _nodes[a].y >= _nodes[b].y ? a : b;
+            int lo = (hi == a) ? b : a;
+            AddDirected(hi, lo);                 // you can always fall down
+
+            // Uphill only if observed climbing, or already known to be a climb point.
+            var pair = NormalizePair(lo, hi);
+            if (observedFrom == lo || _climbEdges.Contains(pair))
+            {
+                AddDirected(lo, hi);
+                if (_climbEdges.Add(pair)) _dirty = true;
+            }
         }
+
+        private void AddDirected(int from, int to)
+        {
+            if (!_adj[from].Contains(to)) _adj[from].Add(to);
+        }
+
+        /// <summary>True when the edge is a near-vertical drop the player can fall
+        /// down but not walk up (large vertical fall over little horizontal run).</summary>
+        private bool IsSteepDrop(int a, int b)
+        {
+            float dy = Mathf.Abs(_nodes[a].y - _nodes[b].y);
+            if (dy < DropMinDy) return false;
+            float dx = _nodes[a].x - _nodes[b].x, dz = _nodes[a].z - _nodes[b].z;
+            float dxz = Mathf.Sqrt(dx * dx + dz * dz);
+            if (dxz < 0.0001f) return true; // perfectly vertical
+            return dy / dxz >= DropMinRatio;
+        }
+
+        private static (int, int) NormalizePair(int a, int b) =>
+            a < b ? (a, b) : (b, a);
 
         // ── Queries ──────────────────────────────────────────────────────────
 
-        /// <summary>True if both points snap to breadcrumbs in the same walked component.</summary>
+        /// <summary>
+        /// True if <paramref name="b"/> can be reached from <paramref name="a"/> by
+        /// following walked edges in their allowed direction. Directed, so a target
+        /// reachable only by climbing a one-way drop returns false (honest), while a
+        /// target below a drop stays reachable (you can descend).
+        /// </summary>
         public bool IsReachable(Vector3 a, Vector3 b)
         {
             int na = SnapToNode(a), nb = SnapToNode(b);
             if (na < 0 || nb < 0) return false;
-            EnsureComponents();
-            return _comp[na] == _comp[nb];
+            return DirectedReachable(na, nb);
+        }
+
+        /// <summary>Directed BFS from <paramref name="start"/> following out-edges.</summary>
+        private bool DirectedReachable(int start, int goal)
+        {
+            if (start == goal) return true;
+            var seen = new bool[_nodes.Count];
+            var q = new Queue<int>();
+            seen[start] = true; q.Enqueue(start);
+            while (q.Count > 0)
+            {
+                int cur = q.Dequeue();
+                foreach (int nb in _adj[cur])
+                {
+                    if (seen[nb]) continue;
+                    if (nb == goal) return true;
+                    seen[nb] = true; q.Enqueue(nb);
+                }
+            }
+            return false;
         }
 
         /// <summary>
@@ -157,8 +241,6 @@ namespace SO2RAccess
             corners = null;
             int start = SnapToNode(from), goal = SnapToNode(to);
             if (start < 0 || goal < 0) return false;
-            EnsureComponents();
-            if (_comp[start] != _comp[goal]) return false;
 
             int n = _nodes.Count;
             var g = new float[n];
@@ -212,26 +294,34 @@ namespace SO2RAccess
             return best;
         }
 
-        private void EnsureComponents()
+        // ── Diagnostics ──────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Summarises detected one-way drops (jump-down ledges): edges that exist
+        /// downhill but whose uphill direction was removed. Used by the F11
+        /// diagnostic to confirm ledges are caught at the expected locations.
+        /// </summary>
+        public string DropSummary(int sampleMax = 6)
         {
-            if (!_compDirty && _comp != null && _comp.Length == _nodes.Count) return;
-            _comp = new int[_nodes.Count];
-            for (int i = 0; i < _comp.Length; i++) _comp[i] = -1;
-            int c = 0;
-            var q = new Queue<int>();
-            for (int s = 0; s < _nodes.Count; s++)
+            int count = 0;
+            var sample = new List<string>(sampleMax);
+            for (int hi = 0; hi < _adj.Count; hi++)
             {
-                if (_comp[s] != -1) continue;
-                int id = c++;
-                _comp[s] = id; q.Enqueue(s);
-                while (q.Count > 0)
+                foreach (int lo in _adj[hi])
                 {
-                    int cur = q.Dequeue();
-                    foreach (int nb in _adj[cur])
-                        if (_comp[nb] == -1) { _comp[nb] = id; q.Enqueue(nb); }
+                    if (!IsSteepDrop(hi, lo)) continue;
+                    if (_nodes[hi].y < _nodes[lo].y) continue;     // count each drop once (high side)
+                    if (_adj[lo].Contains(hi)) continue;           // climb point, not one-way
+                    count++;
+                    if (sample.Count < sampleMax)
+                    {
+                        Vector3 h = _nodes[hi], l = _nodes[lo];
+                        sample.Add($"({h.x:F1},{h.y:F1},{h.z:F1})->({l.x:F1},{l.y:F1},{l.z:F1})");
+                    }
                 }
             }
-            _compDirty = false;
+            return $"{count} one-way drops" +
+                   (sample.Count > 0 ? "; e.g. " + string.Join(", ", sample) : "");
         }
 
         // ── Spatial hash helpers ─────────────────────────────────────────────
@@ -277,12 +367,19 @@ namespace SO2RAccess
                 {
                     MapId = _mapId,
                     Nodes = new List<float[]>(_nodes.Count),
-                    Edges = new List<int[]>()
+                    Edges = new List<int[]>(),
+                    ClimbEdges = new List<int[]>(_climbEdges.Count)
                 };
                 foreach (var p in _nodes) data.Nodes.Add(new[] { p.x, p.y, p.z });
+                // Store connectivity as undirected pairs (each unordered pair once);
+                // direction is re-derived geometrically on load. ClimbEdges records
+                // the steep edges proven climbable so their uphill survives reload.
+                var seen = new HashSet<(int, int)>();
                 for (int a = 0; a < _adj.Count; a++)
                     foreach (int b in _adj[a])
-                        if (a < b) data.Edges.Add(new[] { a, b });
+                        if (seen.Add(NormalizePair(a, b)))
+                            data.Edges.Add(a < b ? new[] { a, b } : new[] { b, a });
+                foreach (var (lo, hi) in _climbEdges) data.ClimbEdges.Add(new[] { lo, hi });
 
                 File.WriteAllText(Path.Combine(Dir, _mapId + ".json"),
                     JsonSerializer.Serialize(data));
@@ -313,9 +410,13 @@ namespace SO2RAccess
                 var data = JsonSerializer.Deserialize<TraversalData>(json);
                 if (data?.Nodes == null) return;
                 foreach (var p in data.Nodes) AddNode(new Vector3(p[0], p[1], p[2]));
+                // Known climb points first, so Connect restores their uphill edge.
+                // Older files have no ClimbEdges → every steep edge is downhill-only.
+                if (data.ClimbEdges != null)
+                    foreach (var e in data.ClimbEdges)
+                        _climbEdges.Add(NormalizePair(e[0], e[1]));
                 if (data.Edges != null)
-                    foreach (var e in data.Edges) AddEdge(e[0], e[1]);
-                _compDirty = true;
+                    foreach (var e in data.Edges) Connect(e[0], e[1], observedFrom: -1);
             }
             catch (Exception ex)
             {
@@ -351,6 +452,8 @@ namespace SO2RAccess
             public string MapId { get; set; }
             public List<float[]> Nodes { get; set; }
             public List<int[]> Edges { get; set; }
+            /// <summary>Steep edges proven climbable (low,high). Optional/back-compat.</summary>
+            public List<int[]> ClimbEdges { get; set; }
         }
 
         // ── Minimal binary min-heap ──────────────────────────────────────────
