@@ -66,6 +66,7 @@ namespace SO2RAccess
         private BonusGaugeHandler _bonusGaugeHandler;
         private DialogueChoiceHandler _dialogueChoiceHandler;
         private PickpocketHandler _pickpocketHandler;
+        private FieldPromptHandler _fieldPromptHandler;
 
         // Gamepad nav overlay — L1 hold-to-open state.
         private bool _gamepadL1Held;
@@ -112,6 +113,9 @@ namespace SO2RAccess
             string gaugeFillWavPath = Path.Combine(soundsDir, "GaugeFill.wav");
             AudioCuePlayer.LoadGaugeFillSound(gaugeFillWavPath);
 
+            string jumpWavPath = Path.Combine(soundsDir, "Jump.wav");
+            AudioCuePlayer.LoadJumpSound(jumpWavPath);
+
             Loc.Initialize();
             InitializeHandlers();
             MelonCoroutines.Start(AnnounceStartupDelayed());
@@ -149,6 +153,7 @@ namespace SO2RAccess
             _bonusGaugeHandler = new BonusGaugeHandler();
             _dialogueChoiceHandler = new DialogueChoiceHandler();
             _pickpocketHandler = new PickpocketHandler();
+            _fieldPromptHandler = new FieldPromptHandler();
         }
 
         private IEnumerator AnnounceStartupDelayed()
@@ -247,6 +252,7 @@ namespace SO2RAccess
             _equipWizardHandler.ApplyPatches(_harmony);
             _bonusGaugeHandler.ApplyPatches(_harmony);
             _dialogueChoiceHandler.ApplyPatches(_harmony);
+            _fieldPromptHandler.ApplyPatches(_harmony);
         }
 
         /// <summary>
@@ -960,6 +966,7 @@ namespace SO2RAccess
             _bonusGaugeHandler.Update();
             _dialogueChoiceHandler.Update();
             _pickpocketHandler.Update();
+            _fieldPromptHandler.Update();
         }
 
         #endregion

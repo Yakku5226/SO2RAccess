@@ -548,6 +548,12 @@ namespace SO2RAccess
             Add("mod_menu_label_gauge_volume",      "Bonus gauge sound volume");
             Add("mod_menu_label_gauge_break_announce", "Bonus gauge break announcement");
             Add("mod_menu_label_gauge_percent",     "Bonus gauge percentage announcement");
+            Add("mod_menu_label_jump_sound",        "Jump prompt sound");
+            Add("mod_menu_label_jump_speech",       "Jump prompt speech");
+
+            // Field prompts (button guide above the player / interactables)
+            Add("jump_prompt",            "Press {0} to jump down.");
+            Add("jump_prompt_no_button",  "Jump down available.");
 
             // Battle target (L2 target change mode)
             Add("battle_target_hp_pct",         "HP {0}%.");

@@ -66,6 +66,17 @@ namespace SO2RAccess
         private static float _gaugeBreakSoundCachedVolume = -1f;
         private static bool _gaugeBreakSoundLoaded;
 
+        // File-based jump-prompt cue — played when the "press X to jump down" prompt
+        // appears above the player at a one-way ledge.
+        private static byte[] _jumpSoundRawWav;
+        private static int _jumpSoundDataOffset;
+        private static int _jumpSoundDataLength;
+        private static short _jumpSoundBitsPerSample;
+        private static IntPtr _jumpSoundPtr = IntPtr.Zero;
+        private static int _jumpSoundPtrSize;
+        private static float _jumpSoundCachedVolume = -1f;
+        private static bool _jumpSoundLoaded;
+
         // File-based save sound — stores the raw WAV file bytes and the
         // byte offset of the PCM data region within it. Volume adjustment
         // creates a copy with scaled samples rather than rebuilding the
@@ -168,6 +179,86 @@ namespace SO2RAccess
             catch (Exception ex)
             {
                 DebugLogger.LogState($"AudioCuePlayer.PlayDodgeWarningCue failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Loads a WAV file from disk for the jump-prompt cue.
+        /// </summary>
+        public static void LoadJumpSound(string path)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    MelonLogger.Warning($"AudioCuePlayer: jump sound not found: {path}");
+                    return;
+                }
+
+                if (!TryParseWav(path, out byte[] fileBytes, out int dataOffset,
+                        out int dataLength, out short bitsPerSample))
+                    return;
+
+                _jumpSoundRawWav = fileBytes;
+                _jumpSoundDataOffset = dataOffset;
+                _jumpSoundDataLength = dataLength;
+                _jumpSoundBitsPerSample = bitsPerSample;
+                _jumpSoundCachedVolume = -1f;
+                _jumpSoundLoaded = true;
+
+                int sampleCount = dataLength / (bitsPerSample / 8);
+                MelonLogger.Msg($"AudioCuePlayer: jump sound loaded ({fileBytes.Length} bytes, {sampleCount} samples, {bitsPerSample}-bit).");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"AudioCuePlayer.LoadJumpSound failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Returns true if the jump sound WAV was loaded successfully.
+        /// </summary>
+        public static bool IsJumpSoundLoaded => _jumpSoundLoaded;
+
+        /// <summary>
+        /// Plays the jump-prompt cue at the current ModSettings volume.
+        /// </summary>
+        public static void PlayJumpCue()
+        {
+            if (!_jumpSoundLoaded || _jumpSoundRawWav == null)
+                return;
+
+            try
+            {
+                float volume = ModSettings.JumpPromptSoundVolume;
+                if (volume < 0.001f) return;
+
+                if (Math.Abs(volume - _jumpSoundCachedVolume) > 0.001f)
+                {
+                    byte[] adjusted = (byte[])_jumpSoundRawWav.Clone();
+                    ScalePcmSamples(adjusted, _jumpSoundDataOffset,
+                        _jumpSoundDataLength, _jumpSoundBitsPerSample, volume);
+
+                    if (_jumpSoundPtr != IntPtr.Zero)
+                        Marshal.FreeHGlobal(_jumpSoundPtr);
+
+                    _jumpSoundPtrSize = adjusted.Length;
+                    _jumpSoundPtr = Marshal.AllocHGlobal(_jumpSoundPtrSize);
+                    Marshal.Copy(adjusted, 0, _jumpSoundPtr, _jumpSoundPtrSize);
+                    _jumpSoundCachedVolume = volume;
+
+                    DebugLogger.LogState($"Jump WAV built: {_jumpSoundPtrSize} bytes at volume {volume:F2}");
+                }
+
+                if (_jumpSoundPtr != IntPtr.Zero)
+                {
+                    PlaySoundPtr(_jumpSoundPtr, IntPtr.Zero,
+                        SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"AudioCuePlayer.PlayJumpCue failed: {ex.Message}");
             }
         }
 
@@ -520,6 +611,14 @@ namespace SO2RAccess
                 _saveSoundPtr = IntPtr.Zero;
             }
             _saveSoundLoaded = false;
+
+            _jumpSoundRawWav = null;
+            if (_jumpSoundPtr != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(_jumpSoundPtr);
+                _jumpSoundPtr = IntPtr.Zero;
+            }
+            _jumpSoundLoaded = false;
 
             _paSoundRawWav = null;
             if (_paSoundPtr != IntPtr.Zero)

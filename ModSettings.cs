@@ -71,6 +71,21 @@ namespace SO2RAccess
         /// </summary>
         public static bool BonusGaugePercentAnnounceEnabled { get; set; } = false;
 
+        /// <summary>
+        /// Whether the jump-prompt audio cue plays when the "press X to jump down"
+        /// prompt appears above the player at a one-way ledge.
+        /// </summary>
+        public static bool JumpPromptSoundEnabled { get; set; } = true;
+
+        /// <summary>Volume of the jump-prompt audio cue (0.0 to 1.0).</summary>
+        public static float JumpPromptSoundVolume { get; set; } = 0.8f;
+
+        /// <summary>
+        /// Whether the jump prompt is spoken once via the screen reader when it
+        /// appears. Independent of the audio cue — either, both, or neither.
+        /// </summary>
+        public static bool JumpPromptSpeechEnabled { get; set; } = true;
+
         #endregion
 
         #region Persistence
@@ -117,6 +132,9 @@ namespace SO2RAccess
                     BonusGaugeSoundVolume = Math.Clamp(data.BonusGaugeSoundVolume, 0f, 1f);
                     BonusGaugeBreakAnnouncementEnabled = data.BonusGaugeBreakAnnouncementEnabled;
                     BonusGaugePercentAnnounceEnabled = data.BonusGaugePercentAnnounceEnabled;
+                    JumpPromptSoundEnabled = data.JumpPromptSoundEnabled;
+                    JumpPromptSoundVolume = Math.Clamp(data.JumpPromptSoundVolume, 0f, 1f);
+                    JumpPromptSpeechEnabled = data.JumpPromptSpeechEnabled;
                 }
                 MelonLogger.Msg("ModSettings: loaded.");
             }
@@ -150,7 +168,10 @@ namespace SO2RAccess
                     PrivateActionSoundVolume = PrivateActionSoundVolume,
                     BonusGaugeSoundVolume = BonusGaugeSoundVolume,
                     BonusGaugeBreakAnnouncementEnabled = BonusGaugeBreakAnnouncementEnabled,
-                    BonusGaugePercentAnnounceEnabled = BonusGaugePercentAnnounceEnabled
+                    BonusGaugePercentAnnounceEnabled = BonusGaugePercentAnnounceEnabled,
+                    JumpPromptSoundEnabled = JumpPromptSoundEnabled,
+                    JumpPromptSoundVolume = JumpPromptSoundVolume,
+                    JumpPromptSpeechEnabled = JumpPromptSpeechEnabled
                 };
 
                 var options = new JsonSerializerOptions { WriteIndented = true };
@@ -183,6 +204,9 @@ namespace SO2RAccess
             public float BonusGaugeSoundVolume { get; set; } = 0.7f;
             public bool BonusGaugeBreakAnnouncementEnabled { get; set; } = true;
             public bool BonusGaugePercentAnnounceEnabled { get; set; } = false;
+            public bool JumpPromptSoundEnabled { get; set; } = true;
+            public float JumpPromptSoundVolume { get; set; } = 0.8f;
+            public bool JumpPromptSpeechEnabled { get; set; } = true;
         }
 
         #endregion

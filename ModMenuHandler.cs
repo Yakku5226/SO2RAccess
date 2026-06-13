@@ -343,6 +343,22 @@ namespace SO2RAccess
                     Type = ModMenuItemType.Toggle,
                     GetValue = () => Loc.Get(ModSettings.BonusGaugePercentAnnounceEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.BonusGaugePercentAnnounceEnabled = !ModSettings.BonusGaugePercentAnnounceEnabled; }
+                },
+                // Jump prompt sound toggle
+                new ModMenuItem
+                {
+                    LabelKey = "mod_menu_label_jump_sound",
+                    Type = ModMenuItemType.Toggle,
+                    GetValue = () => Loc.Get(ModSettings.JumpPromptSoundEnabled ? "mod_menu_on" : "mod_menu_off"),
+                    Change = _ => { ModSettings.JumpPromptSoundEnabled = !ModSettings.JumpPromptSoundEnabled; }
+                },
+                // Jump prompt speech toggle
+                new ModMenuItem
+                {
+                    LabelKey = "mod_menu_label_jump_speech",
+                    Type = ModMenuItemType.Toggle,
+                    GetValue = () => Loc.Get(ModSettings.JumpPromptSpeechEnabled ? "mod_menu_on" : "mod_menu_off"),
+                    Change = _ => { ModSettings.JumpPromptSpeechEnabled = !ModSettings.JumpPromptSpeechEnabled; }
                 }
             };
         }

@@ -580,6 +580,13 @@ namespace SO2RAccess
         public static string StripTagsPublic(string text) => StripTags(text);
 
         /// <summary>
+        /// Public wrapper for StripControllerPrefix, used by other handlers that parse
+        /// button sprite names (e.g. "PS4_Cross" → "Cross").
+        /// </summary>
+        public static string StripControllerPrefixPublic(string spriteName) =>
+            StripControllerPrefix(spriteName);
+
+        /// <summary>
         /// Cleans rich text from a game string. Sprite tags have their name
         /// extracted and controller prefixes stripped (e.g. "&lt;sprite name=PS4_Cross&gt;"
         /// → "Cross"), then any remaining tags are removed.

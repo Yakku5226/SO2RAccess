@@ -624,6 +624,105 @@ Fields (all useful for status announcements):
 
 ---
 
+## 18. Field Icons & On-Screen Notifications (UIFieldController)
+
+### Overview
+`UIFieldController` (`UIFieldController.cs`) is the central controller for everything that
+floats in the field world space or pops up as a field notification. The "X Jump" prompt over
+the player's head, location-point / fishing icons, NPC emotion bubbles, area-name banners, and
+the corner info toasts (item get, EXP, level-up, etc.) are ALL driven from here. There is no
+single "FieldGuideType" enum — each notification family is its own method + presenter.
+
+The `[CallerCount(n)]` attribute is the key hook signal (same rule as the rest of this project):
+`n >= 1` = at least one managed caller, so the managed stub runs and a Harmony hook FIRES;
+`n == 0` = native-only caller, hook will NOT fire (poll the presenter instead).
+
+### Floating button prompt — the "X Jump" family (HOOKABLE)
+The over-the-head button guide (e.g. `X  Jump` at a one-way ledge) is an "operation" prompt,
+NOT a FieldIconType. Two render paths exist:
+- `UIFieldController.ShowOperation(List<string> operationList, Transform followTransform,
+  ref Vector3 worldOffset, bool isCancelLocalPosition, bool isPlayer = false,
+  List<Color> textColorList = null)` — [CallerCount(2)]. `isPlayer = true` positions it over
+  the player (the jump-prompt case). `operationList` holds the guide strings.
+- `UIFieldController.ShowLabelOperation(string label, string operation, Transform followTransform,
+  ref Vector3 worldOffset, bool isPlayer = false)` — [CallerCount(0)] (likely native-only).
+- `UIFieldController.HideOperation()` / `HideLabelOperation()` — both [CallerCount(0)]
+  (native-only — a hook will NOT fire on hide; detect disappearance by polling).
+
+**BEST HOOK — `UIFieldOperationPresenter.Set(...)`** (`UIFieldOperationPresenter.cs`,
+class `UIFieldOperationPresenter : UIAnimationPresenterBase`):
+- `Set(List<string> operationList, Transform followTransform, Canvas canvas,
+  ref Vector3 worldOffset, bool isCancelLocalPosition, bool isPlayer = false,
+  List<Color> textColorList = null)` — **[CallerCount(7)]**, hookable, receives the prompt
+  strings directly. Preferred over `ShowOperation` (more callers, has the data in-args).
+- `operationTextList` (List\<GameText\>) — the actual rendered text, READABLE at runtime, so the
+  literal on-screen text ("Jump", button glyph) can be pulled even if the input strings are keys.
+- `Hide()` / `ForceHide()` — both [CallerCount(0)] → poll `gameObject.activeInHierarchy` to
+  know when the prompt clears.
+- The selector wrapper is `UIFieldIconSelector`'s sibling — the presenter lives under
+  `UIFieldController.operationPresenter` (field, type `UIFieldOperationPresenter`).
+
+CAVEAT (verify in-game): confirm the jump prompt actually flows through `Set` by logging
+`operationList` contents + `isPlayer` in a temporary postfix. The shared presenter is also used
+for non-jump button guides (e.g. talk/interact prompts), so the cue must filter on the prompt
+content (jump action) and/or `isPlayer = true`, not just "any operation shown".
+
+### World-space icons — UIFieldIconSelector (only 2 types)
+`UIFieldController.ShowIcon(string fieldObjectName, UIDefine.FieldIconType type,
+ref Vector3 worldOffset)` — [CallerCount(3)]. Backed by `UIFieldIconSelector.ShowFieldIcon(...)`
+(several overloads, [CallerCount(1)]). `UIDefine.FieldIconType` has ONLY:
+- `LocationPoint` — discoverable map location sparkle (already handled via
+  `UIFieldLocationPointPresenter.Set`, see Location Discovery in MEMORY).
+- `Fishing` — fishing-spot icon (fishing nav already handled).
+`HideIcon(string)` / `HideIcon(Transform)` / `HideAllIcon()` — [CallerCount(0/0/2)].
+
+### NPC / player emotion bubbles — ShowEmotion (HOOKABLE)
+`UIFieldController.ShowEmotion(...)` overloads — [CallerCount(8)] (string name overload),
+[CallerCount(1)] (FieldObject overloads). Takes `UIDefine.EmotionType`:
+Sweat, Exclamation, Question, Notice, Angry, Note, Gloomy, Heart, LightBulb, ColdSweat, Laugh,
+TurnPale, Exclamation2, Silence, SweatReverse, NoticeReverse, Sleep.
+`HideEmotion(string)` [CallerCount(15)], `HideAllEmotion()` [CallerCount(1)]. These are the
+"!" / "?" bubbles over NPCs (alerted enemies, reaction cues) — candidate for an optional cue.
+
+### Area / mode banners
+- `ShowSymbolName(string)` / `ShowSymbolName(string, float)` — area-name banner [CallerCount(0)].
+- `ShowSubSymbolName(string, float, Action)` — sub-area name [CallerCount(0)].
+- `HideSymbolName()` [CallerCount(4)], `ShowMode(string, bool)` [CallerCount(4)] /
+  `HideMode()` [CallerCount(2)] — mode banner (e.g. stealth/scout mode label).
+- `ShowOnTransition(bool isShowMapName, ...)` — [CallerCount(9)], fires on map transitions.
+
+### Corner info toasts (acquisition / progression notifications)
+All on `UIFieldController`. CallerCount in brackets ( >=1 = hookable directly ):
+- `ShowItemInformation(int itemID, int count, FactorID)` [4] — item acquired
+- `ShowGetMoneyInformation(int money)` [4] — Fol gained
+- `ShowExpInformation(int exp)` [3] — EXP gained
+- `ShowSkillPointInformation(int sp)` [0], `ShowBattlePointInformation(int bp)` [0]
+- `ShowLevelUpInformation(PlayerID, int preLevel, int level)` [4] — level up
+- `ShowLearningBattleSkillInformation(PlayerID, List<BattleSkillID>)` [4] — skill learned
+- `ShowOpenTalent(PlayerID, TalentID)` [2] — talent unlocked
+- `ShowFamliarInformation(FamiliarBirdType)` [1], `ShowFavorabilityInformation()` [0],
+  `AddFavorabilityNotification(PlayerID)` [4]
+- `ShowPlayerInformation(PlayerID, string, string soundName)` [2] — generic player toast
+- `ShowBouncedCheckInformation(int money)` [1]
+- `ShowCookingMasterFoodInformation(int itemID, int count)` [4] / `ShowCookingMasterStorageInformation()` [0]
+- `ShowInformation(string information)` [0]
+NOTE: several of these (item/EXP/level/skill) overlap with rewards the mod already surfaces via
+other hooks (Location Discovery, battle results). Re-using these as the single source of truth
+for "what did I just get" is worth evaluating — but watch for CallerCount(0) ones being
+native-only.
+
+### Party member change notifications
+`ShowChangeMemberNotification()` [3], `AddChangeBattleMemberNotification(List<PlayerID>)` [0],
+`AddChangeAssistMemberNotification(List<AssistID>)` [0],
+`AddBreakawayMemberNotification(List<UpdatedMember>)` [0].
+
+### Jump-down mechanism (for the cue's trigger context)
+Related field classes (the ledge/jump machinery, separate from the UI prompt):
+`FieldMapjumpCollision.cs` (ledge/exit collision trigger; has `iconType` / `subIconType`),
+`FieldMapJumpInfo.cs`, `FieldCharacterJumpTask.cs` (states Invalid/StartJump/Jump/EndJump —
+the actual descent animation). The jump still requires a manual X press (confirmed in-game);
+the prompt appears when the player parks at the ledge.
+
 ## Change History
 
 - **2026-02-22:** File created during setup
@@ -633,3 +732,4 @@ Fields (all useful for status announcements):
 - **2026-02-23:** Gamepad binding menu analysis — UIConfigGamePadSelector, UIKeyConfigSelector, UIKeyConfigSelectItemPresenter documented. Key finding: `icon` field holds the assigned button sprite; `pressKeyText` is the capture-mode prompt text, not the assignment.
 - **2026-02-23:** Save/load menu analysis — UISaveLoadWindow, UISaveLoadSelector, UISaveLoadListItemPresenter, UISaveLoadListItemData documented. All slot info pre-formatted as strings in the data object.
 - **2026-02-23:** Dialogue, tutorial, and popup analysis — UIConversationPresenter, UITutorialInformationPresenter, UITutorialInformationData, UIDialogPresenter, UIDialogWindow documented.
+- **2026-06-13:** Field icons & notifications analysis (Section 18) — UIFieldController is the central field-notification controller. Key finding: the "X Jump" prompt is an "operation" (button guide), not a FieldIconType (which only has LocationPoint/Fishing). Best hook is `UIFieldOperationPresenter.Set` [CallerCount(7)] with readable `operationTextList`; `HideOperation`/`Hide` are [CallerCount(0)] (poll activeInHierarchy). Also catalogued: ShowEmotion (17 EmotionTypes), area/mode banners, and ~15 corner info toasts (item/money/EXP/level/skill/talent/member).
