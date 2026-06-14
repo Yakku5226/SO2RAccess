@@ -641,6 +641,7 @@ namespace SO2RAccess
         private static string FormatItemReward(int itemID, int count)
         {
             string name = null;
+            string diagNameID = "(no param)", diagResolved = "(not tried)";
             try
             {
                 var pm = ParameterManager.Instance;
@@ -650,6 +651,7 @@ namespace SO2RAccess
                     if (itemParam != null)
                     {
                         string nameID = itemParam.itemNameID;
+                        diagNameID = nameID ?? "(null)";
                         if (!string.IsNullOrEmpty(nameID))
                         {
                             // Try TextManager to resolve the name ID to a display name.
@@ -657,6 +659,7 @@ namespace SO2RAccess
                             if (tm != null)
                             {
                                 string resolved = tm.GetMessage(nameID, TextManager.MessageType.Item);
+                                diagResolved = $"'{resolved}'";
                                 if (!string.IsNullOrEmpty(resolved) && resolved != nameID)
                                     name = resolved;
                             }
@@ -681,6 +684,10 @@ namespace SO2RAccess
 
             if (string.IsNullOrEmpty(name))
                 name = $"item {itemID}";
+
+            DebugLogger.LogState(
+                $"FormatItemReward DIAG: itemID={itemID} itemNameID={diagNameID} " +
+                $"textManager={diagResolved} -> name='{name}'");
 
             return count > 1
                 ? Loc.Get("reward_item_multi", name, count)
