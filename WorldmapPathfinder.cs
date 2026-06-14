@@ -1,7 +1,6 @@
 using Il2CppGame;
 using System;
 using System.Collections.Generic;
-using System.Text;
 using UnityEngine;
 
 namespace SO2RAccess
@@ -249,7 +248,6 @@ namespace SO2RAccess
                 // Uses clearance-adjusted positions for cells near CharaWalls
                 // so the player walks through the exact center of narrow gaps.
                 var waypoints = new List<Vector3>();
-                var hasClearance = new List<bool>();
                 foreach (var cell in path)
                 {
                     Vector3 wp = grid.GridToWorldWithClearance(cell.x, cell.y);
@@ -257,15 +255,13 @@ namespace SO2RAccess
                         new Vector3(wp.x, 150f, wp.z), out bool ok, 300f);
                     if (ok) wp.y = groundY;
                     waypoints.Add(wp);
-                    hasClearance.Add(grid.HasClearanceOffset(cell.x, cell.y));
                 }
 
-                // Use raw A* waypoints without simplification.
-                // SimplifyPath created long straight segments (up to 5m+)
-                // that cut through obstacle-adjacent airspace, causing the
-                // player's 0.51m capsule to clip L22 rocks. Raw waypoints
-                // (0.5m apart) keep the player on verified passable cells —
-                // the game's native Physics2 handles micro-collisions.
+                // Use raw A* waypoints (0.5m apart) without simplification:
+                // path simplification cut long straight segments through
+                // obstacle-adjacent airspace, clipping the player's 0.51m
+                // capsule on L22 rocks. Raw waypoints keep the player on
+                // verified passable cells; native Physics2 handles micro-collisions.
                 if (waypoints.Count > 0)
                     waypoints[waypoints.Count - 1] = end;
                 else
@@ -457,54 +453,6 @@ namespace SO2RAccess
             return path;
         }
 
-        /// <summary>
-        /// Removes collinear waypoints but keeps periodic density.
-        /// At 0.5m cells, keeps a waypoint at least every 5m (10 cells).
-        /// Never removes waypoints that have clearance offsets — those are
-        /// positioned at the safest point through narrow CharaWall gaps.
-        /// </summary>
-        private static List<Vector3> SimplifyPath(List<Vector3> waypoints,
-            List<bool> hasClearance = null)
-        {
-            if (waypoints.Count <= 2) return new List<Vector3>(waypoints);
-
-            var result = new List<Vector3> { waypoints[0] };
-            int lastKeptIdx = 0;
-
-            for (int i = 1; i < waypoints.Count - 1; i++)
-            {
-                // Never simplify away clearance-offset waypoints.
-                if (hasClearance != null && hasClearance[i])
-                {
-                    result.Add(waypoints[i]);
-                    lastKeptIdx = i;
-                    continue;
-                }
-
-                Vector3 prev = waypoints[i - 1];
-                Vector3 curr = waypoints[i];
-                Vector3 next = waypoints[i + 1];
-
-                float dx1 = curr.x - prev.x;
-                float dz1 = curr.z - prev.z;
-                float dx2 = next.x - curr.x;
-                float dz2 = next.z - curr.z;
-
-                float cross = dx1 * dz2 - dz1 * dx2;
-                bool isTurn = Mathf.Abs(cross) > 0.01f;
-                bool keepPeriodic = (i - lastKeptIdx) >= 10;
-
-                if (isTurn || keepPeriodic)
-                {
-                    result.Add(curr);
-                    lastKeptIdx = i;
-                }
-            }
-
-            result.Add(waypoints[waypoints.Count - 1]);
-            return result;
-        }
-
         /// <summary>Finds nearest terrain cell (height > 0).</summary>
         private static void SnapToTerrain(ref int gx, ref int gz,
             ushort[,] height, int gridW, int gridH)
@@ -531,300 +479,5 @@ namespace SO2RAccess
             }
         }
 
-        /// <summary>
-        /// When the target is surrounded by obstacles, does a quick BFS
-        /// from the start to find the nearest walkable cell to the target
-        /// that is actually reachable. Returns null if nothing found
-        /// within a reasonable search limit.
-        /// </summary>
-        private static Vector2Int? FindNearestReachableToTarget(
-            int sx, int sz, int tx, int tz,
-            ushort[,] height, int gridW, int gridH)
-        {
-            // BFS from start, tracking the closest cell to target.
-            var visited = new bool[gridW, gridH];
-            var queue = new Queue<(int x, int z)>();
-            queue.Enqueue((sx, sz));
-            visited[sx, sz] = true;
-
-            int bestX = -1, bestZ = -1;
-            int bestDist = int.MaxValue;
-            int maxVisit = 1500000;
-            int count = 0;
-
-            while (queue.Count > 0 && count < maxVisit)
-            {
-                var (cx, cz) = queue.Dequeue();
-                count++;
-
-                int dist = Math.Abs(cx - tx) + Math.Abs(cz - tz);
-                if (dist < bestDist)
-                {
-                    bestDist = dist;
-                    bestX = cx;
-                    bestZ = cz;
-                }
-
-                // Early exit if we're within 2 cells (1m) of target.
-                if (dist <= 2) break;
-
-                ushort currentH = height[cx, cz];
-
-                for (int d = 0; d < 8; d++)
-                {
-                    int nx = cx + Directions[d, 0];
-                    int nz = cz + Directions[d, 1];
-
-                    if (nx < 0 || nx >= gridW || nz < 0 || nz >= gridH)
-                        continue;
-                    if (visited[nx, nz]) continue;
-                    visited[nx, nz] = true;
-
-                    ushort nh = height[nx, nz];
-                    if (nh < 2) continue;
-
-                    if (currentH >= 2)
-                    {
-                        int hdiff = Math.Abs(currentH - nh);
-                        if (hdiff > MaxClimbCm) continue;
-                    }
-
-                    queue.Enqueue((nx, nz));
-                }
-            }
-
-            if (bestX >= 0 && bestDist < int.MaxValue)
-            {
-                DebugLogger.LogState(
-                    $"NAV WM pathfinder: nearest reachable to target " +
-                    $"({tx},{tz}): ({bestX},{bestZ}) dist={bestDist}");
-                return new Vector2Int(bestX, bestZ);
-            }
-
-            return null;
-        }
-
-        #region Diagnostics
-
-        public static void RunDiagnostics(Vector3 playerPos)
-        {
-            try
-            {
-                var sb = new StringBuilder();
-                sb.AppendLine("=== WORLDMAP PATHFINDER DIAGNOSTICS ===");
-                sb.AppendLine($"Player pos: ({playerPos.x:F1}, " +
-                    $"{playerPos.y:F1}, {playerPos.z:F1})");
-                sb.AppendLine($"MaxClimbCm: {MaxClimbCm}");
-                sb.AppendLine($"SlopePenaltyStartCm: {SlopePenaltyStartCm}");
-
-                var fm = FieldManager.Instance;
-                if (fm != null && fm.IsExistWorldGridData())
-                {
-                    var grid = GetCachedGrid(fm.WorldmapID);
-                    if (grid != null)
-                    {
-                        sb.AppendLine($"\n--- Cached Grid ---");
-                        sb.AppendLine($"Size: {grid.GridW}x{grid.GridH}");
-                        sb.AppendLine($"CellSize: {grid.CellSize}m");
-
-                        grid.WorldToGrid(playerPos.x, playerPos.z,
-                            out int pax, out int paz);
-                        sb.AppendLine($"Player in grid: ({pax}, {paz})");
-
-                        if (pax >= 0 && pax < grid.GridW &&
-                            paz >= 0 && paz < grid.GridH)
-                        {
-                            float h = grid.GetHeightM(pax, paz);
-                            sb.AppendLine($"Height at player: {h:F2}m");
-
-                            // Show height differences around player.
-                            sb.AppendLine($"\nHeight diffs (5x5, cm):");
-                            for (int dz = -2; dz <= 2; dz++)
-                            {
-                                var row = new StringBuilder("  ");
-                                for (int dx = -2; dx <= 2; dx++)
-                                {
-                                    int ax = pax + dx;
-                                    int az = paz + dz;
-                                    float nh = grid.GetHeightM(ax, az);
-                                    if (nh == float.MinValue)
-                                        row.Append("  ~~~ ");
-                                    else
-                                    {
-                                        int diff = (int)((nh - h) * 100);
-                                        row.Append($"{diff,5} ");
-                                    }
-                                }
-                                sb.AppendLine(row.ToString());
-                            }
-                        }
-                    }
-                    else
-                    {
-                        sb.AppendLine(
-                            "\nNo cached grid. Press F9 to generate.");
-                    }
-                }
-
-                sb.AppendLine("=== END DIAGNOSTICS ===");
-                MelonLoader.MelonLogger.Msg(sb.ToString());
-                ScreenReader.Say("Diagnostics complete. Check log.");
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState(
-                    $"NAV WM diagnostics error: {ex.Message}");
-                ScreenReader.Say("Diagnostics failed.");
-            }
-        }
-
-        public static void ScanPathLine(Vector3 startWorld, Vector3 endWorld)
-        {
-            try
-            {
-                var fm = FieldManager.Instance;
-                if (fm == null || !fm.IsExistWorldGridData())
-                {
-                    ScreenReader.Say("World grid data not available.");
-                    return;
-                }
-
-                var grid = GetCachedGrid(fm.WorldmapID);
-                if (grid == null)
-                {
-                    ScreenReader.Say("No cached grid. Press F9 to generate.");
-                    return;
-                }
-
-                grid.WorldToGrid(startWorld.x, startWorld.z,
-                    out int sx, out int sz);
-                grid.WorldToGrid(endWorld.x, endWorld.z,
-                    out int ex, out int ez);
-
-                var sb = new StringBuilder();
-                sb.AppendLine("=== PATH LINE SCAN ===");
-                sb.AppendLine($"Start: world=({startWorld.x:F1}," +
-                    $"{startWorld.z:F1}) grid=({sx},{sz})");
-                sb.AppendLine($"End:   world=({endWorld.x:F1}," +
-                    $"{endWorld.z:F1}) grid=({ex},{ez})");
-                sb.AppendLine($"MaxClimbCm: {MaxClimbCm}");
-
-                int dx = Math.Abs(ex - sx);
-                int dz = Math.Abs(ez - sz);
-                int stepX = sx < ex ? 1 : -1;
-                int stepZ = sz < ez ? 1 : -1;
-                int err = dx - dz;
-
-                int cx = sx, cz = sz;
-                int totalCells = 0, oceanCells = 0, slopeBlocked = 0;
-                int terrainCells = 0;
-                ushort prevH = 0;
-                int maxSlopeSeen = 0;
-
-                bool prevWalkable = true;
-                int barrierStart = -1;
-                var barriers = new List<string>();
-
-                while (true)
-                {
-                    bool inBounds = cx >= 0 && cx < grid.GridW &&
-                                    cz >= 0 && cz < grid.GridH;
-                    bool isWalkable = false;
-                    string reason = "out-of-bounds";
-                    ushort cellH = 0;
-
-                    if (inBounds)
-                    {
-                        cellH = grid.Height[cx, cz];
-                        if (cellH == 0)
-                        {
-                            reason = "ocean";
-                            oceanCells++;
-                        }
-                        else
-                        {
-                            terrainCells++;
-                            int slope = prevH > 0
-                                ? Math.Abs(cellH - prevH) : 0;
-                            if (slope > maxSlopeSeen) maxSlopeSeen = slope;
-
-                            if (slope > MaxClimbCm && prevH > 0)
-                            {
-                                reason = $"slope({slope}cm)";
-                                slopeBlocked++;
-                            }
-                            else
-                            {
-                                float hm = grid.GetHeightM(cx, cz);
-                                reason = $"ok({hm:F1}m)";
-                                isWalkable = true;
-                            }
-                        }
-                    }
-
-                    if (!isWalkable || totalCells % 40 == 0 ||
-                        (cx == ex && cz == ez))
-                    {
-                        sb.AppendLine(
-                            $"  [{totalCells}] grid=({cx},{cz}) {reason}");
-                    }
-
-                    if (!isWalkable)
-                    {
-                        if (prevWalkable) barrierStart = totalCells;
-                    }
-                    else
-                    {
-                        if (!prevWalkable && barrierStart >= 0)
-                        {
-                            barriers.Add(
-                                $"barrier at cells {barrierStart}-" +
-                                $"{totalCells - 1} " +
-                                $"({totalCells - barrierStart} cells)");
-                        }
-                    }
-
-                    prevWalkable = isWalkable;
-                    if (cellH > 0) prevH = cellH;
-                    totalCells++;
-
-                    if (cx == ex && cz == ez) break;
-
-                    int e2 = 2 * err;
-                    if (e2 > -dz) { err -= dz; cx += stepX; }
-                    if (e2 < dx) { err += dx; cz += stepZ; }
-                }
-
-                if (!prevWalkable && barrierStart >= 0)
-                {
-                    barriers.Add(
-                        $"barrier at cells {barrierStart}-{totalCells - 1} " +
-                        $"({totalCells - barrierStart} cells)");
-                }
-
-                sb.AppendLine($"\n--- Summary ---");
-                sb.AppendLine(
-                    $"Total: {totalCells}. Terrain: {terrainCells} " +
-                    $"Ocean: {oceanCells} Slope blocked: {slopeBlocked}");
-                sb.AppendLine($"Max slope seen: {maxSlopeSeen}cm");
-                sb.AppendLine($"Barriers: {barriers.Count}");
-                foreach (var b in barriers)
-                    sb.AppendLine($"  {b}");
-
-                sb.AppendLine("=== END PATH LINE SCAN ===");
-
-                MelonLoader.MelonLogger.Msg(sb.ToString());
-                ScreenReader.Say(
-                    $"Line scan: {totalCells} cells, {barriers.Count} " +
-                    $"barriers, max slope {maxSlopeSeen}cm. Check log.");
-            }
-            catch (Exception ex)
-            {
-                MelonLoader.MelonLogger.Error($"ScanPathLine error: {ex}");
-                ScreenReader.Say("Line scan failed. Check log.");
-            }
-        }
-
-        #endregion
     }
 }
