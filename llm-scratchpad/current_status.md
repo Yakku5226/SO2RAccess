@@ -20,7 +20,16 @@
 
 ## Prompts up next
 - [x] prompts/large-file-handling.md  DONE (deletion + splits committed, smoke test PASSED 2026-06-14)
-- [~] prompts/input-handling.md  IN PROGRESS (exploring input architecture)
+- [x] prompts/input-handling.md  DONE. Verdict: input is NOT spaghetti — centralized in
+  Main.ProcessHotkeys/ProcessGamepad, modal if-cascade, only QuickRecoveryHandler polls
+  directly. No framework needed. ACTION TAKEN (user-approved): extracted F5/F8-F11 debug
+  hotkeys into DebugHotkeys.cs, DELETED vestigial F6/F7 experiments. Main.cs 978->697.
+  Committed. (Smoke test deferred — debug-only keys, build-verified.)
+- [~] prompts/string-builder.md  IN PROGRESS. Verdict: NOT a string-builder mod.
+  Localization-first (571 Loc.Get format-string calls), string.Join for lists, StringBuilder
+  mostly in debug/algorithm files (WorldmapDiagnostics 87, GridGenerator 35, Pathfinder 26 =
+  log text, not announcements). Manual space-separator pattern only ~22 sites (BattleResultHandler
+  12 = main offender). Per prompt -> move on; offered optional small tidy to user.
   - PRE-STEP DONE (smoke test PASSED 2026-06-14, committed e9a711c): deleted the dead island/multi-segment
     navigation subsystem before splitting (it was self-referential dead code the
     project notes already flagged for removal — splitting it would be wasted work).
