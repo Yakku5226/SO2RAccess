@@ -16,9 +16,18 @@
 ## Prompts already run
 - [x] prompts/sanity-checks-setup.md — sanity checks passed, branch + scratchpad created
 - [x] prompts/information-gathering-and-checking.md — docs gathered & synthesized (see below)
+- [x] prompts/code-directory-construction.md — code index built for all 63 source files
 
 ## Prompts up next
-- [ ] prompts/code-directory-construction.md
+- [ ] prompts/large-file-handling.md  (NavigationHandler.cs is 2050 lines, >2000 → this is next)
+- [ ] then prompts/input-handling.md
+
+## Code index
+- `llm-scratchpad/code-index/<file>.cs.md` — one index per source file (classes/methods/
+  fields + line numbers, no bodies). 63 files, all present, verified non-empty.
+- Files >2000 lines: NavigationHandler.cs (2050). Next-largest: CampMenuHandler.ItemCreation.cs
+  (1684), NavigationHandler.Build.cs (1493), WorldmapDiagnostics.cs (1443),
+  NavigationHandler.AutoWalk.cs (1434), NavigationHandler.Worldmap.cs (1288).
 
 ## Docs produced this session
 - `llm-docs/game-model.md` — conceptual model of the game (screens, controls, mechanics)
