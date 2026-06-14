@@ -33,9 +33,31 @@
     map-exit barrier (PathCrossesMapExit / MapExitBarrierMargin / _autoWalkAllowExit).
     Build 0/0. Line counts: NavigationHandler.cs 2050→1883, AutoWalk.cs 1434→965,
     Build.cs 1493→1470, Loc.cs 803→792. ~2570 lines removed total.
-  - NEXT: split remaining large files. Candidates by size after deletion:
-    CampMenuHandler.ItemCreation.cs (1684), Build.cs (1470), WorldmapDiagnostics.cs
-    (1443), NavigationHandler.cs (1883), AutoWalk.cs (965), Worldmap.cs (1288), etc.
+  - SPLITS DONE (autonomous mode, build-verified 0/0 + committed each, awaiting final smoke test):
+    Verbatim partial-class extractions (no logic change). New files + resulting sizes:
+    * NavigationHandler.cs 1883->1214; +List.cs (299), +MapState.cs (401)
+    * NavigationHandler.Build.cs 1470->835; +Build.Npcs.cs (279), +Build.Enemies.cs (186),
+      +Build.Worldmap.cs (218)
+    * NavigationHandler.Worldmap.cs 1288->733; +Worldmap.Pathfinding.cs (570)
+    * CampMenuHandler.ItemCreation.cs 1684->683; +ItemCreation.ActionList.cs (551),
+      +ItemCreation.Result.cs (174), +ItemCreation.Material.cs (313)
+    * CampMenuHandler.cs 1062->320; +CampMenuHandler.Patches.cs (375), +CampMenuHandler.Open.cs (393)
+    * BattleMenuHandler.cs (made partial) 1077->503; +ItemSpell.cs (275), +TargetTactics.cs (324)
+  - DELIBERATELY NOT SPLIT (cohesive single-concern or one dominant method — splitting would
+    scatter logic): WorldmapDiagnostics.cs (1443, LIVE debug tooling via F8/F11 — NOT dead,
+    keep), NavigationHandler.cs (1214, dominated by ~730-line Update loop), WorldmapGridGenerator
+    (1103), BattlePauseHandler (992), Main.cs (978), AutoWalk.cs (965), CampMenuHandler.BattleSkill
+    (897), WorldmapPathfinder (830), Loc.cs (792), Database (780), AudioCuePlayer (744),
+    NotificationHandler (710), ShopHandler (636), etc.
+  - DELETION CANDIDATES FLAGGED FOR USER (not done — need owner sign-off, not clearly dead):
+    (1) ApplyWorldmapMovement_Lidar in NavigationHandler.Worldmap.cs (~156 lines) — dead (no
+    callers) but author-marked "preserved for future use". (2) WorldmapDiagnostics.TraceRoutesToGaps
+    has hardcoded gap offsets from one recorded session (stale one-off scaffolding); whole
+    WorldmapDiagnostics file could go if worldmap nav is considered fully settled (removes F8/F11
+    debug capability).
+  - Code index: per-file .md entries under llm-scratchpad/code-index are now STALE re: file
+    boundaries (content accurate, but methods relocated to the new partials above). Regenerate
+    if needed; the map above is authoritative for this session.
 - [ ] then prompts/input-handling.md
 
 ## Code index note
