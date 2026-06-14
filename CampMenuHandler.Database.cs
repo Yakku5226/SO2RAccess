@@ -52,78 +52,98 @@ namespace SO2RAccess
 
         #endregion
 
+        #region Picture-Book Polling (shared)
+
+        /// <summary>
+        /// Shared polling skeleton for the database picture-book sub-screens
+        /// (tutorial, enemy, item, fish, location). Handles the root-menu gate,
+        /// lazy list-base cast, entry heading, cursor-change detection,
+        /// confirm-press dispatch, and bounds checks. The per-book announce logic
+        /// (locked / new / normal + type-specific data) is supplied via
+        /// <paramref name="announce"/>, called with (listBase, index, total).
+        /// </summary>
+        private void PollPictureBook(
+            string gate, UnityEngine.Component selector,
+            ref UIListSelectorBase listBase, SubScreenState state,
+            string headingKey, string logLabel,
+            Action<int> onConfirm,
+            Action<UIListSelectorBase, int, int> announce)
+        {
+            if (_lastRootMenuItemName != gate) return;
+            if (selector == null) return;
+
+            try
+            {
+                if (listBase == null)
+                {
+                    listBase = selector.TryCast<UIListSelectorBase>();
+                    if (listBase == null) return;
+                }
+
+                bool isActive = selector.gameObject.activeInHierarchy;
+                if (!state.CheckEntry(isActive,
+                    () => ScreenReader.Say(Loc.Get(headingKey)), logLabel))
+                    return;
+
+                int idx = listBase.currentIndex;
+                if (idx == state.LastIndex)
+                {
+                    onConfirm(idx);
+                    return;
+                }
+                state.LastIndex = idx;
+
+                var list = listBase.currentDataList;
+                if (list == null) return;
+                int total = list.Count;
+                if (total == 0 || idx < 0 || idx >= total) return;
+
+                announce(listBase, idx, total);
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"CampMenuHandler.{logLabel}: {ex.Message}");
+                listBase = null;
+            }
+        }
+
+        #endregion
+
         #region Tutorial
 
         /// <summary>
         /// Polls the tutorial list selector and announces entries.
         /// Locked tutorials (empty name or no information data) say "Locked".
         /// </summary>
-        private void UpdateTutorialSelector()
+        private void UpdateTutorialSelector() => PollPictureBook(
+            "Tutorial", _tutorialSelector, ref _tutorialListBase, _tutorialState,
+            "db_tutorial_screen", "CampTutorial",
+            CheckTutorialDetailPress, AnnounceTutorialItem);
+
+        private void AnnounceTutorialItem(UIListSelectorBase listBase, int idx, int total)
         {
-            if (_lastRootMenuItemName != "Tutorial") return;
-            if (_tutorialSelector == null) return;
-
-            try
+            var item = listBase.currentDataList[idx].TryCast<UICampTutorialListItemData>();
+            if (item == null)
             {
-                if (_tutorialListBase == null)
-                {
-                    _tutorialListBase = _tutorialSelector.TryCast<UIListSelectorBase>();
-                    if (_tutorialListBase == null) return;
-                }
-
-                bool isActive = _tutorialSelector.gameObject.activeInHierarchy;
-                if (!_tutorialState.CheckEntry(isActive,
-                    () => ScreenReader.Say(Loc.Get("db_tutorial_screen")),
-                    "CampTutorial"))
-                    return;
-
-                int idx = _tutorialListBase.currentIndex;
-                if (idx == _tutorialState.LastIndex)
-                {
-                    CheckTutorialDetailPress(idx);
-                    return;
-                }
-                _tutorialState.LastIndex = idx;
-
-                var list = _tutorialListBase.currentDataList;
-                if (list == null) return;
-                int total = list.Count;
-                if (total == 0 || idx < 0 || idx >= total) return;
-
-                var item = list[idx].TryCast<UICampTutorialListItemData>();
-                if (item == null)
-                {
-                    var baseItem = list[idx].TryCast<UICommonBookListItemData>();
-                    AnnounceTutorialBase(baseItem, idx, total);
-                    return;
-                }
-
-                string name = item.name;
-                bool isLocked = string.IsNullOrEmpty(name) ||
-                                item.informationDataList == null ||
-                                item.informationDataList.Count == 0;
-
-                if (isLocked)
-                {
-                    ScreenReader.Say(Loc.Get("db_tutorial_locked", idx + 1, total));
-                }
-                else if (item.isNew)
-                {
-                    ScreenReader.Say(Loc.Get("db_tutorial_item_new", name, idx + 1, total));
-                }
-                else
-                {
-                    ScreenReader.Say(Loc.Get("db_tutorial_item", name, idx + 1, total));
-                }
-
-                DebugLogger.LogGameValue("CampTutorial.item",
-                    $"{(isLocked ? "LOCKED" : name)} ({idx + 1}/{total})");
+                var baseItem = listBase.currentDataList[idx].TryCast<UICommonBookListItemData>();
+                AnnounceTutorialBase(baseItem, idx, total);
+                return;
             }
-            catch (Exception ex)
-            {
-                MelonLogger.Warning($"CampMenuHandler.UpdateTutorialSelector: {ex.Message}");
-                _tutorialListBase = null;
-            }
+
+            string name = item.name;
+            bool isLocked = string.IsNullOrEmpty(name) ||
+                            item.informationDataList == null ||
+                            item.informationDataList.Count == 0;
+
+            if (isLocked)
+                ScreenReader.Say(Loc.Get("db_tutorial_locked", idx + 1, total));
+            else if (item.isNew)
+                ScreenReader.Say(Loc.Get("db_tutorial_item_new", name, idx + 1, total));
+            else
+                ScreenReader.Say(Loc.Get("db_tutorial_item", name, idx + 1, total));
+
+            DebugLogger.LogGameValue("CampTutorial.item",
+                $"{(isLocked ? "LOCKED" : name)} ({idx + 1}/{total})");
         }
 
         /// <summary>Fallback if cast to UICampTutorialListItemData fails.</summary>
@@ -187,66 +207,35 @@ namespace SO2RAccess
         /// Polls the enemy picture book selector. Browse: name + position.
         /// Confirm: full stats. Locked: "Unknown enemy".
         /// </summary>
-        private void UpdateEnemyPictureBook()
+        private void UpdateEnemyPictureBook() => PollPictureBook(
+            "EnemyList", _enemyPBSelector, ref _enemyPBListBase, _enemyPBState,
+            "db_enemy_screen", "CampEnemyPB",
+            CheckEnemyDetailPress, AnnounceEnemyItem);
+
+        private void AnnounceEnemyItem(UIListSelectorBase listBase, int idx, int total)
         {
-            if (_lastRootMenuItemName != "EnemyList") return;
-            if (_enemyPBSelector == null) return;
+            var item = listBase.currentDataList[idx].TryCast<UICampEnemyPictureBookListItemData>();
+            if (item == null) return;
 
-            try
+            var info = item.informationData;
+            bool isLocked = info == null || !info.isRelease;
+
+            if (isLocked)
             {
-                if (_enemyPBListBase == null)
-                {
-                    _enemyPBListBase = _enemyPBSelector.TryCast<UIListSelectorBase>();
-                    if (_enemyPBListBase == null) return;
-                }
-
-                bool isActive = _enemyPBSelector.gameObject.activeInHierarchy;
-                if (!_enemyPBState.CheckEntry(isActive,
-                    () => ScreenReader.Say(Loc.Get("db_enemy_screen")),
-                    "CampEnemyPB"))
-                    return;
-
-                int idx = _enemyPBListBase.currentIndex;
-                if (idx == _enemyPBState.LastIndex)
-                {
-                    CheckEnemyDetailPress(idx);
-                    return;
-                }
-                _enemyPBState.LastIndex = idx;
-
-                var list = _enemyPBListBase.currentDataList;
-                if (list == null) return;
-                int total = list.Count;
-                if (total == 0 || idx < 0 || idx >= total) return;
-
-                var item = list[idx].TryCast<UICampEnemyPictureBookListItemData>();
-                if (item == null) return;
-
-                var info = item.informationData;
-                bool isLocked = info == null || !info.isRelease;
-
-                if (isLocked)
-                {
-                    ScreenReader.Say(Loc.Get("db_enemy_locked", idx + 1, total));
-                }
+                ScreenReader.Say(Loc.Get("db_enemy_locked", idx + 1, total));
+            }
+            else
+            {
+                string name = item.enemyName;
+                if (string.IsNullOrEmpty(name) && info != null) name = info.enemyName;
+                if (item.isNew)
+                    ScreenReader.Say(Loc.Get("db_enemy_item_new", name, idx + 1, total));
                 else
-                {
-                    string name = item.enemyName;
-                    if (string.IsNullOrEmpty(name) && info != null) name = info.enemyName;
-                    if (item.isNew)
-                        ScreenReader.Say(Loc.Get("db_enemy_item_new", name, idx + 1, total));
-                    else
-                        ScreenReader.Say(Loc.Get("db_enemy_item", name, idx + 1, total));
-                }
+                    ScreenReader.Say(Loc.Get("db_enemy_item", name, idx + 1, total));
+            }
 
-                DebugLogger.LogGameValue("CampEnemyPB.item",
-                    $"{(isLocked ? "LOCKED" : item.enemyName)} ({idx + 1}/{total})");
-            }
-            catch (Exception ex)
-            {
-                MelonLogger.Warning($"CampMenuHandler.UpdateEnemyPictureBook: {ex.Message}");
-                _enemyPBListBase = null;
-            }
+            DebugLogger.LogGameValue("CampEnemyPB.item",
+                $"{(isLocked ? "LOCKED" : item.enemyName)} ({idx + 1}/{total})");
         }
 
         /// <summary>Reads full enemy details on confirm press.</summary>
@@ -309,65 +298,28 @@ namespace SO2RAccess
         /// Polls the item picture book selector. Browse: name + position.
         /// Confirm: name + description. Locked: "Unknown item".
         /// </summary>
-        private void UpdateItemPictureBook()
+        private void UpdateItemPictureBook() => PollPictureBook(
+            "ItemPictureBook", _itemPBSelector, ref _itemPBListBase, _itemPBState,
+            "db_item_screen", "CampItemPB",
+            CheckItemPBDetailPress, AnnounceItemPBItem);
+
+        private void AnnounceItemPBItem(UIListSelectorBase listBase, int idx, int total)
         {
-            if (_lastRootMenuItemName != "ItemPictureBook") return;
-            if (_itemPBSelector == null) return;
+            var item = listBase.currentDataList[idx].TryCast<UIItemListItemData>();
+            if (item == null) return;
 
-            try
-            {
-                if (_itemPBListBase == null)
-                {
-                    _itemPBListBase = _itemPBSelector.TryCast<UIListSelectorBase>();
-                    if (_itemPBListBase == null) return;
-                }
+            string name = item.itemName;
+            bool isLocked = string.IsNullOrEmpty(name);
 
-                bool isActive = _itemPBSelector.gameObject.activeInHierarchy;
-                if (!_itemPBState.CheckEntry(isActive,
-                    () => ScreenReader.Say(Loc.Get("db_item_screen")),
-                    "CampItemPB"))
-                    return;
+            if (isLocked)
+                ScreenReader.Say(Loc.Get("db_item_locked", idx + 1, total));
+            else if (item.isNew)
+                ScreenReader.Say(Loc.Get("db_item_item_new", name, idx + 1, total));
+            else
+                ScreenReader.Say(Loc.Get("db_item_item", name, idx + 1, total));
 
-                int idx = _itemPBListBase.currentIndex;
-                if (idx == _itemPBState.LastIndex)
-                {
-                    CheckItemPBDetailPress(idx);
-                    return;
-                }
-                _itemPBState.LastIndex = idx;
-
-                var list = _itemPBListBase.currentDataList;
-                if (list == null) return;
-                int total = list.Count;
-                if (total == 0 || idx < 0 || idx >= total) return;
-
-                var item = list[idx].TryCast<UIItemListItemData>();
-                if (item == null) return;
-
-                string name = item.itemName;
-                bool isLocked = string.IsNullOrEmpty(name);
-
-                if (isLocked)
-                {
-                    ScreenReader.Say(Loc.Get("db_item_locked", idx + 1, total));
-                }
-                else if (item.isNew)
-                {
-                    ScreenReader.Say(Loc.Get("db_item_item_new", name, idx + 1, total));
-                }
-                else
-                {
-                    ScreenReader.Say(Loc.Get("db_item_item", name, idx + 1, total));
-                }
-
-                DebugLogger.LogGameValue("CampItemPB.item",
-                    $"{(isLocked ? "LOCKED" : name)} ({idx + 1}/{total})");
-            }
-            catch (Exception ex)
-            {
-                MelonLogger.Warning($"CampMenuHandler.UpdateItemPictureBook: {ex.Message}");
-                _itemPBListBase = null;
-            }
+            DebugLogger.LogGameValue("CampItemPB.item",
+                $"{(isLocked ? "LOCKED" : name)} ({idx + 1}/{total})");
         }
 
         /// <summary>Reads item description on confirm press.</summary>
@@ -408,66 +360,35 @@ namespace SO2RAccess
         /// Polls the fish picture book selector. Browse: name + position.
         /// Confirm: full details. Locked: "Unknown fish".
         /// </summary>
-        private void UpdateFishPictureBook()
+        private void UpdateFishPictureBook() => PollPictureBook(
+            "FishPictureBook", _fishPBSelector, ref _fishPBListBase, _fishPBState,
+            "db_fish_screen", "CampFishPB",
+            CheckFishDetailPress, AnnounceFishItem);
+
+        private void AnnounceFishItem(UIListSelectorBase listBase, int idx, int total)
         {
-            if (_lastRootMenuItemName != "FishPictureBook") return;
-            if (_fishPBSelector == null) return;
+            var item = listBase.currentDataList[idx].TryCast<UICampFishPictureBookListItemData>();
+            if (item == null) return;
 
-            try
+            var info = item.informationData;
+            bool isLocked = info == null || !info.isRelease;
+
+            if (isLocked)
             {
-                if (_fishPBListBase == null)
-                {
-                    _fishPBListBase = _fishPBSelector.TryCast<UIListSelectorBase>();
-                    if (_fishPBListBase == null) return;
-                }
-
-                bool isActive = _fishPBSelector.gameObject.activeInHierarchy;
-                if (!_fishPBState.CheckEntry(isActive,
-                    () => ScreenReader.Say(Loc.Get("db_fish_screen")),
-                    "CampFishPB"))
-                    return;
-
-                int idx = _fishPBListBase.currentIndex;
-                if (idx == _fishPBState.LastIndex)
-                {
-                    CheckFishDetailPress(idx);
-                    return;
-                }
-                _fishPBState.LastIndex = idx;
-
-                var list = _fishPBListBase.currentDataList;
-                if (list == null) return;
-                int total = list.Count;
-                if (total == 0 || idx < 0 || idx >= total) return;
-
-                var item = list[idx].TryCast<UICampFishPictureBookListItemData>();
-                if (item == null) return;
-
-                var info = item.informationData;
-                bool isLocked = info == null || !info.isRelease;
-
-                if (isLocked)
-                {
-                    ScreenReader.Say(Loc.Get("db_fish_locked", idx + 1, total));
-                }
+                ScreenReader.Say(Loc.Get("db_fish_locked", idx + 1, total));
+            }
+            else
+            {
+                string name = item.fishName;
+                if (string.IsNullOrEmpty(name) && info != null) name = info.fishName;
+                if (item.isNew)
+                    ScreenReader.Say(Loc.Get("db_fish_item_new", name, idx + 1, total));
                 else
-                {
-                    string name = item.fishName;
-                    if (string.IsNullOrEmpty(name) && info != null) name = info.fishName;
-                    if (item.isNew)
-                        ScreenReader.Say(Loc.Get("db_fish_item_new", name, idx + 1, total));
-                    else
-                        ScreenReader.Say(Loc.Get("db_fish_item", name, idx + 1, total));
-                }
+                    ScreenReader.Say(Loc.Get("db_fish_item", name, idx + 1, total));
+            }
 
-                DebugLogger.LogGameValue("CampFishPB.item",
-                    $"{(isLocked ? "LOCKED" : item.fishName)} ({idx + 1}/{total})");
-            }
-            catch (Exception ex)
-            {
-                MelonLogger.Warning($"CampMenuHandler.UpdateFishPictureBook: {ex.Message}");
-                _fishPBListBase = null;
-            }
+            DebugLogger.LogGameValue("CampFishPB.item",
+                $"{(isLocked ? "LOCKED" : item.fishName)} ({idx + 1}/{total})");
         }
 
         /// <summary>Reads full fish details on confirm press.</summary>
@@ -522,66 +443,35 @@ namespace SO2RAccess
         /// Polls the location picture book selector. Browse: name + position.
         /// Confirm: full details. Locked: "Undiscovered".
         /// </summary>
-        private void UpdateLocationPictureBook()
+        private void UpdateLocationPictureBook() => PollPictureBook(
+            "Location", _locationPBSelector, ref _locationPBListBase, _locationPBState,
+            "db_location_screen", "CampLocationPB",
+            CheckLocationDetailPress, AnnounceLocationItem);
+
+        private void AnnounceLocationItem(UIListSelectorBase listBase, int idx, int total)
         {
-            if (_lastRootMenuItemName != "Location") return;
-            if (_locationPBSelector == null) return;
+            var item = listBase.currentDataList[idx].TryCast<UICampLocationPictureBookListItemData>();
+            if (item == null) return;
 
-            try
+            var info = item.informationData;
+            bool isLocked = info == null || !info.isRelease;
+
+            if (isLocked)
             {
-                if (_locationPBListBase == null)
-                {
-                    _locationPBListBase = _locationPBSelector.TryCast<UIListSelectorBase>();
-                    if (_locationPBListBase == null) return;
-                }
-
-                bool isActive = _locationPBSelector.gameObject.activeInHierarchy;
-                if (!_locationPBState.CheckEntry(isActive,
-                    () => ScreenReader.Say(Loc.Get("db_location_screen")),
-                    "CampLocationPB"))
-                    return;
-
-                int idx = _locationPBListBase.currentIndex;
-                if (idx == _locationPBState.LastIndex)
-                {
-                    CheckLocationDetailPress(idx);
-                    return;
-                }
-                _locationPBState.LastIndex = idx;
-
-                var list = _locationPBListBase.currentDataList;
-                if (list == null) return;
-                int total = list.Count;
-                if (total == 0 || idx < 0 || idx >= total) return;
-
-                var item = list[idx].TryCast<UICampLocationPictureBookListItemData>();
-                if (item == null) return;
-
-                var info = item.informationData;
-                bool isLocked = info == null || !info.isRelease;
-
-                if (isLocked)
-                {
-                    ScreenReader.Say(Loc.Get("db_location_locked", idx + 1, total));
-                }
+                ScreenReader.Say(Loc.Get("db_location_locked", idx + 1, total));
+            }
+            else
+            {
+                string name = item.locationName;
+                if (string.IsNullOrEmpty(name) && info != null) name = info.locationName;
+                if (item.isNew)
+                    ScreenReader.Say(Loc.Get("db_location_item_new", name, idx + 1, total));
                 else
-                {
-                    string name = item.locationName;
-                    if (string.IsNullOrEmpty(name) && info != null) name = info.locationName;
-                    if (item.isNew)
-                        ScreenReader.Say(Loc.Get("db_location_item_new", name, idx + 1, total));
-                    else
-                        ScreenReader.Say(Loc.Get("db_location_item", name, idx + 1, total));
-                }
+                    ScreenReader.Say(Loc.Get("db_location_item", name, idx + 1, total));
+            }
 
-                DebugLogger.LogGameValue("CampLocationPB.item",
-                    $"{(isLocked ? "LOCKED" : item.locationName)} ({idx + 1}/{total})");
-            }
-            catch (Exception ex)
-            {
-                MelonLogger.Warning($"CampMenuHandler.UpdateLocationPictureBook: {ex.Message}");
-                _locationPBListBase = null;
-            }
+            DebugLogger.LogGameValue("CampLocationPB.item",
+                $"{(isLocked ? "LOCKED" : item.locationName)} ({idx + 1}/{total})");
         }
 
         /// <summary>Reads full location details on confirm press.</summary>
