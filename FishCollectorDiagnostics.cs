@@ -1,6 +1,8 @@
 using Il2CppGame;
+using Il2CppInterop.Runtime;
 using MelonLoader;
 using System;
+using System.Runtime.InteropServices;
 
 namespace SO2RAccess
 {
@@ -57,9 +59,18 @@ namespace SO2RAccess
                     }
                     else
                     {
-                        // Wrong type — log the real runtime type so the reader can use it.
+                        // Wrong type — read the REAL il2cpp runtime class name via reflection
+                        // (the managed wrapper's GetType() only reports the cast type).
                         string realType = "?";
-                        try { realType = raw.TryCast<Il2CppSystem.Object>()?.GetType()?.FullName ?? "null"; }
+                        try
+                        {
+                            System.IntPtr klass = IL2CPP.il2cpp_object_get_class(raw.Pointer);
+                            System.IntPtr nsPtr = IL2CPP.il2cpp_class_get_namespace(klass);
+                            System.IntPtr namePtr = IL2CPP.il2cpp_class_get_name(klass);
+                            string ns = Marshal.PtrToStringAnsi(nsPtr);
+                            string nm = Marshal.PtrToStringAnsi(namePtr);
+                            realType = string.IsNullOrEmpty(ns) ? nm : $"{ns}.{nm}";
+                        }
                         catch (Exception tex) { realType = $"(type err: {tex.Message})"; }
                         body = $"(cast failed; real type={realType})";
                     }
