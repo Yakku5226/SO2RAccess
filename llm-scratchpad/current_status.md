@@ -19,7 +19,8 @@
 - [x] prompts/code-directory-construction.md — code index built for all 63 source files
 
 ## Prompts up next
-- [~] prompts/large-file-handling.md  IN PROGRESS
+- [x] prompts/large-file-handling.md  DONE (deletion + splits committed, smoke test PASSED 2026-06-14)
+- [~] prompts/input-handling.md  IN PROGRESS (exploring input architecture)
   - PRE-STEP DONE (smoke test PASSED 2026-06-14, committed e9a711c): deleted the dead island/multi-segment
     navigation subsystem before splitting (it was self-referential dead code the
     project notes already flagged for removal — splitting it would be wasted work).
