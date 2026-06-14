@@ -54,7 +54,7 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(UIGameOverSelectorData).TypeHandle);
 
                 _patchesApplied = true;
-                MelonLogger.Msg("[GAMEOVER] Patches applied (polling-only).");
+                DebugLogger.LogState("GameOverHandler patches applied (polling-only).");
             }
             catch (Exception ex)
             {

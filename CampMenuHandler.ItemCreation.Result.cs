@@ -57,7 +57,7 @@ namespace SO2RAccess
                 var item = list[idx]?.TryCast<UICampSpecialSkillResultListItemData>();
                 if (item == null) return;
 
-                string name = item.itemName ?? "Unknown";
+                string name = item.itemName ?? Loc.Get("ic_unknown_item");
                 string resultText = item.result ?? "";
                 string status = item.isSuccess
                     ? Loc.Get("ic_result_success")

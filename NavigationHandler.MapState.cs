@@ -329,12 +329,6 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Returns true for NPC types that are commonly placed behind counters
-        /// or barriers (shops, inns, guilds). These NPCs should not be filtered
-        /// by NavMesh reachability because the game allows interaction over
-        /// the counter even though no walkable path exists.
-        /// </summary>
-        /// <summary>
         /// Returns true for NPC types that represent interactable objects
         /// (switches, beds, inspection points) rather than characters.
         /// These go into the Interactables nav category instead of NPCs.
@@ -349,6 +343,12 @@ namespace SO2RAccess
             };
         }
 
+        /// <summary>
+        /// Returns true for NPC types that are commonly placed behind counters
+        /// or barriers (shops, inns, guilds). These NPCs should not be filtered
+        /// by NavMesh reachability because the game allows interaction over
+        /// the counter even though no walkable path exists.
+        /// </summary>
         private static bool IsFunctionalNpcType(NpcType type)
         {
             return type switch

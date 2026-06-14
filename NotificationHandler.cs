@@ -406,8 +406,7 @@ namespace SO2RAccess
         /// <summary>
         /// Postfix for GameManager.GiveRewardWithWindow(List, Action, bool, string, string, Jingle).
         /// Fires when the game awards rewards with a popup window via managed code
-        /// (missions, etc.). Location point rewards bypass this (native-only flow)
-        /// and are handled by ResolveLocationRewards instead.
+        /// (missions, etc.). Location point rewards bypass this (native-only flow).
         /// </summary>
         private static void GiveRewardWithWindow_Postfix(
             Il2CppSystem.Collections.Generic.List<ConstRewardParameter> rewardParameterList,
@@ -598,7 +597,7 @@ namespace SO2RAccess
 
         /// <summary>
         /// Formats a list of ConstRewardParameter into a readable string.
-        /// Used by both ResolveLocationRewards and GiveRewardWithWindow_Postfix.
+        /// Used by GiveRewardWithWindow_Postfix.
         /// </summary>
         private static string FormatRewardList(
             Il2CppSystem.Collections.Generic.List<ConstRewardParameter> rewards)

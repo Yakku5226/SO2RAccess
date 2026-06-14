@@ -185,7 +185,7 @@ namespace SO2RAccess
         #region Detection
 
         /// <summary>
-        /// Announces the save and plays the audio cue.
+        /// Plays the save audio cue (when enabled in settings).
         /// Debounces to prevent double-firing when multiple detection
         /// methods trigger on the same save.
         /// </summary>

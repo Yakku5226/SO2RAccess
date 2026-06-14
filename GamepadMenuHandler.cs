@@ -71,7 +71,7 @@ namespace SO2RAccess
                 );
 
                 _patchesApplied = true;
-                MelonLogger.Msg("DIAG: GamepadMenuHandler patches applied OK.");
+                DebugLogger.LogState("GamepadMenuHandler patches applied.");
             }
             catch (Exception ex)
             {

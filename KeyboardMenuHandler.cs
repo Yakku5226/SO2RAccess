@@ -72,7 +72,7 @@ namespace SO2RAccess
                 );
 
                 _patchesApplied = true;
-                MelonLogger.Msg("DIAG: KeyboardMenuHandler patches applied OK.");
+                DebugLogger.LogState("KeyboardMenuHandler patches applied.");
             }
             catch (Exception ex)
             {
