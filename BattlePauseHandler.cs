@@ -906,37 +906,19 @@ namespace SO2RAccess
         /// Cycles to the previous character (wraps from first to last).
         /// Used for keyboard NumPad 4 and as a gamepad fallback.
         /// </summary>
-        public void CycleCharacterLeft()
-        {
-            if (!_isPauseOpen || _pauseSelector == null) return;
-
-            try
-            {
-                var charList = _pauseSelector.battleCharacterList;
-                if (charList == null || charList.Count <= 1) return;
-
-                int newIdx = _pauseSelector.currentCharacterIndex - 1;
-                if (newIdx < 0) newIdx = charList.Count - 1;
-
-                _pauseSelector.currentCharacterIndex = newIdx;
-                _lastCharIndex = newIdx;
-                _currentTier = 0;
-                ClearHookCaches();
-                RefreshPauseUI();
-                BuildTiers();
-                AnnounceTier();
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"BattlePause: CycleCharacterLeft error: {ex.Message}");
-            }
-        }
+        public void CycleCharacterLeft() => CycleCharacter(-1);
 
         /// <summary>
         /// Cycles to the next character (wraps from last to first).
         /// Used for keyboard NumPad 6 and as a gamepad fallback.
         /// </summary>
-        public void CycleCharacterRight()
+        public void CycleCharacterRight() => CycleCharacter(+1);
+
+        /// <summary>
+        /// Moves the pause-menu character selection by <paramref name="delta"/>
+        /// (wrapping at both ends), then refreshes the UI and re-announces.
+        /// </summary>
+        private void CycleCharacter(int delta)
         {
             if (!_isPauseOpen || _pauseSelector == null) return;
 
@@ -945,8 +927,8 @@ namespace SO2RAccess
                 var charList = _pauseSelector.battleCharacterList;
                 if (charList == null || charList.Count <= 1) return;
 
-                int newIdx = _pauseSelector.currentCharacterIndex + 1;
-                if (newIdx >= charList.Count) newIdx = 0;
+                int count = charList.Count;
+                int newIdx = (_pauseSelector.currentCharacterIndex + delta + count) % count;
 
                 _pauseSelector.currentCharacterIndex = newIdx;
                 _lastCharIndex = newIdx;
@@ -958,7 +940,7 @@ namespace SO2RAccess
             }
             catch (Exception ex)
             {
-                DebugLogger.LogState($"BattlePause: CycleCharacterRight error: {ex.Message}");
+                DebugLogger.LogState($"BattlePause: CycleCharacter({delta}) error: {ex.Message}");
             }
         }
 
