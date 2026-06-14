@@ -6,16 +6,6 @@ using UnityEngine.InputSystem;
 namespace SO2RAccess
 {
     /// <summary>
-    /// Types of settings items in the mod menu.
-    /// </summary>
-    public enum ModMenuItemType
-    {
-        Toggle,
-        Volume,
-        Enum
-    }
-
-    /// <summary>
     /// Screen-reader-driven mod settings menu. Opened with F4 (keyboard)
     /// or L1+L3 (gamepad). All navigation is purely audio — no game UI involved.
     /// </summary>
@@ -228,7 +218,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_save_sound",
-                    Type = ModMenuItemType.Toggle,
                     GetValue = () => Loc.Get(ModSettings.SaveSoundEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.SaveSoundEnabled = !ModSettings.SaveSoundEnabled; }
                 },
@@ -236,7 +225,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_save_volume",
-                    Type = ModMenuItemType.Volume,
                     GetValue = () => $"{(int)(ModSettings.SaveSoundVolume * 100)}%",
                     Change = delta => { ModSettings.SaveSoundVolume = ClampVolume(ModSettings.SaveSoundVolume + delta * 0.1f); }
                 },
@@ -244,7 +232,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_dodge_sound",
-                    Type = ModMenuItemType.Toggle,
                     GetValue = () => Loc.Get(ModSettings.DodgeSoundEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.DodgeSoundEnabled = !ModSettings.DodgeSoundEnabled; }
                 },
@@ -252,7 +239,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_dodge_volume",
-                    Type = ModMenuItemType.Volume,
                     GetValue = () => $"{(int)(ModSettings.DodgeSoundVolume * 100)}%",
                     Change = delta => { ModSettings.DodgeSoundVolume = ClampVolume(ModSettings.DodgeSoundVolume + delta * 0.1f); }
                 },
@@ -260,7 +246,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_proximity_sound",
-                    Type = ModMenuItemType.Toggle,
                     GetValue = () => Loc.Get(ModSettings.EnemyProximitySoundEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.EnemyProximitySoundEnabled = !ModSettings.EnemyProximitySoundEnabled; }
                 },
@@ -268,7 +253,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_proximity_volume",
-                    Type = ModMenuItemType.Volume,
                     GetValue = () => $"{(int)(ModSettings.EnemyProximitySoundVolume * 100)}%",
                     Change = delta => { ModSettings.EnemyProximitySoundVolume = ClampVolume(ModSettings.EnemyProximitySoundVolume + delta * 0.1f); }
                 },
@@ -276,7 +260,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_pa_volume",
-                    Type = ModMenuItemType.Volume,
                     GetValue = () => $"{(int)(ModSettings.PrivateActionSoundVolume * 100)}%",
                     Change = delta => { ModSettings.PrivateActionSoundVolume = ClampVolume(ModSettings.PrivateActionSoundVolume + delta * 0.1f); }
                 },
@@ -284,7 +267,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_dialogue_mode",
-                    Type = ModMenuItemType.Enum,
                     GetValue = () => ModSettings.DialogueVoiceMode == DialogueVoiceMode.Full
                         ? Loc.Get("mod_menu_dialogue_full")
                         : Loc.Get("mod_menu_dialogue_name_only"),
@@ -300,7 +282,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_ally_health",
-                    Type = ModMenuItemType.Toggle,
                     GetValue = () => Loc.Get(ModSettings.AllyHealthWarningEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.AllyHealthWarningEnabled = !ModSettings.AllyHealthWarningEnabled; }
                 },
@@ -308,7 +289,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_ally_ailment",
-                    Type = ModMenuItemType.Toggle,
                     GetValue = () => Loc.Get(ModSettings.AllyStatusAilmentEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.AllyStatusAilmentEnabled = !ModSettings.AllyStatusAilmentEnabled; }
                 },
@@ -316,7 +296,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_player_damage",
-                    Type = ModMenuItemType.Toggle,
                     GetValue = () => Loc.Get(ModSettings.PlayerDamageDealtEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.PlayerDamageDealtEnabled = !ModSettings.PlayerDamageDealtEnabled; }
                 },
@@ -324,7 +303,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_gauge_volume",
-                    Type = ModMenuItemType.Volume,
                     GetValue = () => $"{(int)(ModSettings.BonusGaugeSoundVolume * 100)}%",
                     Change = delta => { ModSettings.BonusGaugeSoundVolume = ClampVolume(ModSettings.BonusGaugeSoundVolume + delta * 0.1f); }
                 },
@@ -332,7 +310,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_gauge_break_announce",
-                    Type = ModMenuItemType.Toggle,
                     GetValue = () => Loc.Get(ModSettings.BonusGaugeBreakAnnouncementEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.BonusGaugeBreakAnnouncementEnabled = !ModSettings.BonusGaugeBreakAnnouncementEnabled; }
                 },
@@ -340,7 +317,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_gauge_percent",
-                    Type = ModMenuItemType.Toggle,
                     GetValue = () => Loc.Get(ModSettings.BonusGaugePercentAnnounceEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.BonusGaugePercentAnnounceEnabled = !ModSettings.BonusGaugePercentAnnounceEnabled; }
                 },
@@ -348,7 +324,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_jump_sound",
-                    Type = ModMenuItemType.Toggle,
                     GetValue = () => Loc.Get(ModSettings.JumpPromptSoundEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.JumpPromptSoundEnabled = !ModSettings.JumpPromptSoundEnabled; }
                 },
@@ -356,7 +331,6 @@ namespace SO2RAccess
                 new ModMenuItem
                 {
                     LabelKey = "mod_menu_label_jump_speech",
-                    Type = ModMenuItemType.Toggle,
                     GetValue = () => Loc.Get(ModSettings.JumpPromptSpeechEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.JumpPromptSpeechEnabled = !ModSettings.JumpPromptSpeechEnabled; }
                 }
@@ -378,7 +352,6 @@ namespace SO2RAccess
         private class ModMenuItem
         {
             public string LabelKey;
-            public ModMenuItemType Type;
             public Func<string> GetValue;
             public Action<int> Change;
         }

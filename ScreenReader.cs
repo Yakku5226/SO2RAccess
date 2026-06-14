@@ -30,9 +30,6 @@ namespace SO2RAccess
         [DllImport("Tolk.dll", CharSet = CharSet.Unicode)]
         private static extern bool Tolk_Output(string text, bool interrupt);
 
-        [DllImport("Tolk.dll")]
-        private static extern bool Tolk_Silence();
-
         [DllImport("Tolk.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr Tolk_DetectScreenReader();
 
@@ -140,23 +137,6 @@ namespace SO2RAccess
             if (_lastMessage == null) return null;
             if (Time.time - _lastMessageTime > withinSeconds) return null;
             return _lastMessage;
-        }
-
-        /// <summary>
-        /// Stops current speech immediately.
-        /// </summary>
-        public static void Stop()
-        {
-            if (!_available) return;
-
-            try
-            {
-                Tolk_Silence();
-            }
-            catch (Exception ex)
-            {
-                MelonLogger.Warning($"ScreenReader.Stop failed: {ex.Message}");
-            }
         }
 
         /// <summary>
