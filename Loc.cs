@@ -158,7 +158,6 @@ namespace SO2RAccess
             Add("nav_autowalk_arrived",    "Arrived at {0}.");
             Add("nav_autowalk_arrived_exit","Arrived at {0}. Exit is to the {1}.");
             Add("nav_autowalk_entering",   "Entering {0}.");
-            Add("nav_autowalk_enter_fail", "Arrived near {0}. Could not enter automatically. Try fast travel instead.");
             Add("nav_autowalk_arrived_npc","Arrived at {0}. Press action button to interact. NumPad 1 or L1 to stop following.");
             Add("nav_autowalk_resuming", "Resuming walk to {0}.");
             Add("nav_autowalk_unreachable","Cannot reach {0}.");
@@ -182,8 +181,6 @@ namespace SO2RAccess
             Add("nav_npc_n",          "NPC {0}");
             Add("nav_event_story",              "Story event");
             Add("nav_event_pa",                 "Private action");
-            Add("nav_autowalk_arrived_above",   "Arrived near {0}. Target is above you — look for stairs or a ramp.");
-            Add("nav_autowalk_arrived_below",   "Arrived near {0}. Target is below you — look for stairs or a ramp.");
             // Honest "could not reach" messages — used when the path stops short
             // of the real target so we never falsely claim arrival.
             Add("nav_autowalk_cannot_reach",       "Could not reach {0}. Stopped {1} meters {2}.");
@@ -347,7 +344,6 @@ namespace SO2RAccess
             Add("camp_enhance_battleskill_screen", "Battle skills.");
             Add("camp_enhance_combatskill_screen", "Combat skills.");
             Add("camp_enhance_bp",                 "BP: {0} / {1}");
-            Add("camp_enhance_sp",                 "SP: {0} / {1}");
             Add("camp_enhance_level",              "Level: {0} of {1}");
             Add("camp_enhance_level_max",          "Level: {0} of {1}, max");
             Add("camp_enhance_mp",                 "MP: {0}");
@@ -419,8 +415,6 @@ namespace SO2RAccess
             // Camp menu — tactics sub-screen (assign tactics to party members)
             Add("camp_tactics_screen",             "Tactics.");
             Add("camp_tactics_char",               "{0}: {1}. {2} of {3}.");
-            Add("camp_tactics_operation",          "{0}. {1} of {2}.");
-            Add("camp_tactics_operation_current",  "{0}, currently set. {1} of {2}.");
             Add("camp_tactics_currently_set",      "Currently set.");
             Add("camp_tactics_operation_position", "{0} of {1}.");
 
@@ -478,7 +472,6 @@ namespace SO2RAccess
             Add("battle_result_sp",         "{0} SP.");
             Add("battle_result_bsp",        "{0} Battle Skill Points.");
             Add("battle_result_levelup",    "{0} leveled up to {1}.");
-            Add("battle_result_levelup_sp", "Gained {0} SP.");
             Add("battle_result_levelup_bsp","Gained {0} Battle Skill Points.");
             Add("battle_result_learned_skill", "Learned {0}: {1}.");
             Add("battle_result_learned_skill_noDesc", "Learned {0}.");
@@ -490,7 +483,6 @@ namespace SO2RAccess
             Add("battle_result_item_multi", "Obtained {0}, {1}.");
 
             // Enemy proximity audio
-            Add("proximity_wav_missing",    "Enemy proximity sound file not found: {0}");
 
             // Location discovery notifications
             Add("location_discovered",      "Discovered {0}.");
@@ -505,7 +497,6 @@ namespace SO2RAccess
             Add("reward_item_multi",        "{0} x{1}");
 
             // Save notifications
-            Add("save_saving",                      "Saving.");
             Add("save_autosave_announce_fallback",  "When the game is saving, a save icon will appear on screen.");
 
             // Game over (battle loss) menu
@@ -575,7 +566,6 @@ namespace SO2RAccess
             Add("battle_pause_elem_half",       "{0}, half damage");
             Add("battle_pause_elem_immune",     "{0}, immune");
             Add("battle_pause_elem_absorb",     "{0}, absorb");
-            Add("battle_pause_none",            "None");
 
             // Battle menu (Triangle during combat)
             Add("battle_menu_heading",              "Battle menu.");
@@ -730,7 +720,6 @@ namespace SO2RAccess
             Add("ic_tab_superspecialskill",   "Super Special Skills.");
             Add("ic_skill_level",             "Level {0}");
             Add("ic_skill_position",          "{0} of {1}.");
-            Add("ic_action_screen",           "Creation.");
             Add("ic_action_position",         "{0} of {1}.");
             Add("ic_creates",                 "Creates: {0}");
             Add("ic_have_count",              "Have {0}");
@@ -780,7 +769,6 @@ namespace SO2RAccess
 
             // Database — Player Data (virtual cursor navigation)
             Add("db_playerdata_screen",         "Player Data.");
-            Add("db_playerdata_stat",           "{0}.");
             Add("db_playerdata_category_stat",  "{0}. {1}.");
             Add("db_playerdata_battle",         "Battle Data");
             Add("db_playerdata_collection",     "Collection Data");
