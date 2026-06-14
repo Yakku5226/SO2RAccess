@@ -1,10 +1,7 @@
-using HarmonyLib;
 using Il2CppGame;
 using MelonLoader;
 using System;
-using System.Runtime.CompilerServices;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace SO2RAccess
 {

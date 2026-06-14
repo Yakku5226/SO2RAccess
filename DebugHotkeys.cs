@@ -1,7 +1,6 @@
 using Il2CppGame;
 using MelonLoader;
 using System;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
