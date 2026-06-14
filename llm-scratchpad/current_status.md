@@ -40,9 +40,15 @@
     CycleCharacterLeft/Right -> CycleCharacter(delta); (#1) charaNameID resolution -> 
     TextUtil.ResolveCharaNameKey (5 sites); (#3) DpadRepeater shared by Main+ModMenu;
     (#8) TextUtil.AppendPosition (8 sites).
-    Also DONE after 1st smoke test: (#4) PollPictureBook shared helper for the 5 camp database
-    picture-book screens (Database.cs 780->667); (#6) UiFinder.TryGetActiveOverlay for
-    Pickpocket+QuickRecovery overlay detection (Guild/Shop left — different frame-counter cadence).
+    (#4) PollPictureBook shared helper for the 5 camp database picture-book screens — ATTEMPTED
+    then REVERTED (commit efb9cce reverted): caused a HARD NATIVE CRASH opening the Fish picture
+    book (confirmed regression; book worked pre-refactor). No managed exception logged; refactored
+    code was structurally identical to the original, so cause is an unexplained IL2CPP/runtime
+    interaction (suspected per-frame delegate allocation). Standalone Update* methods restored.
+    LESSON: avoid per-frame method-group/lambda delegate allocation in IL2CPP polling hot paths;
+    if retrying, gate BEFORE building delegates and/or cache delegates as static fields.
+    (#6) UiFinder.TryGetActiveOverlay for Pickpocket+QuickRecovery overlay detection (Guild/Shop
+    left — different frame-counter cadence) — KEPT.
     NOT DONE — (#7) Build* duplicate-label-numbering: deliberately SKIPPED. The builders use
     distinct localized _n Loc keys per sub-type (nav_save_n, nav_save_recovery_n, etc.); unifying
     to the generic append-number form would drop localization / change wording. "Not safely fixable."
