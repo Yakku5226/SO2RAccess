@@ -495,7 +495,7 @@ namespace SO2RAccess
                     int idx = listBase.currentIndex;
                     int count = listBase.currentDataList?.Count ?? 0;
                     if (count > 0)
-                        sb.Append(". ").Append(idx + 1).Append(" of ").Append(count).Append('.');
+                        TextUtil.AppendPosition(sb, idx, count);
                 }
             }
             catch { /* ignore */ }
@@ -600,7 +600,7 @@ namespace SO2RAccess
                     int idx = _icActionListBase.currentIndex;
                     int count = _icActionListBase.currentDataList?.Count ?? 0;
                     if (count > 0)
-                        sb.Append(". ").Append(idx + 1).Append(" of ").Append(count).Append('.');
+                        TextUtil.AppendPosition(sb, idx, count);
                 }
             }
             catch { /* ignore */ }

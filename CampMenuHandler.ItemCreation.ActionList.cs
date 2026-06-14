@@ -314,7 +314,7 @@ namespace SO2RAccess
                         sb.Append(name);
                         if (!item.canDecision)
                             sb.Append(", ").Append(Loc.Get("ic_unavailable"));
-                        sb.Append(". ").Append(idx + 1).Append(" of ").Append(count).Append('.');
+                        TextUtil.AppendPosition(sb, idx, count);
                         ScreenReader.Say(sb.ToString());
                         DebugLogger.LogState($"CampIC: Scout action [{idx}] {name}");
                         return true;
@@ -466,7 +466,7 @@ namespace SO2RAccess
                         if (!item.canDecision)
                             sb.Append(", unavailable");
 
-                        sb.Append(". ").Append(idx + 1).Append(" of ").Append(count).Append('.');
+                        TextUtil.AppendPosition(sb, idx, count);
                         ScreenReader.Say(sb.ToString());
                         DebugLogger.LogState($"CampIC: action fallback [{idx}] {name}");
                         return;

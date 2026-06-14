@@ -176,7 +176,7 @@ namespace SO2RAccess
                 var totalList = _icMaterialSelectListBase.currentDataList;
                 int total = totalList?.Count ?? 0;
                 if (total > 0)
-                    sb.Append(". ").Append(idx + 1).Append(" of ").Append(total).Append('.');
+                    TextUtil.AppendPosition(sb, idx, total);
 
                 ScreenReader.Say(sb.ToString());
                 DebugLogger.LogState($"CampIC_Material: selectMat [{idx}] {sb}");
@@ -230,7 +230,7 @@ namespace SO2RAccess
                     if (qty > 1)
                         sb.Append(", x").Append(qty);
 
-                    sb.Append(". ").Append(idx + 1).Append(" of ").Append(count).Append('.');
+                    TextUtil.AppendPosition(sb, idx, count);
 
                     ScreenReader.Say(sb.ToString());
                     DebugLogger.LogState($"CampIC_Material: itemList [{idx}] {name}");

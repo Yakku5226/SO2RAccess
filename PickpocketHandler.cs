@@ -106,7 +106,7 @@ namespace SO2RAccess
                 }
                 if (!canDo)
                     sb.Append(", ").Append(Loc.Get("ic_unavailable"));
-                sb.Append(". ").Append(idx + 1).Append(" of ").Append(count).Append('.');
+                TextUtil.AppendPosition(sb, idx, count);
 
                 ScreenReader.Say(sb.ToString());
                 DebugLogger.LogState($"Pickpocket: [{idx}] {name} rate={rate}");

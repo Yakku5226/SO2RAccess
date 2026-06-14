@@ -70,7 +70,7 @@ namespace SO2RAccess
                 if (!string.IsNullOrEmpty(resultText) &&
                     !string.Equals(resultText.Trim(), status.Trim(), StringComparison.OrdinalIgnoreCase))
                     sb.Append(". ").Append(resultText);
-                sb.Append(". ").Append(idx + 1).Append(" of ").Append(count).Append('.');
+                TextUtil.AppendPosition(sb, idx, count);
 
                 ScreenReader.Say(sb.ToString());
                 DebugLogger.LogState($"CampIC: result [{idx}] {name} - {status}");

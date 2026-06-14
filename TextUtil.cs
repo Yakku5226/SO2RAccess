@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using System.Text.RegularExpressions;
 using Il2CppGame;
 
@@ -95,6 +96,16 @@ namespace SO2RAccess
             }
             catch { /* IL2CPP/native unavailable — fall back to key parsing */ }
             return ParseCharaNameID(nameKey);
+        }
+
+        /// <summary>
+        /// Appends the standard ". N of M." list-position suffix to a screen-reader
+        /// message. <paramref name="index"/> is 0-based, so index 2 of count 5
+        /// produces ". 3 of 5.".
+        /// </summary>
+        public static void AppendPosition(StringBuilder sb, int index, int count)
+        {
+            sb.Append(". ").Append(index + 1).Append(" of ").Append(count).Append('.');
         }
     }
 }
