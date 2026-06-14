@@ -772,7 +772,8 @@ namespace SO2RAccess
                         _fieldStuckRecalcAttempted = false;
 
                         bool allowPartial = _autoWalkIsCounter || _autoWalkDifferentFloor;
-                        if (CalculateAndStorePath(playerPos, _autoWalkTarget, allowPartial))
+                        if (CalculateAndStorePath(playerPos, _autoWalkTarget, allowPartial,
+                                isCounter: _autoWalkIsCounter))
                         {
                             DebugLogger.LogState(
                                 $"NAV obstacle avoidance {(timedOut ? "timed out" : "complete")}, " +
@@ -816,7 +817,8 @@ namespace SO2RAccess
                                 $"{FieldStuckCheckInterval}s. Attempting recalc.");
 
                             bool allowPartial = _autoWalkIsCounter || _autoWalkDifferentFloor;
-                            if (CalculateAndStorePath(playerPos, _autoWalkTarget, allowPartial))
+                            if (CalculateAndStorePath(playerPos, _autoWalkTarget, allowPartial,
+                                    isCounter: _autoWalkIsCounter))
                             {
                                 DebugLogger.LogState(
                                     $"NAV field stuck recalc OK: {_pathCorners.Length} waypoints.");
@@ -889,7 +891,8 @@ namespace SO2RAccess
 
                         if (endDist > PathRecalcDistanceThreshold)
                         {
-                            if (CalculateAndStorePath(playerPos, _autoWalkTarget))
+                            if (CalculateAndStorePath(playerPos, _autoWalkTarget,
+                                    isCounter: _autoWalkIsCounter))
                             {
                                 DebugLogger.LogState(
                                     $"NAV path recalculated: {_pathCorners.Length} waypoints " +

@@ -107,7 +107,7 @@ namespace SO2RAccess
             try
             {
                 pathFound = CalculateAndStorePath(playerPos, item.Position,
-                    allowPartial: true);
+                    allowPartial: true, isCounter: item.IsCounterNpc);
             }
             catch (Exception ex)
             {
@@ -362,7 +362,8 @@ namespace SO2RAccess
             bool pathFound;
             try
             {
-                pathFound = CalculateAndStorePath(playerPos, target, allowPartial: true);
+                pathFound = CalculateAndStorePath(playerPos, target,
+                    allowPartial: true, isCounter: _fieldResumeIsCounter);
             }
             catch (Exception ex)
             {
@@ -755,9 +756,12 @@ namespace SO2RAccess
         /// Returns true if a usable path was found.
         /// When <paramref name="allowPartial"/> is true, a partial path is accepted
         /// — the player walks as close as the NavMesh allows (e.g. to a counter).
+        /// When <paramref name="isCounter"/> is true the recorded-traversal route is
+        /// skipped: a counter NPC must use the partial NavMesh path that stops right
+        /// in front of the counter, not a breadcrumb route that won't line up there.
         /// </summary>
         private bool CalculateAndStorePath(Vector3 playerPos, Vector3 targetPos,
-            bool allowPartial = false)
+            bool allowPartial = false, bool isCounter = false)
         {
             // World map has no NavMesh — use the game's A* pathfinder instead.
             if (_isWorldmap) return WorldmapCalculateAndStorePath(playerPos, targetPos);
@@ -774,7 +778,10 @@ namespace SO2RAccess
             }
             // 2. A recorded traversal route (dungeons the player has walked). The
             //    waypoints are real walked positions, so the route is walkable.
-            else if (UseTraversal() &&
+            //    Skipped for counter NPCs: in a town with breadcrumbs a counter would
+            //    otherwise route over recorded paths that don't stop at the counter
+            //    front — it must use the partial NavMesh path below instead.
+            else if (!isCounter && UseTraversal() &&
                      _traversal.FindPath(playerPos, targetPos, out var tc) && tc != null)
             {
                 corners = tc;
