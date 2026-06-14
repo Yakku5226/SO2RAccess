@@ -251,17 +251,7 @@ namespace SO2RAccess
                     {
                         string nameKey = param.charaNameID;
                         if (!string.IsNullOrEmpty(nameKey))
-                        {
-                            var tm = TextManager.Instance;
-                            if (tm != null)
-                            {
-                                string resolved = tm.GetMessage(nameKey, TextManager.MessageType.System);
-                                if (!string.IsNullOrEmpty(resolved))
-                                    return resolved;
-                            }
-                            // Fallback: parse charaNameID
-                            return TextUtil.ParseCharaNameID(nameKey);
-                        }
+                            return TextUtil.ResolveCharaNameKey(nameKey);
                     }
                 }
 

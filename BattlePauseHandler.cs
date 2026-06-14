@@ -650,18 +650,7 @@ namespace SO2RAccess
                         string nameKey = constPlayer.charaNameID;
                         DebugLogger.LogState($"BattlePause: ally charaNameID='{nameKey}'");
                         if (!string.IsNullOrEmpty(nameKey))
-                        {
-                            var tm = TextManager.Instance;
-                            if (tm != null)
-                            {
-                                string resolved = tm.GetMessage(nameKey,
-                                    TextManager.MessageType.System);
-                                if (!string.IsNullOrEmpty(resolved))
-                                    return TextUtil.StripTags(resolved);
-                            }
-                            // Fallback: parse the charaNameID key
-                            return TextUtil.ParseCharaNameID(nameKey);
-                        }
+                            return TextUtil.ResolveCharaNameKey(nameKey);
                     }
                 }
             }

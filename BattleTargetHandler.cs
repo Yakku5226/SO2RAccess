@@ -364,22 +364,7 @@ namespace SO2RAccess
                     {
                         string nameKey = constEnemy.charaNameID;
                         if (!string.IsNullOrEmpty(nameKey))
-                        {
-                            // Try TextManager first (may work in battle context).
-                            var tm = TextManager.Instance;
-                            if (tm != null)
-                            {
-                                string resolved = tm.GetMessage(
-                                    nameKey, TextManager.MessageType.System);
-                                if (!string.IsNullOrEmpty(resolved))
-                                    return TextUtil.StripTags(resolved);
-                            }
-
-                            // Parse the key: "CHARA_LIZARDAXE" → "Lizardaxe"
-                            string parsed = TextUtil.ParseCharaNameID(nameKey);
-                            if (!string.IsNullOrEmpty(parsed))
-                                return parsed;
-                        }
+                            return TextUtil.ResolveCharaNameKey(nameKey);
                     }
                 }
             }

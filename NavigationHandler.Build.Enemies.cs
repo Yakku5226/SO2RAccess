@@ -76,22 +76,11 @@ namespace SO2RAccess
                                         string nameKey = partyMembers[0].charaNameID;
 
                                         if (!string.IsNullOrEmpty(nameKey))
-                                        {
-                                            // Try all known MessageTypes
-                                            enemyName = tm.GetMessage(
-                                                nameKey, TextManager.MessageType.System);
-                                            if (string.IsNullOrEmpty(enemyName))
-                                                enemyName = tm.GetMessage(
-                                                    nameKey, TextManager.MessageType.Skill);
-                                            if (string.IsNullOrEmpty(enemyName))
-                                                enemyName = tm.GetMessage(
-                                                    nameKey, TextManager.MessageType.Item);
-
-                                            // Fallback: parse the key into a readable name
-                                            // e.g. "CHARA_LIZARDAXE" → "Lizardaxe"
-                                            if (string.IsNullOrEmpty(enemyName))
-                                                enemyName = TextUtil.ParseCharaNameID(nameKey);
-                                        }
+                                            enemyName = TextUtil.ResolveCharaNameKey(
+                                                nameKey,
+                                                TextManager.MessageType.System,
+                                                TextManager.MessageType.Skill,
+                                                TextManager.MessageType.Item);
                                     }
                                 }
                             }

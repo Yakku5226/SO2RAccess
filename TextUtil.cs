@@ -1,5 +1,6 @@
 using System;
 using System.Text.RegularExpressions;
+using Il2CppGame;
 
 namespace SO2RAccess
 {
@@ -64,6 +65,36 @@ namespace SO2RAccess
             if (string.IsNullOrEmpty(name)) return key;
 
             return char.ToUpper(name[0]) + name.Substring(1).ToLower();
+        }
+
+        /// <summary>
+        /// Resolves a charaNameID key to a display name: tries
+        /// TextManager.GetMessage for each given message type in order (defaults
+        /// to System), falling back to <see cref="ParseCharaNameID"/> when the
+        /// game text is unavailable (e.g. in battle, where some keys don't
+        /// resolve natively). Returns "" for a null/empty key.
+        /// </summary>
+        public static string ResolveCharaNameKey(
+            string nameKey, params TextManager.MessageType[] types)
+        {
+            if (string.IsNullOrEmpty(nameKey)) return "";
+            if (types == null || types.Length == 0)
+                types = new[] { TextManager.MessageType.System };
+            try
+            {
+                var tm = TextManager.Instance;
+                if (tm != null)
+                {
+                    foreach (var t in types)
+                    {
+                        string resolved = tm.GetMessage(nameKey, t);
+                        if (!string.IsNullOrEmpty(resolved))
+                            return StripTags(resolved);
+                    }
+                }
+            }
+            catch { /* IL2CPP/native unavailable — fall back to key parsing */ }
+            return ParseCharaNameID(nameKey);
         }
     }
 }
