@@ -36,7 +36,7 @@
 ## Current Phase
 
 **Phase:** Phase 3 — Feature Implementation
-**Currently working on:** —
+**Currently working on:** Quick Heal Menu (D-pad Right) — WORKING (v1 tested); v2 name/amount/result fixes + L3 key, low-priority retest pending (2026-06-14)
 **Last completed:** Item Creation — Appraise result announcement (2026-06-13) — TESTED & WORKING
 
 ### Item Creation — Appraise result announcement (2026-06-13) — TESTED & WORKING
@@ -511,11 +511,77 @@ NEXT (future): true blind-exploration mode for discovering unmapped areas.
 **Files:** IslandScanner.cs, IslandNavigator.cs, NavMeshIslandDiagnostics.cs (new);
 NavigationHandler.cs/.AutoWalk.cs/.Build.cs, Loc.cs, Main.cs (modified)
 
-### TODO: Quick Heal Menu (D-pad Right)
-- UIFieldQuickRecoverySelector — field overlay, same pattern as pickpocket
-- Has recoveryDataList, listItemDataList, currentChoice, playerIDList
-- Needs new handler with FindObjectOfType polling + data count gate (like pickpocket)
-- No existing mod code handles it at all
+### Quick Heal Menu (D-pad Right) — v1 TESTED OK; v2 fixes BUILT, AWAITING TEST (2026-06-14)
+
+**v1 test (log 09:03):** WORKED — open heading, Yes/No cursor, and NumPad 0 party status
+all fired correctly. Three issues found + fixed in v2:
+1. Party status read empty names (", HP 899 of 1039...") — `label` is empty on the status
+   data. v2 resolves the name from `playerID` via
+   `ParameterManager.Instance.UserParameter.GetCharacterParameter(playerID).CharacterName`
+   (same path as CampMenuHandler.Formation), title-case enum fallback.
+2. "recovering N" was wrong — `changeHp`/`changeMp` are the PROJECTED post-recovery TOTAL,
+   not a delta (changeHp == hpMax for all; healers' changeMp < mp because they SPEND MP
+   casting). v2 reports the real gain `changeHp - hp` (and MP only when changeMp > mp).
+3. Heal result was SILENT (user confirmed). v2 adds a result announcement.
+
+**v2 result announcement:** Harmony postfix on `GameManager.QuickRecovery(List<...Order>)`
+([CallerCount(2)], the execution point — the menu's OnDecision is native-only and
+un-hookable). Postfix sets a static flag; Update consumes it (even after the menu closed)
+and announces from a per-frame projected-outcome snapshot: "Recovery complete. {name} HP
+now {changeHp}. {healer} used {mp-changeMp} MP." Recovery is spell/MP-based (no items —
+`QuickRecoveryUser.recoverySpellList` + `consumeMentalPoint`), so the healers (changeMp <
+mp) are the "what was used". Gated to a snapshot taken within 2s so the shared camp quick
+recovery does NOT trigger the field result.
+
+**v2 files:** QuickRecoveryHandler.cs (rewritten — name resolution, accurate amounts,
+snapshot, ApplyPatches + postfix); Main.cs (ApplyPatches wiring); Loc.cs (3 result keys).
+Build 0/0, deployed.
+
+**Party status key:** NumPad 0 (keyboard) OR L3 / left-stick click (gamepad). L3 requires
+L1 NOT held so it doesn't clash with the L1+L3 mod-menu toggle. Read via Gamepad.current
+in the handler, gated on the menu being active.
+
+PENDING v2 TEST: (1) party status now reads names + correct recovery amounts; (2) confirm
+a heal (press Yes) → expect "Recovery complete. ..." Look for the log line
+`QuickRecovery: GameManager.QuickRecovery executed.` — if it's ABSENT after a confirmed
+heal, the method fires native-only (like PlayVoice) and we need a different result trigger.
+
+New `QuickRecoveryHandler.cs` reads the field Quick Recovery overlay
+(`UIFieldQuickRecoverySelector`), opened by pressing Right on the D-pad. The game owns
+the key; the handler only detects the overlay and reads it (pickpocket pattern — pure
+polling, no Harmony patches).
+
+- **Detection:** `FindObjectOfType<UIFieldQuickRecoverySelector>()` (throttled 1/s when
+  null); active gate = `gameObject.activeInHierarchy == true && recoveryDataList.Count > 0`
+  (the field overlays stay activeInHierarchy=true when hidden — data-count gate, same as
+  pickpocket). If still stale in the log, fall back to camp-style gating.
+- **On open (brief, per user):** announces `"Quick Recovery. Recover party? Yes. Press
+  NumPad 0 for party status."` (skips first frame to avoid stale blurt).
+- **Cursor:** polls `currentChoice` (UIDefine.DialogChoices None/Yes/No/Cancel) — the only
+  managed-readable navigable state. Announces "Yes"/"No" on change. Navigation is
+  native-only (OnUp/OnDown CallerCount 0), hence polling.
+- **On-demand party status:** NumPad 0 (free; 1/2/4/5/6/8 are nav/pause) reads each member
+  from `recoveryDataList`: name, HP x of max (+ "recovering N" when `changeHp>0`), MP same.
+  Full-health members read as "{name}, full health". Read via
+  `Keyboard.current[Key.Numpad0]` inside the handler, gated on the menu being active.
+- **Result after Yes:** NOT in v1 (per user — test first). The corner-toast
+  `NotificationHandler` may already announce HP gains / item use. If silent, add a readout
+  from `QuickRecoveryResult` (quickRecoveryTargetList/quickRecoveryUserList) as follow-up.
+- **Files:** QuickRecoveryHandler.cs (new); Main.cs (field + init + Update, mirrors
+  pickpocket near line 968); Loc.cs (8 `quickheal_*` keys). Build 0/0, deployed.
+- **Baked debug logging:** open frame logs choice/member-count/isPause/isDisableInput;
+  choice changes + party reads logged under [STATE].
+
+PENDING USER TEST (F12 debug on, on a field, press D-pad Right):
+1. Open announces the heading. 2. Up/down → "Yes"/"No" on each change. 3. NumPad 0 reads
+party HP/MP. 4. Confirm Yes — note whether the result is already spoken (corner toast) or
+silent. 5. Cancel/close → quiet; reopen re-announces cleanly (no stale blurt).
+6. Send the [STATE] `QuickRecovery:` log lines — confirms currentChoice behaviour,
+recoveryDataList contents, and that there's no hidden native-only character-select cursor.
+
+KNOWN UNCERTAINTY: if the menu has a per-character selection cursor, its index may be
+native-only (like the guild wall); Yes/No + on-demand party status still make it usable.
+Not expected from the decompile.
 
 ### World Map Cached Grid System — WORKING (resolved 2026-06-12)
 

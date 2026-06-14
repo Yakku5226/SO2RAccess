@@ -66,6 +66,7 @@ namespace SO2RAccess
         private BonusGaugeHandler _bonusGaugeHandler;
         private DialogueChoiceHandler _dialogueChoiceHandler;
         private PickpocketHandler _pickpocketHandler;
+        private QuickRecoveryHandler _quickRecoveryHandler;
         private FieldPromptHandler _fieldPromptHandler;
 
         // Gamepad nav overlay — L1 hold-to-open state.
@@ -153,6 +154,7 @@ namespace SO2RAccess
             _bonusGaugeHandler = new BonusGaugeHandler();
             _dialogueChoiceHandler = new DialogueChoiceHandler();
             _pickpocketHandler = new PickpocketHandler();
+            _quickRecoveryHandler = new QuickRecoveryHandler();
             _fieldPromptHandler = new FieldPromptHandler();
         }
 
@@ -253,6 +255,7 @@ namespace SO2RAccess
             _bonusGaugeHandler.ApplyPatches(_harmony);
             _dialogueChoiceHandler.ApplyPatches(_harmony);
             _fieldPromptHandler.ApplyPatches(_harmony);
+            _quickRecoveryHandler.ApplyPatches(_harmony);
         }
 
         /// <summary>
@@ -966,6 +969,7 @@ namespace SO2RAccess
             _bonusGaugeHandler.Update();
             _dialogueChoiceHandler.Update();
             _pickpocketHandler.Update();
+            _quickRecoveryHandler.Update();
             _fieldPromptHandler.Update();
         }
 

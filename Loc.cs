@@ -770,6 +770,19 @@ namespace SO2RAccess
             Add("pickpocket_heading",          "Pickpocket.");
             Add("pickpocket_rate",             "{0} percent");
 
+            // Quick Heal / Quick Recovery field menu (D-pad Right)
+            Add("quickheal_heading",           "Quick Recovery. Recover party? {0}. Press NumPad 0 or L3 for party status.");
+            Add("quickheal_yes",               "Yes");
+            Add("quickheal_no",                "No");
+            Add("quickheal_status_hp",         "{0}, HP {1} of {2}");
+            Add("quickheal_status_mp",         "MP {0} of {1}");
+            Add("quickheal_status_recovering", "recovering {0}");
+            Add("quickheal_status_full",       "{0}, full health");
+            Add("quickheal_empty",             "No party members.");
+            Add("quickheal_result_heading",    "Recovery complete.");
+            Add("quickheal_result_hp",         "{0}, HP now {1}");
+            Add("quickheal_result_used_mp",    "{0} used {1} MP");
+
             // Super Specialty (IC overlay)
             Add("ss_screen",                  "Super Specialty.");
             Add("ss_not_learned",             "Not learned");
