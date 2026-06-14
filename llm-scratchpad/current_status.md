@@ -25,7 +25,10 @@
   directly. No framework needed. ACTION TAKEN (user-approved): extracted F5/F8-F11 debug
   hotkeys into DebugHotkeys.cs, DELETED vestigial F6/F7 experiments. Main.cs 978->697.
   Committed. (Smoke test deferred — debug-only keys, build-verified.)
-- [~] prompts/string-builder.md  IN PROGRESS. Verdict: NOT a string-builder mod.
+- [x] prompts/string-builder.md  DONE. Verdict: NOT a string-builder mod (user chose skip the
+  optional small tidy). Details below.
+- [~] prompts/low-level-cleanup.md  IN PROGRESS (per-file cleanup analysis via subagents).
+  --- string-builder detail ---
   Localization-first (571 Loc.Get format-string calls), string.Join for lists, StringBuilder
   mostly in debug/algorithm files (WorldmapDiagnostics 87, GridGenerator 35, Pathfinder 26 =
   log text, not announcements). Manual space-separator pattern only ~22 sites (BattleResultHandler

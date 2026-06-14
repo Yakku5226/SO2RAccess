@@ -56,16 +56,6 @@ namespace SO2RAccess
         private static float _gaugeFillSoundCachedVolume = -1f;
         private static bool _gaugeFillSoundLoaded;
 
-        // File-based bonus gauge break sound (provision for future use).
-        private static byte[] _gaugeBreakSoundRawWav;
-        private static int _gaugeBreakSoundDataOffset;
-        private static int _gaugeBreakSoundDataLength;
-        private static short _gaugeBreakSoundBitsPerSample;
-        private static IntPtr _gaugeBreakSoundPtr = IntPtr.Zero;
-        private static int _gaugeBreakSoundPtrSize;
-        private static float _gaugeBreakSoundCachedVolume = -1f;
-        private static bool _gaugeBreakSoundLoaded;
-
         // File-based jump-prompt cue — played when the "press X to jump down" prompt
         // appears above the player at a one-way ledge.
         private static byte[] _jumpSoundRawWav;
@@ -134,11 +124,6 @@ namespace SO2RAccess
                 MelonLogger.Error($"AudioCuePlayer.LoadDodgeSound failed: {ex.Message}");
             }
         }
-
-        /// <summary>
-        /// Returns true if the dodge sound WAV was loaded successfully.
-        /// </summary>
-        public static bool IsDodgeSoundLoaded => _dodgeSoundLoaded;
 
         /// <summary>
         /// Plays the dodge warning cue (incoming attack — press X to dodge)
@@ -214,11 +199,6 @@ namespace SO2RAccess
                 MelonLogger.Error($"AudioCuePlayer.LoadJumpSound failed: {ex.Message}");
             }
         }
-
-        /// <summary>
-        /// Returns true if the jump sound WAV was loaded successfully.
-        /// </summary>
-        public static bool IsJumpSoundLoaded => _jumpSoundLoaded;
 
         /// <summary>
         /// Plays the jump-prompt cue at the current ModSettings volume.
@@ -343,11 +323,6 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Returns true if the save sound WAV was loaded successfully.
-        /// </summary>
-        public static bool IsSaveSoundLoaded => _saveSoundLoaded;
-
-        /// <summary>
         /// Loads a WAV file from disk for the private action notification cue.
         /// </summary>
         public static void LoadPrivateActionSound(string path)
@@ -379,11 +354,6 @@ namespace SO2RAccess
                 MelonLogger.Error($"AudioCuePlayer.LoadPrivateActionSound failed: {ex.Message}");
             }
         }
-
-        /// <summary>
-        /// Returns true if the private action sound WAV was loaded successfully.
-        /// </summary>
-        public static bool IsPrivateActionSoundLoaded => _paSoundLoaded;
 
         /// <summary>
         /// Plays the private action notification cue at the current ModSettings volume.
@@ -508,86 +478,6 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Loads a WAV file from disk for the bonus gauge break cue.
-        /// Provision for future use — no WAV assigned yet.
-        /// </summary>
-        public static void LoadGaugeBreakSound(string path)
-        {
-            try
-            {
-                if (!File.Exists(path))
-                {
-                    // Not a warning — break sound is optional.
-                    DebugLogger.LogState($"AudioCuePlayer: gauge break sound not found (optional): {path}");
-                    return;
-                }
-
-                if (!TryParseWav(path, out byte[] fileBytes, out int dataOffset,
-                        out int dataLength, out short bitsPerSample))
-                    return;
-
-                _gaugeBreakSoundRawWav = fileBytes;
-                _gaugeBreakSoundDataOffset = dataOffset;
-                _gaugeBreakSoundDataLength = dataLength;
-                _gaugeBreakSoundBitsPerSample = bitsPerSample;
-                _gaugeBreakSoundCachedVolume = -1f;
-                _gaugeBreakSoundLoaded = true;
-
-                int sampleCount = dataLength / (bitsPerSample / 8);
-                MelonLogger.Msg($"AudioCuePlayer: gauge break sound loaded ({fileBytes.Length} bytes, {sampleCount} samples, {bitsPerSample}-bit).");
-            }
-            catch (Exception ex)
-            {
-                MelonLogger.Error($"AudioCuePlayer.LoadGaugeBreakSound failed: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Returns true if the gauge break sound WAV was loaded successfully.
-        /// </summary>
-        public static bool IsGaugeBreakSoundLoaded => _gaugeBreakSoundLoaded;
-
-        /// <summary>
-        /// Plays the gauge break cue at the specified volume.
-        /// Provision for future use.
-        /// </summary>
-        public static void PlayGaugeBreakCue(float volume)
-        {
-            if (!_gaugeBreakSoundLoaded || _gaugeBreakSoundRawWav == null)
-                return;
-
-            try
-            {
-                if (volume < 0.01f) return;
-
-                if (Math.Abs(volume - _gaugeBreakSoundCachedVolume) > 0.001f)
-                {
-                    byte[] adjusted = (byte[])_gaugeBreakSoundRawWav.Clone();
-                    ScalePcmSamples(adjusted, _gaugeBreakSoundDataOffset,
-                        _gaugeBreakSoundDataLength, _gaugeBreakSoundBitsPerSample, volume);
-
-                    if (_gaugeBreakSoundPtr != IntPtr.Zero)
-                        Marshal.FreeHGlobal(_gaugeBreakSoundPtr);
-
-                    _gaugeBreakSoundPtrSize = adjusted.Length;
-                    _gaugeBreakSoundPtr = Marshal.AllocHGlobal(_gaugeBreakSoundPtrSize);
-                    Marshal.Copy(adjusted, 0, _gaugeBreakSoundPtr, _gaugeBreakSoundPtrSize);
-                    _gaugeBreakSoundCachedVolume = volume;
-                }
-
-                if (_gaugeBreakSoundPtr != IntPtr.Zero)
-                {
-                    PlaySoundPtr(_gaugeBreakSoundPtr, IntPtr.Zero,
-                        SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
-                }
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"AudioCuePlayer.PlayGaugeBreakCue failed: {ex.Message}");
-            }
-        }
-
-        /// <summary>
         /// Cleans up audio data.
         /// </summary>
         public static void Shutdown()
@@ -635,14 +525,6 @@ namespace SO2RAccess
                 _gaugeFillSoundPtr = IntPtr.Zero;
             }
             _gaugeFillSoundLoaded = false;
-
-            _gaugeBreakSoundRawWav = null;
-            if (_gaugeBreakSoundPtr != IntPtr.Zero)
-            {
-                Marshal.FreeHGlobal(_gaugeBreakSoundPtr);
-                _gaugeBreakSoundPtr = IntPtr.Zero;
-            }
-            _gaugeBreakSoundLoaded = false;
 
             _initialized = false;
         }
