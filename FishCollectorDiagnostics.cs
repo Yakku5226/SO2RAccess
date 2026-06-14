@@ -49,8 +49,20 @@ namespace SO2RAccess
                 string body = "(out of range)";
                 if (count > 0 && idx >= 0 && idx < count)
                 {
-                    var it = list[idx].TryCast<UIFishCollectorMenuListItemData>();
-                    body = it != null ? $"menuName='{it.menuName}'" : "(cast failed)";
+                    var raw = list[idx];
+                    var it = raw.TryCast<UIFishCollectorMenuListItemData>();
+                    if (it != null)
+                    {
+                        body = $"menuName='{it.menuName}'";
+                    }
+                    else
+                    {
+                        // Wrong type — log the real runtime type so the reader can use it.
+                        string realType = "?";
+                        try { realType = raw.TryCast<Il2CppSystem.Object>()?.GetType()?.FullName ?? "null"; }
+                        catch (Exception tex) { realType = $"(type err: {tex.Message})"; }
+                        body = $"(cast failed; real type={realType})";
+                    }
                 }
                 Log("MENU", ref _menuSig, idx, count, body);
             }

@@ -664,14 +664,22 @@ namespace SO2RAccess
                                     name = resolved;
                             }
 
-                            // Fallback: parse the key (strip "ITEM_", title case).
+                            // Fallback: parse the key (strip "ITEM_", title case),
+                            // but ONLY when it yields real words. Some items have a
+                            // purely-numeric name key (e.g. ITEM_0024) that TextManager
+                            // can't resolve here — parsing those just produces "0024",
+                            // so leave the name unresolved and let the caller skip it.
                             if (string.IsNullOrEmpty(name))
                             {
-                                name = nameID;
-                                if (name.StartsWith("ITEM_", StringComparison.OrdinalIgnoreCase))
-                                    name = name.Substring(5);
-                                name = System.Globalization.CultureInfo.InvariantCulture
-                                    .TextInfo.ToTitleCase(name.Replace("_", " ").ToLower());
+                                string key = nameID;
+                                if (key.StartsWith("ITEM_", StringComparison.OrdinalIgnoreCase))
+                                    key = key.Substring(5);
+                                bool hasLetters = false;
+                                foreach (char c in key)
+                                    if (char.IsLetter(c)) { hasLetters = true; break; }
+                                if (hasLetters)
+                                    name = System.Globalization.CultureInfo.InvariantCulture
+                                        .TextInfo.ToTitleCase(key.Replace("_", " ").ToLower());
                             }
                         }
                     }
@@ -682,12 +690,15 @@ namespace SO2RAccess
                 DebugLogger.LogState($"FormatItemReward: failed for itemID={itemID}: {ex.Message}");
             }
 
-            if (string.IsNullOrEmpty(name))
-                name = $"item {itemID}";
-
             DebugLogger.LogState(
                 $"FormatItemReward DIAG: itemID={itemID} itemNameID={diagNameID} " +
-                $"textManager={diagResolved} -> name='{name}'");
+                $"textManager={diagResolved} -> name='{name ?? "(unresolved)"}'");
+
+            // No readable name (e.g. a numeric-key item the reward window can't resolve).
+            // Skip it rather than announce a raw code — the overflow-item toast already
+            // announces the game's rendered name for the same reward.
+            if (string.IsNullOrEmpty(name))
+                return null;
 
             return count > 1
                 ? Loc.Get("reward_item_multi", name, count)
