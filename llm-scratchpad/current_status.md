@@ -35,10 +35,13 @@ Quest system, Shop system data layer, World Map fast-travel UI data layer.
 - `current_status.md` — this file (session tracking)
   (intermediate subagent artifacts were promoted to llm-docs or removed)
 
-## Open questions for the user (asked at end of info-gathering stage)
-- A few game-model lines marked `(unverified)` — keyboard default bindings, whether
-  menu-save works anywhere vs. only at save points, exact Remaking/Contraband specialty
-  functions. Low priority; can confirm from gameplay later.
+## Open questions for the user — RESOLVED (clarified by author 2026-06-14)
+- Keyboard defaults: Enter=confirm, Backspace=cancel, M=map, Tab=camp (~). Folded in.
+- Saving: world map anywhere; towns/dungeons only at save points; quicksave autosave on
+  map transitions (single slot). Folded in.
+- Contraband: counterfeit-money crafting, lowers party affection (author-confirmed).
+- Remaking: Factor add/upgrade on gear (via secondary AI source, marked approximate).
+  All folded into llm-docs/game-model.md.
 
 ## Notes
 - Treat built-in memory tools as READ-ONLY during this process (per llm-entrypoint.md).

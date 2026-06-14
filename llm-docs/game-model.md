@@ -107,9 +107,16 @@ Battle controls (same controller, additional context):
 
 ### Keyboard (PC)
 
+Defaults below are reported by the mod author (a player of this game); a couple are marked
+approximate where they were unsure. All bindings are remappable in settings.
+
 - WASD — movement
-- C — evasion/dodge (unverified as default; observed in community discussions)
-- Other bindings are remappable in settings; exact defaults are not publicly documented in detail
+- C — evasion/dodge (observed in community discussions)
+- Enter — confirm / interact
+- Backspace — cancel / back / quit menu
+- M — open the map
+- Tab — open the camp menu (author-reported, ~ uncertain)
+- Remaining exact defaults are not publicly documented in detail
 
 ---
 
@@ -239,8 +246,19 @@ Super Specialties (combine multiple characters' skills):
 - **Publication** — produces books for income.
 - **Group Appraising** — provides shop discounts.
 - **Blacksmith** — crafts armor pieces.
-- **Contraband** — creates items for profit (unverified exact function).
-- **Remaking** — reworks existing items (unverified exact function).
+- **Contraband** — a crafting option that produces counterfeit money and similar items to
+  increase wealth. Trade-off: using it **lowers your relationship/affection score** with
+  other party members. (Author-confirmed.)
+- **Remaking** — adds, changes, or upgrades **Factors** (passive bonus traits) on weapons,
+  armor, and accessories. Unlocked by leveling the Customization and Replication IC skills
+  across multiple party members. A Remake combines a base piece of equipment + a catalyst
+  consumable (the catalyst determines which Factor category you can roll — e.g. ingredients
+  for "Special", perfumes/medicines for "Support", accessories for "Buff") + an optional
+  extra equipment piece sacrificed to alter success rates. Factor results are RNG; the common
+  strategy is to mass-Replicate copies of a piece and Remake them until the desired Factor
+  rolls. Notable Factors include HP/MP Drain, Gathering Stars, Narrow Escape, Reckless Magic.
+  (Reported via secondary AI source, not independently verified — treat specifics as
+  approximate.)
 
 IC rules:
 - Most IC can be performed anywhere via the Camp menu; no workbench needed.
@@ -312,10 +330,13 @@ IC rules:
 
 ### Save System
 
-- Save points are fixed spots in towns and dungeons.
+- **Manual save location depends on the map type:** you can save anywhere on the **world
+  map**, but inside **towns and dungeons** only at fixed **save points**.
 - Recovery Save Points in dungeons also restore full HP and MP.
-- No autosave mid-dungeon (unverified whether autosave exists at other triggers).
-- Save/Load is accessible from the Camp menu System sub-screen, but only at save points (unverified whether menu save works anywhere).
+- **Autosave (quicksave):** the game auto-saves when you enter a town or dungeon and when you
+  exit to the world map. This quicksave has **no dedicated slot** — it overwrites a single
+  quicksave. To keep a save in its own slot you must save manually.
+- Save/Load is accessed from the Camp menu System sub-screen.
 
 ### Transportation / Fast Travel
 
