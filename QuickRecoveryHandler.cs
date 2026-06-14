@@ -108,39 +108,12 @@ namespace SO2RAccess
                 TryAnnounceResult();
             }
 
-            bool isActive = false;
-
-            // Find or verify the selector.
-            if (_selector != null)
-            {
-                try
-                {
-                    // activeInHierarchy alone is unreliable for these field overlays
-                    // (stays true when hidden). Also require recovery data to be present.
-                    isActive = _selector.gameObject?.activeInHierarchy == true
-                        && _selector.recoveryDataList?.Count > 0;
-                }
-                catch { _selector = null; }
-            }
-
-            if (_selector == null && UnityEngine.Time.time >= _nextFindTime)
-            {
-                _nextFindTime = UnityEngine.Time.time + 1f;
-                try
-                {
-                    _selector = UnityEngine.Object.FindObjectOfType<UIFieldQuickRecoverySelector>();
-                    if (_selector != null)
-                    {
-                        try
-                        {
-                            isActive = _selector.gameObject?.activeInHierarchy == true
-                                && _selector.recoveryDataList?.Count > 0;
-                        }
-                        catch { _selector = null; }
-                    }
-                }
-                catch { /* skip */ }
-            }
+            // Find or verify the selector. activeInHierarchy alone is unreliable for
+            // these field overlays (stays true when hidden), so also require recovery data.
+            bool isActive = UiFinder.TryGetActiveOverlay(
+                ref _selector, ref _nextFindTime,
+                s => s.gameObject?.activeInHierarchy == true
+                     && s.recoveryDataList?.Count > 0);
 
             if (!isActive)
             {

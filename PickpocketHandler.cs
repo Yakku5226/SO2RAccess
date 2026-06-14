@@ -20,39 +20,12 @@ namespace SO2RAccess
 
         public void Update()
         {
-            bool isActive = false;
-
-            // Find or verify the selector.
-            if (_selector != null)
-            {
-                try
-                {
-                    // activeInHierarchy alone is unreliable (stays true when not shown).
-                    // Also require the choice list to have items.
-                    isActive = _selector.gameObject?.activeInHierarchy == true
-                        && _selector.choiceDataList?.Count > 0;
-                }
-                catch { _selector = null; }
-            }
-
-            if (_selector == null && UnityEngine.Time.time >= _nextFindTime)
-            {
-                _nextFindTime = UnityEngine.Time.time + 1f;
-                try
-                {
-                    _selector = UnityEngine.Object.FindObjectOfType<UIFieldPickPocketSelector>();
-                    if (_selector != null)
-                    {
-                        try
-                        {
-                            isActive = _selector.gameObject?.activeInHierarchy == true
-                                && _selector.choiceDataList?.Count > 0;
-                        }
-                        catch { _selector = null; }
-                    }
-                }
-                catch { /* skip */ }
-            }
+            // Find or verify the selector. activeInHierarchy alone is unreliable
+            // (stays true when hidden), so also require the choice list to have items.
+            bool isActive = UiFinder.TryGetActiveOverlay(
+                ref _selector, ref _nextFindTime,
+                s => s.gameObject?.activeInHierarchy == true
+                     && s.choiceDataList?.Count > 0);
 
             if (!isActive)
             {
