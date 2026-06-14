@@ -27,7 +27,26 @@
   Committed. (Smoke test deferred — debug-only keys, build-verified.)
 - [x] prompts/string-builder.md  DONE. Verdict: NOT a string-builder mod (user chose skip the
   optional small tidy). Details below.
-- [~] prompts/low-level-cleanup.md  IN PROGRESS (per-file cleanup analysis via subagents).
+- [~] prompts/low-level-cleanup.md  IN PROGRESS. User chose to execute ALL bundles thoroughly.
+  Per-file subagent scan -> llm-scratchpad/cleanup-candidates.md. Committed so far (each its own commit):
+  * Bundle A (dead code) DONE: gauge-break audio + Is*SoundLoaded; WorldmapPathfinder dead methods;
+    LogWorldmapMapjumpColliders; _wmPathFinder cache chain; ModMenuItemType; ScreenReader.Stop;
+    12 dead Loc keys; GridGenerator IsWalkable/solidWallCount/EXPEL-NEDE; write-only fields
+    (BattleMenu caches, IC pending, _playerDataLastIndex, LIDAR consts/dirs, GameOver _selector);
+    unused usings.
+  * Bundle B (stale debug scaffolding) DONE: LogResultDiag, LogActiveActionSelectorsDiag, IC
+    first-open DIAG dump, DialogueChoice DIAG block (+ their fields). Kept FieldPrompt catalog.
+  * Bundle C (dedup) PARTIAL — DONE: (#2) StripControllerPrefix -> TextUtil; (#5) BattlePause
+    CycleCharacterLeft/Right -> CycleCharacter(delta); (#1) charaNameID resolution -> 
+    TextUtil.ResolveCharaNameKey (5 sites); (#3) DpadRepeater shared by Main+ModMenu;
+    (#8) TextUtil.AppendPosition (8 sites).
+    REMAINING (behavior-sensitive, deferred to after smoke test): (#4) Database 5 picture-book
+    Update* -> generic browse helper [HIGH risk]; (#6) lazy-find-with-cooldown helper (Guild/Shop/
+    Pickpocket/QuickRecovery) [MED]; (#7) Build* duplicate-label-numbering helper [MED].
+  * Bundle D (consistency) DONE: DIAG logs -> DebugLogger; ic_unknown_item key; stale comments
+    (ResolveLocationRewards, SaveNotification); relocated MapState NPC-type doc. (Left ", unavailable"
+    hardcoded — routing via ic_unavailable would change capitalization = wording change, out of scope.)
+  ALL builds 0/0. AWAITING consolidated smoke test before doing remaining C #4/#6/#7.
   --- string-builder detail ---
   Localization-first (571 Loc.Get format-string calls), string.Join for lists, StringBuilder
   mostly in debug/algorithm files (WorldmapDiagnostics 87, GridGenerator 35, Pathfinder 26 =
