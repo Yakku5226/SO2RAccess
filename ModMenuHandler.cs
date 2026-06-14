@@ -25,11 +25,8 @@ namespace SO2RAccess
         private int _currentIndex;
         private List<ModMenuItem> _items;
 
-        // Gamepad D-pad repeat state (mirrors Main's nav overlay pattern).
-        private int _dpadRepeatDir;
-        private float _dpadRepeatTimer;
-        private const float DpadRepeatInitial = 0.4f;
-        private const float DpadRepeatInterval = 0.15f;
+        // Gamepad D-pad repeat (shared with Main's nav overlay).
+        private readonly DpadRepeater _dpadRepeater = new DpadRepeater();
 
         #endregion
 
@@ -42,8 +39,7 @@ namespace SO2RAccess
         {
             BuildItems();
             _currentIndex = 0;
-            _dpadRepeatDir = 0;
-            _dpadRepeatTimer = 0f;
+            _dpadRepeater.Reset();
             IsOpen = true;
             SuppressAllGameInput = true;
 
@@ -135,27 +131,7 @@ namespace SO2RAccess
             bool dRight = gp.dpad.right.isPressed;
 
             int currentDir = dUp ? 1 : dDown ? 2 : dLeft ? 3 : dRight ? 4 : 0;
-
-            if (currentDir == 0)
-            {
-                _dpadRepeatDir = 0;
-                _dpadRepeatTimer = 0f;
-            }
-            else if (currentDir != _dpadRepeatDir)
-            {
-                _dpadRepeatDir = currentDir;
-                _dpadRepeatTimer = DpadRepeatInitial;
-                FireDpadAction(currentDir);
-            }
-            else
-            {
-                _dpadRepeatTimer -= UnityEngine.Time.deltaTime;
-                if (_dpadRepeatTimer <= 0f)
-                {
-                    _dpadRepeatTimer = DpadRepeatInterval;
-                    FireDpadAction(currentDir);
-                }
-            }
+            _dpadRepeater.Update(currentDir, UnityEngine.Time.deltaTime, FireDpadAction);
 
             // Consume all gamepad input while menu is open.
             return true;

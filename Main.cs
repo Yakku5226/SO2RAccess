@@ -72,13 +72,10 @@ namespace SO2RAccess
 
         // Gamepad nav overlay — L1 hold-to-open state.
         private bool _gamepadL1Held;
-        private float _dpadRepeatTimer;
-        private int _dpadRepeatDir; // 0=none, 1=up, 2=down, 3=left, 4=right
+        private readonly DpadRepeater _dpadRepeater = new DpadRepeater();
         private bool _stickUpWasActive;
         private float _gamepadDiagTimer;
 
-        private const float DpadRepeatInitial = 0.4f;
-        private const float DpadRepeatInterval = 0.15f;
         private const float StickUpThreshold = 0.5f;
         /// <summary>Left stick magnitude above which auto-walk is cancelled (player takes over).</summary>
         private const float StickCancelThreshold = 0.3f;
@@ -575,8 +572,7 @@ namespace SO2RAccess
                     return;
 
                 _gamepadL1Held = true;
-                _dpadRepeatDir = 0;
-                _dpadRepeatTimer = 0f;
+                _dpadRepeater.Reset();
                 _stickUpWasActive = false;
                 DebugLogger.LogInput("L1", "GamepadNavOpen");
                 _navigationHandler.GamepadOpenNav();
@@ -587,7 +583,7 @@ namespace SO2RAccess
             if (l1Released && _gamepadL1Held)
             {
                 _gamepadL1Held = false;
-                _dpadRepeatDir = 0;
+                _dpadRepeater.Reset();
                 DebugLogger.LogInput("L1 release", "GamepadNavClose");
                 _navigationHandler.GamepadCloseNav();
                 return;
@@ -604,30 +600,7 @@ namespace SO2RAccess
             bool dRight = gp.dpad.right.isPressed;
 
             int currentDir = dUp ? 1 : dDown ? 2 : dLeft ? 3 : dRight ? 4 : 0;
-
-            if (currentDir == 0)
-            {
-                // No D-pad held — reset repeat.
-                _dpadRepeatDir = 0;
-                _dpadRepeatTimer = 0f;
-            }
-            else if (currentDir != _dpadRepeatDir)
-            {
-                // New direction pressed — act immediately, start initial delay.
-                _dpadRepeatDir = currentDir;
-                _dpadRepeatTimer = DpadRepeatInitial;
-                FireDpadAction(currentDir);
-            }
-            else
-            {
-                // Same direction held — count down repeat timer.
-                _dpadRepeatTimer -= Time.deltaTime;
-                if (_dpadRepeatTimer <= 0f)
-                {
-                    _dpadRepeatTimer = DpadRepeatInterval;
-                    FireDpadAction(currentDir);
-                }
-            }
+            _dpadRepeater.Update(currentDir, Time.deltaTime, FireDpadAction);
 
             // --- Left stick up — auto-walk trigger ---
             bool stickUp = gp.leftStick.y.ReadValue() > StickUpThreshold;
