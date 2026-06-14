@@ -19,8 +19,29 @@
 - [x] prompts/code-directory-construction.md — code index built for all 63 source files
 
 ## Prompts up next
-- [ ] prompts/large-file-handling.md  (NavigationHandler.cs is 2050 lines, >2000 → this is next)
+- [~] prompts/large-file-handling.md  IN PROGRESS
+  - PRE-STEP DONE (awaiting smoke test): deleted the dead island/multi-segment
+    navigation subsystem before splitting (it was self-referential dead code the
+    project notes already flagged for removal — splitting it would be wasted work).
+    Removed: IslandNavigator.cs, IslandScanner.cs, NavMeshIslandDiagnostics.cs
+    (1901 lines) + dead methods/state in NavigationHandler.cs (CheckIslandCrossing,
+    CheckDeferredIslandScan, route-segment/crossing state, ExitZone steering),
+    AutoWalk.cs (StartMultiSegmentWalk/CheckSegmentTransition/StartNextSegment/
+    StartFinalSegment/GetExitIslandSet/CacheCrossingExitZones/AvoidExitZones/
+    IsNearRouteWaypoint/FlatSqrDistance), Build.cs (dead hasIslandGraph branch in
+    SortAndFilterUnreachable), and 10 nav_island_* Loc keys. KEPT (live): the hard
+    map-exit barrier (PathCrossesMapExit / MapExitBarrierMargin / _autoWalkAllowExit).
+    Build 0/0. Line counts: NavigationHandler.cs 2050→1883, AutoWalk.cs 1434→965,
+    Build.cs 1493→1470, Loc.cs 803→792. ~2570 lines removed total.
+  - NEXT: split remaining large files. Candidates by size after deletion:
+    CampMenuHandler.ItemCreation.cs (1684), Build.cs (1470), WorldmapDiagnostics.cs
+    (1443), NavigationHandler.cs (1883), AutoWalk.cs (965), Worldmap.cs (1288), etc.
 - [ ] then prompts/input-handling.md
+
+## Code index note
+- 3 orphaned code-index .md files (Island*) deleted. The indexes for
+  NavigationHandler.cs / .AutoWalk.cs / .Build.cs are now partially stale (dead
+  methods removed); they'll be regenerated/updated as those files are split.
 
 ## Code index
 - `llm-scratchpad/code-index/<file>.cs.md` — one index per source file (classes/methods/

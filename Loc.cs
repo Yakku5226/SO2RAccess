@@ -190,17 +190,6 @@ namespace SO2RAccess
             Add("nav_autowalk_cannot_reach_above", "Could not reach {0}. It is above you, {1} meters {2} — look for stairs or a ramp.");
             Add("nav_autowalk_cannot_reach_below", "Could not reach {0}. It is below you, {1} meters {2} — look for stairs or a ramp.");
 
-            // Navigation — cross-island routing
-            Add("nav_island_route",             "Walking to {0}. Route crosses {1} levels.");
-            Add("nav_island_exploring",         "No confirmed route to {0}. Exploring {1} unconfirmed connections.");
-            Add("nav_island_no_route",          "Cannot reach {0}. No known route exists. Try exploring the area manually.");
-            Add("nav_island_crossing",          "Crossing to next level.");
-            Add("nav_island_crossing_attempt",  "Attempting unconfirmed crossing.");
-            Add("nav_island_crossing_confirmed","Connection confirmed. Continuing.");
-            Add("nav_island_crossing_blocked",  "Blocked. Cannot cross here. Cancelling auto-walk.");
-            Add("nav_island_crossing_stuck",    "Stuck at crossing. Cancelling auto-walk.");
-            Add("nav_island_continuing",        "Continuing to {0}. {1} crossings remaining.");
-            Add("nav_island_final",             "Final approach to {0}.");
             Add("nav_event_side",               "Side event");
             Add("nav_event_side_reward",        "Side event (reward)");
             Add("nav_event_side_battle",        "Side event (battle)");

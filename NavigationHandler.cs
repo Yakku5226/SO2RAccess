@@ -274,41 +274,6 @@ namespace SO2RAccess
         /// <summary>Increments each avoidance attempt, alternating left/right detour direction.</summary>
         private int _avoidanceAttempt;
 
-        // Multi-segment (cross-island) auto-walk state.
-        /// <summary>Planned route segments for cross-island navigation. Null for same-island walks.</summary>
-        private List<RouteSegment> _routeSegments;
-        /// <summary>Index of the current segment being walked in _routeSegments.</summary>
-        private int _routeSegmentIndex;
-        /// <summary>True if the route contains speculative (gap-based) crossings.</summary>
-        private bool _routeIsSpeculative;
-        /// <summary>True when in the crossing phase between segments (walking toward gap/bridge edge).</summary>
-        private bool _isCrossingPhase;
-        /// <summary>Timer for crossing phase timeout.</summary>
-        private float _crossingTimer;
-        /// <summary>Maximum time for a crossing attempt before marking blocked.</summary>
-        private const float ConfirmedCrossingTimeout = 5f;
-        /// <summary>Maximum time for a speculative crossing attempt.</summary>
-        private const float SpeculativeCrossingTimeout = 10f;
-        /// <summary>The final target position for the multi-segment route (actual chest/NPC/etc.).</summary>
-        private Vector3 _routeFinalTarget;
-        /// <summary>The final target label for announcements.</summary>
-        private string _routeFinalLabel;
-        /// <summary>
-        /// World-space bounds of map-exit triggers (FieldMapjumpCollision) to
-        /// steer around during the crossing phase, so a straight-line crossing
-        /// between islands doesn't accidentally trigger a map transition.
-        /// Cached when a cross-island route starts; null otherwise.
-        /// </summary>
-        private List<Bounds> _crossingExitZones;
-        /// <summary>Distance from an exit zone at which crossing steers away (m).</summary>
-        private const float ExitZoneAvoidRadius = 3.5f;
-        /// <summary>Strength of the steer-away push relative to the crossing direction.</summary>
-        private const float ExitZoneAvoidWeight = 1.5f;
-        /// <summary>
-        /// Exit zones within this distance of a route waypoint are NOT avoided —
-        /// they are legitimately part of the destination, not hazards to dodge.
-        /// </summary>
-        private const float ExitZoneWaypointExclusion = 4f;
         /// <summary>
         /// True when the current auto-walk target is itself a map exit, so the
         /// hard exit barrier is allowed (the player WANTS to walk through it).
@@ -336,9 +301,6 @@ namespace SO2RAccess
         private float _lastPlayerY = float.NaN;
         private float _floorChangeCooldownTimer;
 
-        // Island navigation: cross-island routing and bridge recording.
-        private IslandNavigator _islandNav = new IslandNavigator();
-
         // Observed-traversal map: records where the player actually walks and
         // routes over those breadcrumbs (100% reliable). See TraversalGraph.cs.
         private TraversalGraph _traversal = new TraversalGraph();
@@ -351,22 +313,12 @@ namespace SO2RAccess
         /// </summary>
         private bool UseTraversal() =>
             !_isWorldmap && _traversal != null && _traversal.HasData;
-        private int _lastPlayerIsland = -1;
-        private Vector3 _lastIslandCrossPos;
-        private float _islandPollTimer;
-        /// <summary>Map ID pending island scan (deferred until NavMesh is ready).</summary>
-        private string _islandScanPendingMapId;
-        /// <summary>Timer for deferred island scan (wait for NavMesh to load).</summary>
-        private float _islandScanDelay;
 
         /// <summary>Whether the navigation list is currently open.</summary>
         public bool IsListOpen => _isOpen;
 
         /// <summary>Whether the player is currently being auto-walked to a target.</summary>
         public bool IsAutoWalking => _isAutoWalking;
-
-        /// <summary>The island navigator for cross-island routing.</summary>
-        public IslandNavigator IslandNav => _islandNav;
 
         #endregion
 
@@ -651,8 +603,6 @@ namespace SO2RAccess
         {
             CheckFieldmapChange();
             CheckFloorChange();
-            // Island/bridge system retired — superseded by recorded traversals.
-            // (Files kept for now; remove fully next session.)
             CheckTraversalRecording();
 
             // Resume auto-walk after battle on world map.
@@ -789,11 +739,6 @@ namespace SO2RAccess
                     return;
                 }
 
-                // Multi-segment (cross-island) route: handle segment transitions
-                // and crossing phases. Returns true if this frame was handled.
-                if (CheckSegmentTransition(playerPos))
-                    return;
-
                 // If the target has a live transform (NPC, chest, marker), update
                 // the target position every frame so wandering NPCs are tracked.
                 if (_autoWalkTransform != null)
@@ -845,13 +790,9 @@ namespace SO2RAccess
                     || _autoWalkCategoryIndex == CAT_INTERACTABLE;
                 float arrivalRadius = isInteractable
                     ? InteractableArrivalRadius : AutoWalkArrivalRadius;
-                // Announce arrival ONLY when genuinely at the real target:
-                //  - never during a multi-segment route's intermediate segments
-                //    (the target here is a bridge waypoint, not the real chest —
-                //    CheckSegmentTransition owns those crossings), and
-                //  - never while standing on a different floor than the target.
-                bool atTarget = _routeSegments == null
-                    && targetDist <= arrivalRadius
+                // Announce arrival ONLY when genuinely at the real target — never
+                // while standing on a different floor than the target.
+                bool atTarget = targetDist <= arrivalRadius
                     && Mathf.Abs(_autoWalkTarget.y - playerPos.y) <= ArrivalVerticalTolerance;
                 if (atTarget)
                 {
@@ -972,10 +913,9 @@ namespace SO2RAccess
                     }
                     else
                     {
-                        // Walk toward the detour point (steer around exits too).
+                        // Walk toward the detour point.
                         Vector3 detourDir = new Vector3(
                             detourDx / detourDist, 0f, detourDz / detourDist);
-                        detourDir = AvoidExitZones(playerPos, detourDir);
                         _staticAutoWalkStickDir = WorldDirToCameraStick(detourDir);
                         UpdateCameraFollow(detourDir);
                         return;
@@ -1157,16 +1097,6 @@ namespace SO2RAccess
                     _pathCornerIndex++;
                     if (_pathCornerIndex >= _pathCorners.Length)
                     {
-                        // Multi-segment route: the current SEGMENT's path is done.
-                        // Hand off to the crossing logic (CheckSegmentTransition
-                        // on the next frame) — never announce arrival here, since
-                        // this is a bridge waypoint, not the real chest.
-                        if (_routeSegments != null)
-                        {
-                            _staticAutoWalkStickDir = Vector2.zero;
-                            return;
-                        }
-
                         // Counter NPCs: the partial path ends at the counter, not
                         // the NPC. Stop and announce arrival.
                         if (_autoWalkIsCounter)
@@ -1238,12 +1168,6 @@ namespace SO2RAccess
                         ? new Vector3(wpDx / wpDist, 0f, wpDz / wpDist)
                         : Vector3.forward;
 
-                    // On cross-island routes, steer around cached map-exit
-                    // triggers so the NavMesh path (which can pass close to the
-                    // map entrance on the way to a bridge edge) doesn't warp the
-                    // player out. No-op for single-target walks (cache is null).
-                    moveDir = AvoidExitZones(playerPos, moveDir);
-
                     _staticAutoWalkStickDir = WorldDirToCameraStick(moveDir);
 
                     // Camera follow: gently rotate camera to face the walking direction.
@@ -1280,7 +1204,7 @@ namespace SO2RAccess
         /// <param name="vertGap">Out: signed vertical gap (target.y - player.y).</param>
         private bool IsAtRealTarget(Vector3 playerPos, out float horizDist, out float vertGap)
         {
-            Vector3 real = _routeSegments != null ? _routeFinalTarget : _autoWalkTarget;
+            Vector3 real = _autoWalkTarget;
             float dx = real.x - playerPos.x;
             float dz = real.z - playerPos.z;
             horizDist = Mathf.Sqrt(dx * dx + dz * dz);
@@ -1571,39 +1495,6 @@ namespace SO2RAccess
 
         private static int DistanceUnits(float dist) => (int)Math.Round(dist);
 
-        /// <summary>
-        /// Checks if the current fieldmap has changed and announces the new map name.
-        /// Called every frame from Update(). Skips the first detection to avoid
-        /// announcing on game load.
-        /// </summary>
-        /// <summary>
-        /// Runs the deferred island scan after a short delay to allow
-        /// Unity's NavMesh to finish loading after a scene change.
-        /// </summary>
-        private void CheckDeferredIslandScan()
-        {
-            if (_islandScanPendingMapId == null) return;
-
-            _islandScanDelay += Time.deltaTime;
-
-            // Wait 1.5 seconds after scene load for NavMesh to be ready.
-            if (_islandScanDelay < 1.5f) return;
-
-            string mapId = _islandScanPendingMapId;
-            _islandScanPendingMapId = null;
-
-            try
-            {
-                _islandNav.LoadOrScan(mapId);
-            }
-            catch (Exception ex)
-            {
-                MelonLoader.MelonLogger.Msg(
-                    $"ISLAND: deferred scan failed for {mapId}: {ex}");
-            }
-
-        }
-
         /// <summary>Flushes recorded breadcrumbs to disk (call on quit).</summary>
         public void SaveTraversal()
         {
@@ -1704,62 +1595,10 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Polls the player's island membership at 4 Hz. When the player
-        /// crosses from one island to another, records a bridge in the
-        /// island graph. Runs on all field maps during both manual play
-        /// and auto-walk, building bridge data over time.
+        /// Checks if the current fieldmap has changed and announces the new map name.
+        /// Called every frame from Update(). Skips the first detection to avoid
+        /// announcing on game load.
         /// </summary>
-        private void CheckIslandCrossing()
-        {
-            if (!_islandNav.HasGraph) return;
-
-            // Throttle to 4 Hz (every 0.25s).
-            _islandPollTimer += Time.deltaTime;
-            if (_islandPollTimer < 0.25f) return;
-            _islandPollTimer = 0f;
-
-            try
-            {
-                var fm = FieldManager.Instance;
-                if (fm == null || fm.IsWorldmap()) return;
-
-                var player = fm.GetControlPlayer();
-                if (player == null) return;
-
-                Vector3 playerPos = player.transform.position;
-                int currentIsland = _islandNav.GetIsland(playerPos);
-
-                if (currentIsland < 0)
-                {
-                    // Not on any known island — log occasionally for debugging.
-                    if (_lastPlayerIsland >= 0)
-                    {
-                        MelonLoader.MelonLogger.Msg(
-                            $"[SO2RAccess] ISLAND: player left known island " +
-                            $"(was {_lastPlayerIsland}, pos=({playerPos.x:F1},{playerPos.y:F1},{playerPos.z:F1}))");
-                        _lastPlayerIsland = -1;
-                    }
-                    return;
-                }
-
-                if (_lastPlayerIsland >= 0 &&
-                    currentIsland != _lastPlayerIsland)
-                {
-                    // Player crossed from one island to another.
-                    _islandNav.RecordBridge(
-                        _lastPlayerIsland, currentIsland,
-                        _lastIslandCrossPos, playerPos);
-                }
-
-                _lastPlayerIsland = currentIsland;
-                _lastIslandCrossPos = playerPos;
-            }
-            catch (Exception ex)
-            {
-                MelonLoader.MelonLogger.Msg($"ISLAND: crossing check error: {ex.Message}");
-            }
-        }
-
         private void CheckFieldmapChange()
         {
             try
@@ -1796,7 +1635,7 @@ namespace SO2RAccess
                 }
 
                 // Skip map name announcement on the very first detection
-                // (game load / initial scene), but still run island scan below.
+                // (game load / initial scene), but still load breadcrumbs below.
                 if (!_fieldmapInitialized)
                 {
                     _fieldmapInitialized = true;
@@ -1811,22 +1650,16 @@ namespace SO2RAccess
                     }
                 }
 
-                // Defer island scan for the new map (field maps only).
-                // NavMesh isn't ready immediately on scene load — wait a
-                // short delay before scanning.
+                // Load the new map's recorded breadcrumbs (field maps only).
+                // On the world map there's nothing to record — just flush.
                 if (!fm.IsWorldmap())
                 {
-                    _islandScanPendingMapId = current.ToString();
-                    _islandScanDelay = 0f;
-                    _lastPlayerIsland = -1;
-                    _islandPollTimer = 0f;
                     // Load this map's recorded breadcrumbs (saves the previous map).
                     try { _traversal.StartMap(current.ToString()); }
                     catch (Exception ex) { DebugLogger.LogState($"TRAVERSAL StartMap error: {ex.Message}"); }
                 }
                 else
                 {
-                    _islandScanPendingMapId = null;
                     try { _traversal.Save(); } catch { }
                 }
             }
