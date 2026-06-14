@@ -17,6 +17,23 @@ namespace SO2RAccess
         private bool _wasActive;
         private int _lastIndex = -1;
         private float _nextFindTime;
+        private float _settleUntil;
+
+        /// <summary>
+        /// Called on map/scene transitions. A closed pickpocket overlay can linger
+        /// active with stale choiceDataList after a transition, so start a short
+        /// settle window during which the overlay's state is absorbed silently
+        /// (see <see cref="Update"/>). Prevents a carried-over menu from being
+        /// announced when the player walks through a building door.
+        /// </summary>
+        public void OnSceneChanged()
+        {
+            _selector = null;
+            _wasActive = false;
+            _lastIndex = -1;
+            _nextFindTime = 0f;
+            _settleUntil = UnityEngine.Time.time + 3f;
+        }
 
         public void Update()
         {
@@ -26,6 +43,24 @@ namespace SO2RAccess
                 ref _selector, ref _nextFindTime,
                 s => s.gameObject?.activeInHierarchy == true
                      && s.choiceDataList?.Count > 0);
+
+            // Post-transition settle window: silently adopt whatever the overlay is
+            // doing so a stale menu carried across a map change is never read as a
+            // fresh open. A real pickpocket can't occur this soon after a load.
+            if (UnityEngine.Time.time < _settleUntil)
+            {
+                _wasActive = isActive;
+                if (isActive && _selector != null)
+                {
+                    try { _lastIndex = _selector.selectChoiceIndex; }
+                    catch { _lastIndex = -1; }
+                }
+                else
+                {
+                    _lastIndex = -1;
+                }
+                return;
+            }
 
             if (!isActive)
             {

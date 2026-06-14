@@ -39,6 +39,7 @@ namespace SO2RAccess
         private bool _wasActive;
         private UIDefine.DialogChoices _lastChoice = UIDefine.DialogChoices.None;
         private float _nextFindTime;
+        private float _settleUntil;
 
         private List<MemberSnap> _snapshot;
         private float _snapshotTime = -999f;
@@ -95,6 +96,20 @@ namespace SO2RAccess
         #endregion
 
         /// <summary>
+        /// Called on map/scene transitions. Resets detection state and starts a short
+        /// settle window so a recovery overlay lingering active with stale data after a
+        /// transition is absorbed silently rather than announced. See <see cref="Update"/>.
+        /// </summary>
+        public void OnSceneChanged()
+        {
+            _selector = null;
+            _wasActive = false;
+            _lastChoice = UIDefine.DialogChoices.None;
+            _nextFindTime = 0f;
+            _settleUntil = UnityEngine.Time.time + 3f;
+        }
+
+        /// <summary>
         /// Polls the Quick Recovery overlay each frame: announces the heading on open,
         /// the Yes/No choice on change, the party status when NumPad 0 is pressed, and
         /// the recovery result once the heal executes.
@@ -114,6 +129,24 @@ namespace SO2RAccess
                 ref _selector, ref _nextFindTime,
                 s => s.gameObject?.activeInHierarchy == true
                      && s.recoveryDataList?.Count > 0);
+
+            // Post-transition settle window: silently adopt the overlay's state so a
+            // stale recovery menu lingering after a map change isn't read as a fresh
+            // open (same guard as PickpocketHandler).
+            if (UnityEngine.Time.time < _settleUntil)
+            {
+                _wasActive = isActive;
+                if (isActive && _selector != null)
+                {
+                    try { _lastChoice = _selector.currentChoice; }
+                    catch { _lastChoice = UIDefine.DialogChoices.None; }
+                }
+                else
+                {
+                    _lastChoice = UIDefine.DialogChoices.None;
+                }
+                return;
+            }
 
             if (!isActive)
             {

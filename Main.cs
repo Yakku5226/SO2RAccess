@@ -226,6 +226,8 @@ namespace SO2RAccess
             _worldMapHandler?.OnSceneChanged();
             _privateActionHandler?.OnSceneChanged();
             _bonusGaugeHandler?.OnSceneChanged();
+            _pickpocketHandler?.OnSceneChanged();
+            _quickRecoveryHandler?.OnSceneChanged();
 
             // Apply patches once — safe to call on every scene load, handlers guard against duplicates.
             _titleHandler.ApplyPatches(_harmony);
