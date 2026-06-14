@@ -14,6 +14,24 @@ namespace SO2RAccess
             @"<sprite\s+name\s*=\s*([^>]+?)>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         /// <summary>Strips any remaining rich text tags from game strings.</summary>
         private static readonly Regex _tagStripper = new Regex("<[^>]+>", RegexOptions.Compiled);
+        /// <summary>Controller-type prefixes stripped from sprite names for readability.</summary>
+        private static readonly string[] _spritePrefixes =
+            { "PS5_", "PS4_", "Xbox_", "Switch_", "PC_", "Gamepad_" };
+
+        /// <summary>
+        /// Removes a controller-type prefix from a sprite name so the screen
+        /// reader hears the plain button name (e.g. "PS4_Cross" → "Cross").
+        /// </summary>
+        public static string StripControllerPrefix(string spriteName)
+        {
+            if (string.IsNullOrEmpty(spriteName)) return spriteName;
+            foreach (var prefix in _spritePrefixes)
+            {
+                if (spriteName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return spriteName.Substring(prefix.Length);
+            }
+            return spriteName;
+        }
 
         /// <summary>
         /// Cleans rich text from a game string. Sprite tags have their name

@@ -27,13 +27,6 @@ namespace SO2RAccess
         // Used by UpdateAliasAction to re-read the button name after a new binding is set.
         private static UIKeyConfigSelectItemPresenter _selectedPresenter;
 
-        // Prefixes the game uses in sprite names to indicate controller type.
-        // Stripped so the user hears "Cross" instead of "PS4_Cross".
-        private static readonly string[] _spritePrefixes = new[]
-        {
-            "PS5_", "PS4_", "Xbox_", "Switch_", "PC_", "Gamepad_"
-        };
-
         #endregion
 
         #region Patch Application
@@ -210,24 +203,10 @@ namespace SO2RAccess
             if (raw.StartsWith("<sprite name=") && raw.EndsWith(">"))
             {
                 string spriteName = raw.Substring(13, raw.Length - 14);
-                return StripControllerPrefix(spriteName);
+                return TextUtil.StripControllerPrefix(spriteName);
             }
 
             return raw.Trim();
-        }
-
-        /// <summary>
-        /// Removes a controller-type prefix from a sprite name.
-        /// For example "PS4_Cross" becomes "Cross", "Xbox_A" becomes "A".
-        /// </summary>
-        private static string StripControllerPrefix(string spriteName)
-        {
-            foreach (var prefix in _spritePrefixes)
-            {
-                if (spriteName.StartsWith(prefix))
-                    return spriteName.Substring(prefix.Length);
-            }
-            return spriteName;
         }
 
         #endregion

@@ -34,9 +34,6 @@ namespace SO2RAccess
             @"<sprite\s+name\s*=\s*([^>]+?)>", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         /// <summary>Strips any remaining rich text tags from game strings.</summary>
         private static readonly Regex _tagStripper = new Regex("<[^>]+>", RegexOptions.Compiled);
-        /// <summary>Controller-type prefixes stripped from sprite names for readability.</summary>
-        private static readonly string[] _spritePrefixes = new[]
-            { "PS5_", "PS4_", "Xbox_", "Switch_", "PC_", "Gamepad_" };
 
         /// <summary>
         /// Set to true by DialogPresenter_Setup_Postfix so that the immediate
@@ -584,7 +581,7 @@ namespace SO2RAccess
         /// button sprite names (e.g. "PS4_Cross" → "Cross").
         /// </summary>
         public static string StripControllerPrefixPublic(string spriteName) =>
-            StripControllerPrefix(spriteName);
+            TextUtil.StripControllerPrefix(spriteName);
 
         /// <summary>
         /// Cleans rich text from a game string. Sprite tags have their name
@@ -594,23 +591,9 @@ namespace SO2RAccess
         private static string StripTags(string text)
         {
             if (string.IsNullOrEmpty(text)) return text;
-            text = _spriteNameExtractor.Replace(text, m => StripControllerPrefix(m.Groups[1].Value));
+            text = _spriteNameExtractor.Replace(text, m => TextUtil.StripControllerPrefix(m.Groups[1].Value));
             text = _tagStripper.Replace(text, "");
             return text.Trim();
-        }
-
-        /// <summary>
-        /// Removes a controller-type prefix from a sprite name.
-        /// For example "PS4_Cross" becomes "Cross", "Xbox_A" becomes "A".
-        /// </summary>
-        private static string StripControllerPrefix(string spriteName)
-        {
-            foreach (var prefix in _spritePrefixes)
-            {
-                if (spriteName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    return spriteName.Substring(prefix.Length);
-            }
-            return spriteName;
         }
 
         /// <summary>
