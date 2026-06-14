@@ -15,8 +15,6 @@ namespace SO2RAccess
         {
             if (_icResultSelector == null) return;
 
-            LogResultDiag();
-
             // Detect a freshly appeared result and schedule its announcement. The
             // create-count flow (PollCreateMode) handles regular item creation, but
             // appraisal bypasses it — so trigger off the result list gaining content.
@@ -123,50 +121,6 @@ namespace SO2RAccess
                 _icResultReadyTime = UnityEngine.Time.time + 0.5f;
                 DebugLogger.LogState($"CampIC: new result detected ({sig}), announce scheduled.");
             }
-        }
-
-        /// <summary>
-        /// Debug-only diagnostic for the result selector. Appraisal does not go through
-        /// the create-count flow that schedules the normal result announcement, so its
-        /// result is currently never read. This logs the result selector's observable
-        /// state — activeInHierarchy, list count, resultDataList count, specialSkillID,
-        /// and the first result item's name/result — whenever it changes, so we can see
-        /// exactly how an appraisal result surfaces and pick the right trigger.
-        /// Change-gated; build cost gated behind Main.DebugMode (zero overhead when off).
-        /// </summary>
-        private void LogResultDiag()
-        {
-            if (!Main.DebugMode) return;
-
-            bool act = false;
-            try { act = _icResultSelector.gameObject.activeInHierarchy; } catch { }
-
-            var listBase = _icResultSelector.TryCast<UIListSelectorBase>();
-            int cur = listBase?.currentDataList?.Count ?? -1;
-
-            int rdl = -1;
-            try { rdl = _icResultSelector.resultDataList?.Count ?? -1; } catch { }
-
-            string sid = "?";
-            try { sid = _icResultSelector.specialSkillID.ToString(); } catch { }
-
-            string first = "none";
-            try
-            {
-                var list = listBase?.currentDataList;
-                if (list != null && list.Count > 0)
-                {
-                    var it = list[0]?.TryCast<UICampSpecialSkillResultListItemData>();
-                    if (it != null)
-                        first = $"{it.itemName}/{it.result}/{(it.isSuccess ? "ok" : "fail")}";
-                }
-            }
-            catch { }
-
-            string sig = $"act={act} cur={cur} rdl={rdl} sid={sid} first={first} ready={_icResultReadyTime > 0f} last={_icResultState.LastIndex}";
-            if (sig == _icResultDiagSig) return;
-            _icResultDiagSig = sig;
-            DebugLogger.LogState($"CampIC_Result DIAG: {sig}");
         }
 
         #endregion

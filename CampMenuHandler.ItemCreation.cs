@@ -86,15 +86,6 @@ namespace SO2RAccess
         private static UIListSelectorBase _icMaterialSelectListBase;
         private static UIListSelectorBase _icMaterialItemListBase;
 
-        // --- Diagnostics (first open only) ---
-        private static bool _icDiagDone;
-
-        /// <summary>
-        /// Last logged active-selector signature for the action screen.
-        /// Used to change-gate the per-frame diagnostic so it only logs on change.
-        /// </summary>
-        private static string _icActiveSetSig;
-
         // --- Action-screen focus tracking ---
         /// <summary>
         /// Per-selector last-seen action-list currentIndex, parallel to
@@ -106,9 +97,6 @@ namespace SO2RAccess
 
         /// <summary>Index (into _icAllSelectors) of the focused skill's selector, or -1.</summary>
         private static int _icFocusedIdx = -1;
-
-        /// <summary>Last logged result-selector diagnostic signature (change-gated).</summary>
-        private static string _icResultDiagSig;
 
         /// <summary>
         /// Signature of the result content we last reacted to. Used to detect a freshly
@@ -134,14 +122,12 @@ namespace SO2RAccess
 
             _icResultSelector = window.specialSkillResultSelector;
             _icResultState.Reset();
-            _icResultDiagSig = null;
             _icResultSeenSig = null;
 
             _icActionState.Reset();
             _icActiveSelector = null;
             _icActionListBase = null;
             _icLastCharTab = -1;
-            _icActiveSetSig = null;
             _icActiveSkillCategory = null;
             _icTrainSwitchSelector = null;
             _icTrainSwitchLastIndex = -1;
@@ -391,24 +377,6 @@ namespace SO2RAccess
                 });
 
             if (!shouldPoll) return;
-
-            // Diagnostic dump on first activation.
-            if (!_icDiagDone)
-            {
-                _icDiagDone = true;
-                try
-                {
-                    var listBase = _icSkillSelector.TryCast<UIListSelectorBase>();
-                    int idx = listBase?.currentIndex ?? -99;
-                    int count = listBase?.currentDataList?.Count ?? -99;
-                    int tab = (int)_icSkillSelector.currentTab;
-                    DebugLogger.LogState($"CampIC DIAG: skillSel idx={idx}, count={count}, tab={tab}");
-                }
-                catch (Exception ex)
-                {
-                    DebugLogger.LogState($"CampIC DIAG failed: {ex.Message}");
-                }
-            }
 
             // Track tab changes.
             try

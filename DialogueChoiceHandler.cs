@@ -61,9 +61,6 @@ namespace SO2RAccess
         private float _findWindowTimer = 0f;
         private const float FindWindowInterval = 2f;
 
-        /// <summary>Throttle diagnostic logging to avoid log spam.</summary>
-        private int _diagCooldown = 0;
-
         #endregion
 
         #region Patch Application
@@ -196,29 +193,6 @@ namespace SO2RAccess
                     _isActive = false;
                     _wasPresenterVisible = false;
                     return;
-                }
-
-                // Diagnostic: log presenter state periodically when selector is cached but not active.
-                if (Main.DebugMode && _selector != null && !_isActive && !_activationPending)
-                {
-                    _diagCooldown--;
-                    if (_diagCooldown <= 0)
-                    {
-                        _diagCooldown = 120; // ~2 seconds at 60fps
-                        try
-                        {
-                            var diagPresenter = _selector.selectChoicePresenter;
-                            string pState = diagPresenter == null ? "null"
-                                : diagPresenter.gameObject == null ? "go=null"
-                                : $"active={diagPresenter.gameObject.activeInHierarchy} activeSelf={diagPresenter.gameObject.activeSelf}";
-                            int diagIdx = _selector.selectChoiceIndex;
-                            DebugLogger.LogState($"DialogueChoiceHandler DIAG: presenter={pState} idx={diagIdx} wasVisible={_wasPresenterVisible}");
-                        }
-                        catch (Exception ex)
-                        {
-                            DebugLogger.LogState($"DialogueChoiceHandler DIAG error: {ex.Message}");
-                        }
-                    }
                 }
 
                 // Edge detection: presenter just became visible → defer activation by one frame.

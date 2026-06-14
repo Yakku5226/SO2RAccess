@@ -25,8 +25,6 @@ namespace SO2RAccess
             // just became populated (entry) or whose cursor just moved (navigation).
             int focused = ResolveFocusedActionSelector();
 
-            LogActiveActionSelectorsDiag(focused >= 0 ? _icAllSelectors[focused] : null);
-
             if (focused >= 0 && focused != _icFocusedIdx)
             {
                 // Focus switched to a different skill's action list. Re-point all the
@@ -119,68 +117,6 @@ namespace SO2RAccess
             }
 
             return moveIdx >= 0 ? moveIdx : entryIdx;
-        }
-
-        /// <summary>
-        /// Debug-only diagnostic for the action screen. The log confirmed that EVERY
-        /// skill selector reports activeInHierarchy == true for the whole IC session
-        /// (stale-active), so that flag can't tell us which skill is on screen. This
-        /// version instead lists only selectors whose action list has options
-        /// (count &gt; 0) and, for each, the UISelectorBase.isPause / isDisableInput
-        /// flags — the candidate signal for "which list is actually focused".
-        ///
-        /// Format per entry: <c>#index:count:pause:input</c>
-        ///   - index   = position in _icAllSelectors (0 craft, 1 alchemy, 2 cooking,
-        ///               3 art, 4 machinery, 5 writing, 6 duplicate, 7 appraisal, ...).
-        ///   - count   = action-list item count.
-        ///   - pause   = "PAUSE" if isPause else "-".
-        ///   - input   = "NOINPUT" if isDisableInput else "-".
-        /// If the focused skill is the one with pause="-" (input enabled), that flag
-        /// is the fix's selection signal; if all read the same, we fall back to
-        /// per-selector index-change detection instead.
-        ///
-        /// Logs only when this signature changes. Build cost is gated behind
-        /// Main.DebugMode, so zero overhead when off.
-        /// </summary>
-        private static void LogActiveActionSelectorsDiag(UICampSpecialSkillSelectorBase picked)
-        {
-            if (!Main.DebugMode) return;
-
-            var sb = new StringBuilder();
-            for (int i = 0; i < _icAllSelectors.Count; i++)
-            {
-                var sel = _icAllSelectors[i];
-                try
-                {
-                    if (sel?.gameObject?.activeInHierarchy != true) continue;
-
-                    var actionSel = sel.actionSelector;
-                    int cnt = actionSel?.TryCast<UIListSelectorBase>()?.currentDataList?.Count ?? -1;
-                    if (cnt <= 0) continue; // only selectors that actually hold options
-
-                    string pause = "-", input = "-";
-                    try
-                    {
-                        var selBase = actionSel?.TryCast<UISelectorBase>();
-                        if (selBase != null)
-                        {
-                            if (selBase.isPause) pause = "PAUSE";
-                            if (selBase.isDisableInput) input = "NOINPUT";
-                        }
-                    }
-                    catch { /* leave defaults */ }
-
-                    if (sb.Length > 0) sb.Append(", ");
-                    sb.Append('#').Append(i).Append(':').Append(cnt)
-                      .Append(':').Append(pause).Append(':').Append(input);
-                }
-                catch { /* skip broken refs */ }
-            }
-
-            string sig = $"populated={{{sb}}} picked={picked?.GetType().Name ?? "none"}";
-            if (sig == _icActiveSetSig) return;
-            _icActiveSetSig = sig;
-            DebugLogger.LogState($"CampIC_Action DIAG: {sig}");
         }
 
         private void TrackCharacterTab()
