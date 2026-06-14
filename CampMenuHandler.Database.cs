@@ -48,7 +48,6 @@ namespace SO2RAccess
         private static UICampPlayerDataPresenter _playerDataPresenter;
         private static readonly SubScreenState _playerDataState = new SubScreenState();
         private static int _playerDataIndex;
-        private static int _playerDataLastIndex;
         private static int _playerDataTotal;
 
         #endregion
@@ -644,7 +643,6 @@ namespace SO2RAccess
                         // Build total from presenter lists
                         _playerDataTotal = GetPlayerDataTotal();
                         _playerDataIndex = 0;
-                        _playerDataLastIndex = 0;
                         if (_playerDataTotal > 0)
                         {
                             string category = GetPlayerDataCategoryName(0);
@@ -682,7 +680,6 @@ namespace SO2RAccess
                 int oldCategory = GetPlayerDataCategory(_playerDataIndex);
                 int newCategory = GetPlayerDataCategory(newIndex);
                 _playerDataIndex = newIndex;
-                _playerDataLastIndex = newIndex;
 
                 string statText = GetPlayerDataStat(newIndex);
 

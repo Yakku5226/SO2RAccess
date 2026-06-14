@@ -72,10 +72,7 @@ namespace SO2RAccess
         private static string _cachedInfoLabel;
         private static string _cachedInfoEffect;
         private static string _cachedInfoRange;
-        private static string _cachedInfoValueLabel;
-        private static int _cachedInfoValue;
         private static string _cachedOpName;
-        private static string _cachedOpDesc;
         private static string _cachedRangeDesc;
         private static string _cachedEffectDesc;
         private static string _cachedUseDescTitle;
@@ -212,8 +209,6 @@ namespace SO2RAccess
                 _cachedInfoLabel = data.label ?? "";
                 _cachedInfoEffect = data.effectDescription ?? "";
                 _cachedInfoRange = data.rangeDescription ?? "";
-                _cachedInfoValueLabel = data.valueLabel ?? "";
-                _cachedInfoValue = data.value;
             }
             catch (Exception ex)
             {
@@ -251,7 +246,6 @@ namespace SO2RAccess
             try
             {
                 _cachedOpName = name ?? "";
-                _cachedOpDesc = description ?? "";
             }
             catch (Exception ex)
             {
@@ -374,13 +368,10 @@ namespace SO2RAccess
             _cachedInfoLabel = null;
             _cachedInfoEffect = null;
             _cachedInfoRange = null;
-            _cachedInfoValueLabel = null;
-            _cachedInfoValue = 0;
             _cachedRangeDesc = null;
             _cachedEffectDesc = null;
             _cachedUseDescTitle = null;
             _cachedOpName = null;
-            _cachedOpDesc = null;
         }
 
         #endregion
@@ -446,9 +437,7 @@ namespace SO2RAccess
                     _lastTacticsState = -1;
                     _lastTacticsOpIndex = -1;
                     _tacticsOpListBase = null;
-        
                     _cachedOpName = null;
-                    _cachedOpDesc = null;
                     ScreenReader.Say(Loc.Get("battle_menu_tactics_heading"));
                     break;
             }

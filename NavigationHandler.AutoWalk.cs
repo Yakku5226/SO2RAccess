@@ -211,8 +211,6 @@ namespace SO2RAccess
             _staticAutoWalkStickDir = Vector2.zero;
             _staticCameraStickX     = 0f;
             _wmDirectMoveActive     = false;
-            _lidarSmoothedDir       = Vector3.zero;
-            _lidarCommittedDir      = Vector3.zero;
             _pathCorners                = null;
             _pathCornerIndex            = 0;
             _pathRecalcTimer            = 0f;
@@ -546,8 +544,6 @@ namespace SO2RAccess
             _staticAutoWalkStickDir = Vector2.zero;
             _staticCameraStickX  = 0f;
             _wmDirectMoveActive  = false;
-            _lidarSmoothedDir    = Vector3.zero;
-            _lidarCommittedDir   = Vector3.zero;
             _isAvoidingObstacle  = false;
             _pathCorners         = null;
         }

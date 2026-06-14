@@ -460,28 +460,9 @@ namespace SO2RAccess
         private const float LidarActivationRange = 2.0f;
 
         /// <summary>
-        /// How much to favor the original waypoint direction vs the widest gap.
-        /// 0 = pure gap direction, 1 = pure waypoint direction.
-        /// </summary>
-        private const float LidarWaypointBias = 0.4f;
-
-        /// <summary>
         /// Layer mask combining L22 (obstacles) and L23 (CharaWalls) for LIDAR.
         /// </summary>
         private static readonly int WmLidarLayerMask = (1 << 22) | (1 << 23);
-
-        /// <summary>
-        /// Minimum time in seconds to commit to a LIDAR direction before
-        /// re-evaluating. Prevents frame-by-frame oscillation between
-        /// two equally-scored directions.
-        /// </summary>
-        private const float LidarCommitTime = 0.5f;
-
-        /// <summary>Current committed LIDAR direction (world-space).</summary>
-        private Vector3 _lidarCommittedDir = Vector3.zero;
-
-        /// <summary>Smoothed LIDAR direction using exponential moving average.</summary>
-        private Vector3 _lidarSmoothedDir = Vector3.zero;
 
         /// <summary>
         /// Applies movement on the world map via stick injection.

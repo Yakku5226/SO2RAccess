@@ -367,7 +367,6 @@ namespace SO2RAccess
             _playerDataPresenter = _playerDataSelector?.playerDataPresenter;
             _playerDataState.Reset();
             _playerDataIndex = 0;
-            _playerDataLastIndex = 0;
             if (_playerDataSelector != null)
             {
                 DebugLogger.LogState("CampMenu: player data selector cached.");

@@ -75,9 +75,6 @@ namespace SO2RAccess
 
         // --- Hook data ---
         private static string _icPendingSkillName;
-        private static string _icPendingSkillDesc;
-        private static int _icPendingSkillLevel = -1;
-        private static UIItemCreationInformationData _icPendingCreationData;
         private static bool _icCreationHookFired;
 
         // --- Screen 3b: Material Selection ---
@@ -153,9 +150,6 @@ namespace SO2RAccess
             _icScoutLastIndex = -1;
             ResetCreateModeState();
             _icPendingSkillName = null;
-            _icPendingSkillDesc = null;
-            _icPendingSkillLevel = -1;
-            _icPendingCreationData = null;
             _icCreationHookFired = false;
 
             // Collect all special skill selectors for generic active scanning.
@@ -387,7 +381,6 @@ namespace SO2RAccess
                 {
                     _icLastTab = -1;
                     _icPendingSkillName = null;
-                    _icPendingSkillDesc = null;
                     // If we were in field shortcut mode and the skill selector hid,
                     // the user backed out — clear shortcut flag so IC polling stops.
                     if (_isFieldShortcutIC)
@@ -426,8 +419,6 @@ namespace SO2RAccess
                     _icLastTab = tab;
                     // Clear pending hook data so fallback polling isn't blocked on new tab.
                     _icPendingSkillName = null;
-                    _icPendingSkillDesc = null;
-                    _icPendingSkillLevel = -1;
                     string tabName = tab switch
                     {
                         0 => Loc.Get("ic_tab_itemcreation"),
@@ -519,8 +510,6 @@ namespace SO2RAccess
             if (!IsICActive()) return;
 
             _icPendingSkillName = skillName;
-            _icPendingSkillDesc = skillDescription;
-            _icPendingSkillLevel = level;
 
             var sb = new StringBuilder();
             sb.Append(skillName);
@@ -557,8 +546,6 @@ namespace SO2RAccess
         {
             if (data == null) return;
             if (!IsICActive()) return;
-
-            _icPendingCreationData = data;
 
             // Skills like Scouting and Survival have no creation items —
             // their action lists use UISpecialSkillConsumeListItemData.actionName.

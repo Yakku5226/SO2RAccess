@@ -28,7 +28,6 @@ namespace SO2RAccess
         private static bool _isOpen;
         private static int _findCooldown;
 
-        private static UIGameOverSelector _selector;
         private static UIListSelectorBase _selectorBase;
         private static int _lastIndex = -1;
 
@@ -71,7 +70,6 @@ namespace SO2RAccess
             _window = null;
             _isOpen = false;
             _findCooldown = 0;
-            _selector = null;
             _selectorBase = null;
             _lastIndex = -1;
         }
@@ -125,8 +123,7 @@ namespace SO2RAccess
                 if (isOpen && !_isOpen)
                 {
                     _isOpen = true;
-                    _selector = _window.gameOverSelector;
-                    _selectorBase = _selector?.TryCast<UIListSelectorBase>();
+                    _selectorBase = _window.gameOverSelector?.TryCast<UIListSelectorBase>();
                     _lastIndex = -1;
 
                     ScreenReader.Say(Loc.Get("gameover_screen"));
