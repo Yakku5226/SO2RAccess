@@ -20,7 +20,7 @@
 
 ## Prompts up next
 - [~] prompts/large-file-handling.md  IN PROGRESS
-  - PRE-STEP DONE (awaiting smoke test): deleted the dead island/multi-segment
+  - PRE-STEP DONE (smoke test PASSED 2026-06-14, committed e9a711c): deleted the dead island/multi-segment
     navigation subsystem before splitting (it was self-referential dead code the
     project notes already flagged for removal — splitting it would be wasted work).
     Removed: IslandNavigator.cs, IslandScanner.cs, NavMeshIslandDiagnostics.cs
