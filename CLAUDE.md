@@ -28,7 +28,7 @@ Update `project_status.md` on significant progress and before session end.
 - Handler classes: `[Feature]Handler`
 - Private fields: `_camelCase`
 - Logs/comments: English
-- Build: `dotnet build [ModName].csproj`
+- Build: `dotnet build SO2RAccess.csproj` (auto-copies DLL to game Mods folder on success)
 - XML docs: `<summary>` on all public classes/methods. Private only if non-obvious. Critical for dev integration.
 - Localization from day one: ALL ScreenReader strings through `Loc.Get()`. No exceptions. `Loc.cs` = Phase 2 framework, not later addition. Even for single-language mods.
 - File size target: aim for ~500 lines max per file. When a file has multiple independent concerns (e.g. menu root + sub-screens), split into separate files.
@@ -87,3 +87,8 @@ Play sounds to alert the user (who is blind and may not be watching the screen):
 - `docs/menu-accessibility-checklist.md` — menu checklist
 - `docs/menu-accessibility-patterns.md` — menu patterns
 - `docs/game-api.md` — keys, methods, patterns
+- `llm-docs/` — generated reference (see `llm-docs/CLAUDE.md`): `game-model.md` (how the game works), `api-index.md` (finder's index of the decompiled source)
+
+## Game Overview
+
+Star Ocean: The Second Story R (SO2:SSR) is a JRPG with real-time action battles on a separate battle screen, field/town exploration (third-person, 3D), and a world map for travel between locations. Core interactive systems include: the Camp menu (items, equipment, battle skills, status, formation, item creation, skills, operations, missions), shops and guilds, dialogue with voice acting, and various minigames (fishing, pickpocket). Navigation and menus are native C++ UI driven by polling; many menu navigation events cannot be intercepted with Harmony hooks. Deeper game system documentation lives in `docs/game-api.md` and `llm-docs/game-model.md`.
