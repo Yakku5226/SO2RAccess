@@ -38,6 +38,9 @@
 **Phase:** Phase 3 — Feature Implementation
 **Currently working on:** Quick Heal Menu (D-pad Right) — WORKING (v1 tested); v2 name/amount/result fixes + L3 key, low-priority retest pending (2026-06-14)
 **Last completed:** Item Creation — Appraise result announcement (2026-06-13) — TESTED & WORKING
+**Player-facing known issues:** see `KNOWN_ISSUES.md` (ships with the mod) — currently:
+guild mission menu unreadable, world-map auto-walk town collision, IC default character not
+named on entry. Keep this doc in sync as limitations are found/fixed.
 
 ### Item Creation — Appraise result announcement (2026-06-13) — TESTED & WORKING
 
@@ -86,7 +89,15 @@ Log confirms correct names + positions for Appraise/Writing/Crafting/etc.
 Known minor: first item on entering a has-items skill reads without "X of N" (game hook fires
 one frame before focus is set). Debug DIAG (`CampIC_Action DIAG` / `focus -> #N`) left in place.
 
-PENDING USER TEST: entry no longer blurts character name; L/R character switch still announces.
+DECISION (2026-06-14): entry intentionally does NOT name the default character; only L/R
+switching announces it (via TrackCharacterTab). Attempted prefixing the character name to the
+first action announcement, but the log proved it CANNOT be name-first for craftable skills:
+the game's recipe hook (UIItemCreationInformationPresenter.Set) fires ~18ms BEFORE the
+poll-based focus-switch detection, so the name isn't captured in time (e.g. `creation hook:
+Seafood` at 45.467 precedes `focus -> #2` at 45.485). Only a name-AFTER-recipe order would
+work consistently; user preferred the previous behavior over that, so the attempt was
+reverted (CampMenuHandler.ItemCreation.cs restored to its committed state). L/R announcement
+confirmed working in-game.
 
 ### Jump-down prompt cue — TESTED & WORKING (2026-06-13)
 
@@ -1224,7 +1235,7 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Assist Formation: polls UICampAssistSettingSelector (Equip slots + character picker) — NOT TESTED (needs more party members)
   - Tactics: polls UICampOperationSelector (character + operation states), hook for operation info ✓ TESTED
 
-- **Equipment Wizard handler** (`EquipWizardHandler.cs`) — PENDING TEST (needs equipment wizard trigger)
+- **Equipment Wizard handler** (`EquipWizardHandler.cs`) — CONFIRMED WORKING (2026-06-14)
   - New polling handler: FindObjectOfType<UISystemWindow>, polls IsShowingEquipWizard
   - Announces heading + description text + equipment comparison (old → new for changed slots)
   - Yes/No/Reject All menu navigation with position
