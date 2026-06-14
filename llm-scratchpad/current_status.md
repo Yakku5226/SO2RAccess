@@ -40,13 +40,18 @@
     CycleCharacterLeft/Right -> CycleCharacter(delta); (#1) charaNameID resolution -> 
     TextUtil.ResolveCharaNameKey (5 sites); (#3) DpadRepeater shared by Main+ModMenu;
     (#8) TextUtil.AppendPosition (8 sites).
-    REMAINING (behavior-sensitive, deferred to after smoke test): (#4) Database 5 picture-book
-    Update* -> generic browse helper [HIGH risk]; (#6) lazy-find-with-cooldown helper (Guild/Shop/
-    Pickpocket/QuickRecovery) [MED]; (#7) Build* duplicate-label-numbering helper [MED].
+    Also DONE after 1st smoke test: (#4) PollPictureBook shared helper for the 5 camp database
+    picture-book screens (Database.cs 780->667); (#6) UiFinder.TryGetActiveOverlay for
+    Pickpocket+QuickRecovery overlay detection (Guild/Shop left — different frame-counter cadence).
+    NOT DONE — (#7) Build* duplicate-label-numbering: deliberately SKIPPED. The builders use
+    distinct localized _n Loc keys per sub-type (nav_save_n, nav_save_recovery_n, etc.); unifying
+    to the generic append-number form would drop localization / change wording. "Not safely fixable."
   * Bundle D (consistency) DONE: DIAG logs -> DebugLogger; ic_unknown_item key; stale comments
     (ResolveLocationRewards, SaveNotification); relocated MapState NPC-type doc. (Left ", unavailable"
     hardcoded — routing via ic_unavailable would change capitalization = wording change, out of scope.)
-  ALL builds 0/0. AWAITING consolidated smoke test before doing remaining C #4/#6/#7.
+  ALL builds 0/0. Bundles A/B/C(all but #7)/D complete. AWAITING final smoke test (esp. camp
+  database picture-book screens + pickpocket + quick recovery, which #4/#6 touched), then
+  proceed to prompts/finalization.md.
   --- string-builder detail ---
   Localization-first (571 Loc.Get format-string calls), string.Join for lists, StringBuilder
   mostly in debug/algorithm files (WorldmapDiagnostics 87, GridGenerator 35, Pathfinder 26 =
