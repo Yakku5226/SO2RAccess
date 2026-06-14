@@ -119,22 +119,12 @@ namespace SO2RAccess
                 float worldMinX, worldMinZ, worldMaxX;
                 float worldMaxZ;
 
-                if (wmID == WorldmapID.EXPEL)
-                {
-                    // Expel: covers all terrain with 10m padding.
-                    worldMinX = -1920.0f;
-                    worldMinZ = -1600.0f;
-                    worldMaxX = 1870.0f;
-                    worldMaxZ = 870.0f;
-                }
-                else
-                {
-                    // Nede: generous bounds (will be refined when tested).
-                    worldMinX = -1920.0f;
-                    worldMinZ = -1600.0f;
-                    worldMaxX = 1870.0f;
-                    worldMaxZ = 870.0f;
-                }
+                // Same generous bounds for both world maps: Expel covers all
+                // terrain with 10m padding; Nede bounds will be refined when tested.
+                worldMinX = -1920.0f;
+                worldMinZ = -1600.0f;
+                worldMaxX = 1870.0f;
+                worldMaxZ = 870.0f;
 
                 MelonLoader.MelonLogger.Msg(
                     $"[GridGen] Fixed bounds for {mapName}. " +
@@ -243,21 +233,21 @@ namespace SO2RAccess
                             var cols23 = UnityEngine.Physics.OverlapSphere(
                                 checkPos, ObstacleSearchRadius, CharaWallMask);
 
-                            // Collect solid CharaWall colliders near this cell.
-                            int solidWallCount = 0;
+                            // Is there any solid CharaWall collider near this cell?
+                            bool hasSolidWall = false;
                             if (cols23 != null)
                             {
                                 for (int c = 0; c < cols23.Length; c++)
                                 {
                                     if (cols23[c] != null && !cols23[c].isTrigger)
                                     {
-                                        solidWallCount++;
-                                        break; // Just need to know if any exist.
+                                        hasSolidWall = true;
+                                        break;
                                     }
                                 }
                             }
 
-                            if (solidWallCount > 0)
+                            if (hasSolidWall)
                             {
                                 // CharaWall nearby — do fine sub-cell check.
                                 // Check 9x9 points (0.125m spacing) spanning
@@ -1055,16 +1045,6 @@ namespace SO2RAccess
             }
 
             /// <summary>
-            /// Check if a cell has a clearance offset (is near a CharaWall).
-            /// </summary>
-            public bool HasClearanceOffset(int ax, int az)
-            {
-                if (ClearanceOffsets == null) return false;
-                long key = (long)ax * GridH + az;
-                return ClearanceOffsets.ContainsKey(key);
-            }
-
-            /// <summary>
             /// Gets the actual clearance distance (meters) for a cell.
             /// Returns float.MaxValue for cells with no clearance data
             /// (wide open, far from any wall).
@@ -1075,15 +1055,6 @@ namespace SO2RAccess
                 long key = (long)ax * GridH + az;
                 return ClearanceValues.TryGetValue(key, out float val)
                     ? val : float.MaxValue;
-            }
-
-            /// <summary>
-            /// Check if a cell is walkable (has terrain, not ocean or obstacle).
-            /// </summary>
-            public bool IsWalkable(int ax, int az)
-            {
-                return ax >= 0 && ax < GridW && az >= 0 && az < GridH
-                    && Height[ax, az] >= 2;
             }
 
             /// <summary>
