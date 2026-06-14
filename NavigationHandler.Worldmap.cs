@@ -58,12 +58,6 @@ namespace SO2RAccess
         /// </summary>
         private static bool _wmDirectMoveActive;
 
-        /// <summary>
-        /// Cached AIPathFinder for world map pathfinding (retained for ocean
-        /// reachability checks; movement uses CalcHeight-based WorldmapPathfinder).
-        /// </summary>
-        private AIPathFinder<FieldCharacter> _wmPathFinder;
-
         /// <summary>Timer for world map stuck detection during auto-walk.</summary>
         private float _wmStuckTimer;
 

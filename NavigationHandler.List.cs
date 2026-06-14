@@ -199,8 +199,6 @@ namespace SO2RAccess
                 Vector3    playerPos = player.transform.position;
                 FieldmapID mapID     = fm.currentFieldmapID;
                 _isWorldmap = fm.IsWorldmap();
-                if (_isWorldmap)
-                    ClearWorldmapCache();
 
                 DebugLogger.LogState(
                     $"NAV scan start. map={mapID} worldmap={_isWorldmap} " +

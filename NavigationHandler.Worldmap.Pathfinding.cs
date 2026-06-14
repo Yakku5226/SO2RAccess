@@ -15,35 +15,6 @@ namespace SO2RAccess
         #region World Map Pathfinding
 
         /// <summary>
-        /// Gets the world map pathfinder from the player's AI controller chain.
-        /// Caches the result for subsequent calls within the same session.
-        /// </summary>
-        private AIPathFinder<FieldCharacter> GetWorldmapPathFinder()
-        {
-            if (_wmPathFinder != null) return _wmPathFinder;
-
-            try
-            {
-                var player = FieldManager.Instance?.GetControlPlayer();
-                if (player == null) return null;
-
-                var aiCtrl = player.FieldAIController;
-                if (aiCtrl == null) return null;
-
-                var aiParam = aiCtrl.aiParameter;
-                if (aiParam == null) return null;
-
-                _wmPathFinder = aiParam.aiPathFinder;
-                return _wmPathFinder;
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"NAV WorldmapPathFinder chain: {ex.Message}");
-                return null;
-            }
-        }
-
-        /// <summary>
         /// Checks whether a target is reachable on the world map by sampling
         /// CalcHeight at evenly spaced points along the line from player to target.
         /// If any sample has no ground (success=false), there is ocean between
@@ -555,14 +526,6 @@ namespace SO2RAccess
             _pathRecalcTimer = 0f;
 
             return true;
-        }
-
-        /// <summary>
-        /// Clears cached world map pathfinder when leaving the world map.
-        /// </summary>
-        private void ClearWorldmapCache()
-        {
-            _wmPathFinder = null;
         }
 
         #endregion
