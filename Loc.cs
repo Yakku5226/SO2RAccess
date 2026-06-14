@@ -748,6 +748,18 @@ namespace SO2RAccess
             Add("pickpocket_heading",          "Pickpocket.");
             Add("pickpocket_rate",             "{0} percent");
 
+            // Fish collector ("Reel") trade menus
+            Add("collector_menu_heading",       "Collector.");
+            Add("collector_exchange_heading",   "Exchange.");
+            Add("collector_reward_heading",     "Rewards.");
+            Add("collector_selectfish_heading", "Select fish.");
+            Add("collector_need_have",          "Needs {0}, have {1}.");
+            Add("collector_exchanging",         "Exchanging {0}.");
+            Add("collector_have",               "Have {0}.");
+            Add("collector_reward_fish",        "{0} fish.");
+            Add("collector_reward_claimed",     "Claimed.");
+            Add("collector_reward_locked",      "Not yet earned.");
+
             // Quick Heal / Quick Recovery field menu (D-pad Right)
             Add("quickheal_heading",           "Quick Recovery. Recover party? {0}. Press NumPad 0 or L3 for party status.");
             Add("quickheal_yes",               "Yes");

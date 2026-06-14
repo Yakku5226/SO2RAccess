@@ -68,7 +68,7 @@ namespace SO2RAccess
         private PickpocketHandler _pickpocketHandler;
         private QuickRecoveryHandler _quickRecoveryHandler;
         private FieldPromptHandler _fieldPromptHandler;
-        private FishCollectorDiagnostics _fishCollectorDiagnostics;
+        private FishCollectorHandler _fishCollectorHandler;
         private DebugHotkeys _debugHotkeys;
 
         // Gamepad nav overlay — L1 hold-to-open state.
@@ -155,7 +155,7 @@ namespace SO2RAccess
             _pickpocketHandler = new PickpocketHandler();
             _quickRecoveryHandler = new QuickRecoveryHandler();
             _fieldPromptHandler = new FieldPromptHandler();
-            _fishCollectorDiagnostics = new FishCollectorDiagnostics();
+            _fishCollectorHandler = new FishCollectorHandler();
             _debugHotkeys = new DebugHotkeys(_navigationHandler);
         }
 
@@ -230,6 +230,7 @@ namespace SO2RAccess
             _bonusGaugeHandler?.OnSceneChanged();
             _pickpocketHandler?.OnSceneChanged();
             _quickRecoveryHandler?.OnSceneChanged();
+            _fishCollectorHandler?.OnSceneChanged();
 
             // Apply patches once — safe to call on every scene load, handlers guard against duplicates.
             _titleHandler.ApplyPatches(_harmony);
@@ -667,7 +668,7 @@ namespace SO2RAccess
             _pickpocketHandler.Update();
             _quickRecoveryHandler.Update();
             _fieldPromptHandler.Update();
-            _fishCollectorDiagnostics.Update(); // debug-only; logs collector menus
+            _fishCollectorHandler.Update();
         }
 
         #endregion
