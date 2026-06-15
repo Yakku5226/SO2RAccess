@@ -139,6 +139,39 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// Resolves a factor's (talent / passive ability) display name from its
+        /// <see cref="FactorID"/>. Factors are the game's internal representation of
+        /// talents such as "Nimble Fingers"; reward popups carry them as a factorID
+        /// with no plain name. Chain: GetFactorParameter(id).messageID →
+        /// GetFactorMessage(messageID) → display name. Returns null when the id is
+        /// INVALID or no message exists.
+        /// </summary>
+        public static string ResolveFactorName(FactorID factorID)
+        {
+            try
+            {
+                if (factorID == FactorID.INVALID) return null;
+
+                var pm = ParameterManager.Instance;
+                if (pm == null) return null;
+
+                var fp = pm.GetFactorParameter(factorID);
+                if (fp == null) return null;
+
+                string messageID = fp.messageID;
+                if (string.IsNullOrEmpty(messageID)) return null;
+
+                string name = pm.GetFactorMessage(messageID);
+                return string.IsNullOrEmpty(name) ? null : StripTags(name);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"TextUtil.ResolveFactorName({factorID}) error: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Appends the standard ". N of M." list-position suffix to a screen-reader
         /// message. <paramref name="index"/> is 0-based, so index 2 of count 5
         /// produces ". 3 of 5.". Any trailing whitespace and a single sentence period

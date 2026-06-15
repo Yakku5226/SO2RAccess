@@ -473,6 +473,10 @@ namespace SO2RAccess
             // Item acquisition popups (treasure chests, quest rewards, etc.)
             Add("overflow_item",            "{0}");
             Add("overflow_item_multi",      "{0} x{1}");
+            Add("overflow_talent",          "Talent {0}");
+            Add("overflow_discard_fallback", "Inventory full. Discard?");
+            Add("talent_learned",           "Learned talent {0}.");
+            Add("talent_learned_named",     "{0} learned talent {1}.");
 
             // Equipment wizard (auto-equip popup for new gear)
             Add("equip_wizard_heading",         "Equipment Wizard");
@@ -709,6 +713,7 @@ namespace SO2RAccess
             Add("mission_empty",               "Empty. {0} of {1}.");
             // mission_item: {0}=name {1}=status {2}=position {3}=total
             Add("mission_item",                "{0}, {1}. {2} of {3}.");
+            Add("mission_reward",              "Reward: {0}.");
             Add("mission_category",            "{0}.");
             Add("mission_status_complete",     "Complete");
             Add("mission_status_achieved",     "Achieved");

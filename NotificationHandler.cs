@@ -43,6 +43,33 @@ namespace SO2RAccess
         private static bool _skipNextSelectChoices = false;
 
         /// <summary>
+        /// Same suppression as <see cref="_skipNextSelectChoices"/> but for the overflow
+        /// popup's own Yes/No prompt (the "inventory full — discard?" confirm).
+        /// </summary>
+        private static bool _skipNextOverflowSelectChoices = false;
+
+        /// <summary>
+        /// Last message text passed to UIOverflowItemPresenter.SetMessage. Cached so the
+        /// discard-prompt announcement has the message text regardless of whether
+        /// SetMessage or Set is called first.
+        /// </summary>
+        private static string _lastOverflowMessage = null;
+
+        /// <summary>
+        /// The overflow "inventory full — discard?" prompt awaiting its text. Set when the
+        /// Set(YesNo) call fires; the prompt's message/description fields are still empty at
+        /// that instant, so the announcement is deferred and polled in <see cref="Update"/>
+        /// until the text populates (or a short deadline passes).
+        /// </summary>
+        private static UIOverflowItemPresenter _pendingDiscardPrompt = null;
+
+        /// <summary>The focused button on the pending discard prompt.</summary>
+        private static UIDefine.DialogChoices _pendingDiscardChoice;
+
+        /// <summary>Time.time after which the pending discard prompt is announced regardless.</summary>
+        private static float _pendingDiscardDeadline = 0f;
+
+        /// <summary>
         /// Queue for stacked field notifications (EXP, Fol, items, level-ups, etc.)
         /// that fire in rapid succession. Messages are collected and announced
         /// together after a short delay so the screen reader doesn't interrupt itself.
@@ -55,6 +82,14 @@ namespace SO2RAccess
 
         /// <summary>Delay in seconds to wait for more notifications before announcing.</summary>
         private const float NotificationFlushDelay = 0.5f;
+
+        /// <summary>
+        /// Talents already announced this session, keyed "characterID:talentID".
+        /// OpenSecretTalent can be polled repeatedly; this prevents re-announcing a
+        /// talent the character already discovered.
+        /// </summary>
+        private static readonly System.Collections.Generic.HashSet<string> _announcedTalents =
+            new System.Collections.Generic.HashSet<string>();
 
         #endregion
 
@@ -80,6 +115,8 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(GameManager).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(ConstRewardParameter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(ConstItemParameter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(ConstFactorParameter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(CharacterParameter).TypeHandle);
 
                 RuntimeHelpers.RunClassConstructor(typeof(UIFieldInformationStackSelector).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIFieldInformationStackDataBase).TypeHandle);
@@ -135,6 +172,28 @@ namespace SO2RAccess
                         nameof(OverflowItemPresenter_SetItem_Postfix))
                 );
 
+                // The overflow popup doubles as a Yes/No dialog for the "inventory full
+                // — discard?" prompt. Cache its message and read the choices, mirroring
+                // the UIDialogPresenter handling.
+                harmony.Patch(
+                    AccessTools.Method(typeof(UIOverflowItemPresenter), "SetMessage",
+                        new Type[] { typeof(string) }),
+                    postfix: new HarmonyMethod(typeof(NotificationHandler),
+                        nameof(OverflowItemPresenter_SetMessage_Postfix))
+                );
+                harmony.Patch(
+                    AccessTools.Method(typeof(UIOverflowItemPresenter), "Set",
+                        new Type[] { typeof(UIDefine.DialogType), typeof(UIDefine.DialogChoices) }),
+                    postfix: new HarmonyMethod(typeof(NotificationHandler),
+                        nameof(OverflowItemPresenter_Set_Postfix))
+                );
+                harmony.Patch(
+                    AccessTools.Method(typeof(UIOverflowItemPresenter), "SelectChoices",
+                        new Type[] { typeof(UIDefine.DialogChoices), typeof(float) }),
+                    postfix: new HarmonyMethod(typeof(NotificationHandler),
+                        nameof(OverflowItemPresenter_SelectChoices_Postfix))
+                );
+
                 // Fires when a location discovery notification popup appears.
                 // CallerCount(1) — hookable.
                 harmony.Patch(
@@ -170,6 +229,17 @@ namespace SO2RAccess
                         new Type[] { typeof(UIFieldInformationStackDataBase) }),
                     postfix: new HarmonyMethod(typeof(NotificationHandler),
                         nameof(FieldInformationStack_ShowInformation_Postfix))
+                );
+
+                // Fires when a character uses a specialty and a hidden talent is
+                // discovered. Returns the discovered TalentID (INVALID if none this
+                // time). CallerCount(11) — hookable. The talent-discovery popup itself
+                // uses no managed-hookable presenter, so we announce from the data.
+                harmony.Patch(
+                    AccessTools.Method(typeof(CharacterParameter),
+                        nameof(CharacterParameter.OpenSecretTalent)),
+                    postfix: new HarmonyMethod(typeof(NotificationHandler),
+                        nameof(OpenSecretTalent_Postfix))
                 );
 
                 _patchesApplied = true;
@@ -230,23 +300,40 @@ namespace SO2RAccess
         /// Sets a flag to suppress the redundant SelectChoices call that fires right after.
         /// </summary>
         private static void DialogPresenter_Setup_Postfix(
-            UIDialogPresenter __instance, string message, UIDefine.DialogChoices choice)
+            UIDialogPresenter __instance, string message, UIDefine.DialogType type,
+            UIDefine.DialogChoices choice)
         {
             try
             {
                 string cleanMsg = StripTags(message ?? "");
                 if (string.IsNullOrEmpty(cleanMsg)) return;
 
-                string choiceLabel = GetChoiceLabel(__instance, choice);
+                // OK-type dialogs are informational popups ("X can now be used") with no
+                // real choice: announce only the message and mark it High priority so the
+                // routine readout that races it can't choke it. YesNo dialogs are
+                // interactive confirms ("Implement IC?"): keep them Normal priority and
+                // append the focused button, so moving the Yes/No cursor interrupts as
+                // usual and they don't protect-window over later announcements.
+                bool isInfo = type == UIDefine.DialogType.OK;
 
-                string announcement = string.IsNullOrEmpty(choiceLabel)
-                    ? Loc.Get("dialog_message", cleanMsg)
-                    : Loc.Get("dialog_message_with_choice", cleanMsg, choiceLabel);
+                string announcement;
+                if (isInfo)
+                {
+                    announcement = Loc.Get("dialog_message", cleanMsg);
+                }
+                else
+                {
+                    string choiceLabel = GetChoiceLabel(__instance, choice);
+                    announcement = string.IsNullOrEmpty(choiceLabel)
+                        ? Loc.Get("dialog_message", cleanMsg)
+                        : Loc.Get("dialog_message_with_choice", cleanMsg, choiceLabel);
+                }
 
                 _skipNextSelectChoices = true;
-                ScreenReader.Say(announcement);
+                ScreenReader.Say(announcement, true,
+                    isInfo ? ScreenReader.Priority.High : ScreenReader.Priority.Normal);
                 DebugLogger.LogGameValue("Dialog",
-                    $"msg='{cleanMsg}' initialChoice={choice} label='{choiceLabel}'");
+                    $"msg='{cleanMsg}' type={type} initialChoice={choice}");
             }
             catch (Exception ex)
             {
@@ -328,6 +415,17 @@ namespace SO2RAccess
             {
                 if (itemList == null || itemList.Count == 0) return;
 
+                // When this popup is the inventory-full discard prompt, its item list is
+                // redundant with the discard question (and the mission reward is already
+                // read on highlight). Skip the item readout; the discard prompt poll
+                // handles the announcement.
+                if (_pendingDiscardPrompt != null)
+                {
+                    DebugLogger.LogState(
+                        "OverflowItem: suppressed (discard prompt active).");
+                    return;
+                }
+
                 var sb = new StringBuilder();
 
                 // Read the popup message text (e.g. "Obtained the following items").
@@ -338,31 +436,33 @@ namespace SO2RAccess
                     sb.Append(" ");
                 }
 
-                // List each item with its count.
+                // Resolve and list every reward entry. An entry can be a named
+                // resource (SP/BP/Fol), an item (itemID), or a talent (factorID with
+                // no plain name) — the old code only handled named entries and
+                // silently dropped talents and unresolved items.
+                int appended = 0;
                 for (int i = 0; i < itemList.Count; i++)
                 {
                     var item = itemList[i];
                     if (item == null) continue;
 
-                    string itemName = StripTags(item.name ?? "");
-                    if (string.IsNullOrEmpty(itemName)) continue;
+                    string entry = BuildOverflowEntryText(item);
+                    if (string.IsNullOrEmpty(entry)) continue;
 
-                    int count = item.count;
-                    if (count > 1)
-                        sb.Append(Loc.Get("overflow_item_multi", itemName, count));
-                    else
-                        sb.Append(Loc.Get("overflow_item", itemName));
-
-                    if (i < itemList.Count - 1)
+                    if (appended > 0)
                         sb.Append(", ");
+                    sb.Append(entry);
+                    appended++;
                 }
 
                 string announcement = sb.ToString().Trim();
                 if (!string.IsNullOrEmpty(announcement))
                 {
-                    ScreenReader.Say(announcement);
+                    // High priority: reward popups must not be choked by the skill
+                    // readout that fires a few frames later.
+                    ScreenReader.Say(announcement, true, ScreenReader.Priority.High);
                     DebugLogger.LogGameValue("OverflowItem",
-                        $"msg='{msg}' itemCount={itemList.Count}");
+                        $"msg='{msg}' itemCount={itemList.Count} announced={appended}");
                 }
             }
             catch (Exception ex)
@@ -370,6 +470,177 @@ namespace SO2RAccess
                 MelonLogger.Warning(
                     $"OverflowItemPresenter_SetItem_Postfix: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Postfix for UIOverflowItemPresenter.SetMessage(string). Caches the message so
+        /// the discard-prompt announcement (see <see cref="OverflowItemPresenter_Set_Postfix"/>)
+        /// has the text regardless of call order. Does not announce on its own.
+        /// </summary>
+        private static void OverflowItemPresenter_SetMessage_Postfix(string message)
+        {
+            _lastOverflowMessage = StripTags(message ?? "");
+        }
+
+        /// <summary>
+        /// Postfix for UIOverflowItemPresenter.Set(DialogType, DialogChoices). The overflow
+        /// popup becomes an interactive Yes/No dialog when the inventory is full and the
+        /// game asks whether to discard the item. Announces that prompt with its focused
+        /// button. Non-interactive popups (simple reward toasts) pass type None/OK and are
+        /// already announced by SetItem, so they are ignored here.
+        /// </summary>
+        private static void OverflowItemPresenter_Set_Postfix(
+            UIOverflowItemPresenter __instance, UIDefine.DialogType type,
+            UIDefine.DialogChoices choice)
+        {
+            try
+            {
+                if (type != UIDefine.DialogType.YesNo) return;
+
+                // The prompt's text fields are still empty at this instant; defer the
+                // announcement and let Update() poll until the text populates.
+                _pendingDiscardPrompt = __instance;
+                _pendingDiscardChoice = choice;
+                _pendingDiscardDeadline = UnityEngine.Time.time + 0.5f;
+                _skipNextOverflowSelectChoices = true;
+
+                DebugLogger.LogGameValue("OverflowDialog",
+                    $"type={type} choice={choice} (deferred read)");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"OverflowItemPresenter_Set_Postfix: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Postfix for UIOverflowItemPresenter.SelectChoices(DialogChoices, float). Fires
+        /// when the cursor moves between Yes/No on the discard prompt. Skips the first
+        /// call after Set (already announced) and announces real navigation.
+        /// </summary>
+        private static void OverflowItemPresenter_SelectChoices_Postfix(
+            UIOverflowItemPresenter __instance, UIDefine.DialogChoices choice)
+        {
+            try
+            {
+                if (_skipNextOverflowSelectChoices)
+                {
+                    _skipNextOverflowSelectChoices = false;
+                    return;
+                }
+
+                string text = GetOverflowChoiceLabel(__instance, choice);
+                if (string.IsNullOrEmpty(text)) return;
+
+                ScreenReader.Say(Loc.Get("dialog_choice", text));
+                DebugLogger.LogGameValue("OverflowDialogChoice",
+                    $"choice={choice} label='{text}'");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"OverflowItemPresenter_SelectChoices_Postfix: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Returns the displayed label for an overflow-popup choice button. Cancel is
+        /// treated as No. Mirrors <see cref="GetChoiceLabel"/> for the overflow presenter.
+        /// </summary>
+        private static string GetOverflowChoiceLabel(
+            UIOverflowItemPresenter presenter, UIDefine.DialogChoices choice)
+        {
+            UIGameTextPresenter btn = choice switch
+            {
+                UIDefine.DialogChoices.Yes    => presenter.yes,
+                UIDefine.DialogChoices.No     => presenter.no,
+                UIDefine.DialogChoices.Cancel => presenter.no,
+                _                             => presenter.ok
+            };
+            return StripTags(btn?.gameText?.text ?? "");
+        }
+
+        /// <summary>
+        /// Postfix for CharacterParameter.OpenSecretTalent(SpecialSkillID).
+        /// Fires when a character uses a specialty; the return value is the newly
+        /// discovered talent (or INVALID when nothing new was found). Announces the
+        /// discovery directly because the in-game talent popup uses no presenter the
+        /// mod can hook. Deduplicated per character+talent so repeated polling is silent.
+        /// </summary>
+        private static void OpenSecretTalent_Postfix(
+            CharacterParameter __instance, TalentID __result)
+        {
+            try
+            {
+                if (__result == TalentID.INVALID) return;
+
+                int charId = __instance != null ? __instance.CharacterID : 0;
+                string key = charId + ":" + (int)__result;
+                if (!_announcedTalents.Add(key)) return; // already announced
+
+                string talentName = CampMenuHandler.ResolveTalentName(__result);
+                if (string.IsNullOrEmpty(talentName)) return;
+
+                string charName = StripTags(__instance?.CharacterName ?? "");
+
+                string announcement = string.IsNullOrEmpty(charName)
+                    ? Loc.Get("talent_learned", talentName)
+                    : Loc.Get("talent_learned_named", charName, talentName);
+
+                // High priority: must not be choked by the skill readout that races it.
+                ScreenReader.Say(announcement, true, ScreenReader.Priority.High);
+                DebugLogger.LogGameValue("TalentLearned",
+                    $"char='{charName}' charId={charId} talent={__result} name='{talentName}'");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"OpenSecretTalent_Postfix: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Builds the screen-reader text for a single reward popup entry, resolving
+        /// whichever field carries its identity: a plain <c>name</c> (SP/BP/Fol), an
+        /// <c>itemID</c> (item), or a <c>factorID</c> (talent / passive ability). Falls
+        /// back to the raw SP/BP amounts when nothing else is set. Returns null when the
+        /// entry carries no announceable content.
+        /// </summary>
+        private static string BuildOverflowEntryText(OverflowResourceData item)
+        {
+            string name = StripTags(item.name ?? "");
+            int count = item.count;
+            int sp = item.sp;
+            int bp = item.bp;
+            int itemID = item.itemID;
+            FactorID factorID = item.factorID;
+
+            // Talent / passive ability: no plain name, identified by factorID.
+            if (string.IsNullOrEmpty(name) && itemID <= 0 && factorID != FactorID.INVALID)
+            {
+                string factorName = TextUtil.ResolveFactorName(factorID);
+                if (!string.IsNullOrEmpty(factorName))
+                    return Loc.Get("overflow_talent", factorName);
+            }
+
+            // Item with no plain name: resolve from itemID.
+            if (string.IsNullOrEmpty(name) && itemID > 0)
+            {
+                string itemName = TextUtil.ResolveItemName(itemID);
+                if (!string.IsNullOrEmpty(itemName))
+                    name = itemName;
+            }
+
+            if (!string.IsNullOrEmpty(name))
+            {
+                return count > 1
+                    ? Loc.Get("overflow_item_multi", name, count)
+                    : Loc.Get("overflow_item", name);
+            }
+
+            // Pure stat reward carried in the sp/bp fields (no name, no id).
+            if (sp > 0) return Loc.Get("reward_sp", sp);
+            if (bp > 0) return Loc.Get("reward_bp", bp);
+
+            return null;
         }
 
         /// <summary>
@@ -534,6 +805,8 @@ namespace SO2RAccess
         /// </summary>
         public void Update()
         {
+            PollPendingDiscardPrompt();
+
             if (_notificationQueue.Count == 0) return;
 
             _notificationFlushTimer -= UnityEngine.Time.deltaTime;
@@ -547,6 +820,51 @@ namespace SO2RAccess
             ScreenReader.Say(combined);
             DebugLogger.LogGameValue("FieldInfoStack(flush)",
                 $"count={combined.Length} text='{combined}'");
+        }
+
+        /// <summary>
+        /// Polls a pending overflow discard prompt until its text populates (message or
+        /// description), then announces the question with its focused button. The prompt's
+        /// text fields are empty when Set(YesNo) fires, so the read is deferred to here.
+        /// Falls back to a generic message if the text never appears before the deadline.
+        /// </summary>
+        private static void PollPendingDiscardPrompt()
+        {
+            if (_pendingDiscardPrompt == null) return;
+
+            try
+            {
+                string msg = StripTags(_pendingDiscardPrompt.message?.text ?? "");
+                if (string.IsNullOrEmpty(msg))
+                    msg = StripTags(_pendingDiscardPrompt.description?.text ?? "");
+                if (string.IsNullOrEmpty(msg) && !string.IsNullOrEmpty(_lastOverflowMessage))
+                    msg = _lastOverflowMessage;
+
+                bool timedOut = UnityEngine.Time.time >= _pendingDiscardDeadline;
+                if (string.IsNullOrEmpty(msg) && !timedOut) return; // keep waiting
+
+                if (string.IsNullOrEmpty(msg))
+                    msg = Loc.Get("overflow_discard_fallback");
+
+                string choiceLabel =
+                    GetOverflowChoiceLabel(_pendingDiscardPrompt, _pendingDiscardChoice);
+                string announcement = string.IsNullOrEmpty(choiceLabel)
+                    ? Loc.Get("dialog_message", msg)
+                    : Loc.Get("dialog_message_with_choice", msg, choiceLabel);
+
+                // High priority: the discard question must not be choked by the reward
+                // toast that fires alongside it.
+                ScreenReader.Say(announcement, true, ScreenReader.Priority.High);
+                DebugLogger.LogGameValue("OverflowDialogText",
+                    $"msg='{msg}' choice={_pendingDiscardChoice} timedOut={timedOut}");
+
+                _pendingDiscardPrompt = null;
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"PollPendingDiscardPrompt: {ex.Message}");
+                _pendingDiscardPrompt = null;
+            }
         }
 
         #endregion

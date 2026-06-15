@@ -46,6 +46,33 @@ namespace SO2RAccess
         /// <summary>Time.time when the last message was spoken.</summary>
         private static float _lastMessageTime = -1f;
 
+        /// <summary>
+        /// Time.time until which a high-priority announcement is protected from being
+        /// interrupted. While active, routine (normal-priority) announcements and
+        /// subsequent high-priority announcements queue behind it instead of cutting
+        /// it off — so reward/unlock popups aren't choked by the skill readout that
+        /// fires a few frames later. See <see cref="Priority"/>.
+        /// </summary>
+        private static float _protectUntil = -1f;
+
+        /// <summary>Seconds a high-priority announcement is protected from interruption.</summary>
+        private const float ProtectWindowSeconds = 1.5f;
+
+        #endregion
+
+        #region Priority
+
+        /// <summary>
+        /// Announcement priority. <see cref="Normal"/> is routine output (menu cursor,
+        /// skill readouts). <see cref="High"/> is for reward/unlock popups that must not
+        /// be choked by routine output that races them by a few frames.
+        /// </summary>
+        public enum Priority
+        {
+            Normal,
+            High
+        }
+
         #endregion
 
         #region Public Methods
@@ -95,14 +122,33 @@ namespace SO2RAccess
         /// </summary>
         /// <param name="text">Text to speak.</param>
         /// <param name="interrupt">If true, stops current speech before speaking.</param>
-        public static void Say(string text, bool interrupt = true)
+        public static void Say(string text, bool interrupt = true,
+            Priority priority = Priority.Normal)
         {
             if (string.IsNullOrEmpty(text)) return;
 
             DebugLogger.LogScreenReader(text);
 
+            float now = UnityEngine.Time.time;
+            bool protectedActive = now < _protectUntil;
+
+            if (priority == Priority.High)
+            {
+                // Don't cut off an already-protected high-priority message; queue
+                // behind it so a sequence of rewards/unlocks all play. Extend the
+                // protection window to cover this one too.
+                if (protectedActive) interrupt = false;
+                _protectUntil = now + ProtectWindowSeconds;
+            }
+            else if (protectedActive && interrupt)
+            {
+                // A high-priority message is still playing — queue this routine
+                // output after it instead of choking it.
+                interrupt = false;
+            }
+
             _lastMessage = text;
-            _lastMessageTime = UnityEngine.Time.time;
+            _lastMessageTime = now;
 
             if (!_available) return;
 

@@ -394,6 +394,19 @@ namespace SO2RAccess
         };
 
         /// <summary>
+        /// Resolves a <see cref="TalentID"/> to its localized display name (e.g.
+        /// DEXTERITY → "Nimble Fingers"). Returns null for INVALID/unknown ids. Shared
+        /// with NotificationHandler's talent-discovery announcement.
+        /// </summary>
+        public static string ResolveTalentName(TalentID id)
+        {
+            foreach (var entry in TalentDisplayOrder)
+                if (entry.Id == id)
+                    return Loc.Get(entry.LocKey);
+            return null;
+        }
+
+        /// <summary>
         /// Prefix for UICampStatusSelector.UpdateTalent(PlayerID). Runs immediately before
         /// the talent list is (re)built, so <see cref="_statusPlayerID"/> reliably names
         /// the character whose talents the upcoming UITalentPresenter.Set describes —

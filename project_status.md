@@ -37,6 +37,165 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+### Notification overhaul (choking, talents, discard prompt, mission rewards) — TESTED & WORKING (2026-06-15)
+
+User confirmed the full set working in-game. Cleaned up (removed verbose per-entry OverflowItem
+diag + its unused index param) and committed. Summary of the session's shipped fixes:
+- ScreenReader Priority{Normal,High} + 1.5s protection window so reward/unlock popups aren't choked
+  by the routine readout that races them; High messages chain instead of overwriting.
+- Reward popup (OverflowItemPresenter.SetItem) resolves every entry: name, else itemID, else
+  factorID (talent), else sp/bp.
+- Talent discovery announced from data via CharacterParameter.OpenSecretTalent (no hookable popup);
+  deduped per character+talent. (Fires at craft-confirm, ~earlier than the visual popup — accepted.)
+- Unlock dialogs: only OK-type ("X can now be used") are High priority; YesNo confirms stay Normal.
+- Inventory-full discard prompt (OverflowItemPresenter doubles as a dialog): Set/SelectChoices hooked;
+  message read via deferred poll (text is empty at Set time). Item readout suppressed while the
+  discard prompt is active (no redundant "Ruby x3").
+- Mission reward preview on highlight: BuildMissionReward reads UIMissionListSelector.rewardItemDataList
+  (game-resolved rewardName + itemCount), appended as "Reward: ...".
+NOT changed (noted, user didn't flag): "CLEAR" still speaks on mission claim; GiveRewardWithWindow
+can't resolve its gem item-IDs (TextManager limitation).
+
+### Mission reward on highlight + discard de-clutter — BUILT (superseded by summary above) (2026-06-15)
+
+User confirmed the deferred discard prompt now READS. Two follow-ups requested:
+1. Remove the "Ruby x3" item readout from the claim/discard announcement.
+2. Read the mission's reward when the mission is HIGHLIGHTED in the list instead.
+DONE:
+1. OverflowItemPresenter_SetItem_Postfix now returns early (no announcement) when
+   _pendingDiscardPrompt != null — i.e. the popup is the inventory-full discard prompt (Set(YesNo)
+   fires before SetItem, so the flag is set). Normal GET popups (chests) are unaffected.
+2. Mission reward preview: UIMissionListSelector.rewardItemDataList (List<UIMissionRewardItemListData>)
+   carries the highlighted mission's rewards with rewardName ALREADY RESOLVED by the game + itemCount
+   — bypasses our unresolvable item-ID problem (gems like Ruby=ITEM_0431 never resolve via TextManager;
+   only 3 MessageTypes exist). BuildMissionReward() reads that list and appends "Reward: Ruby x3, ..."
+   to the mission readout. Loc mission_reward "Reward: {0}.". The game refreshes rewardItemDataList via
+   UpdateRewardInformation (CallerCount 5) on navigation, so reading it during the index-change poll
+   reflects the current mission (diag logs reward= to confirm no 1-frame lag).
+Files: NotificationHandler.cs, CampMenuHandler.Mission.cs, Loc.cs. Build 0/0, deployed.
+WATCH IN TEST: confirm reward matches the highlighted mission (no lag/off-by-one). If lagged, force
+_missionSelector.UpdateRewardInformation(item) before reading. "CLEAR" from GiveRewardWithWindow
+still fires on claim (not removed — user didn't flag it; revisit if noisy).
+TEST (F12 ON): open Missions, scroll the list — each should read "name, status. X of Y. Reward: ...".
+Then claim a reward with FULL inventory — should NOT say "Ruby x3"; just the discard question + Yes/No.
+
+### Discard prompt: message empty at Set() — DEFERRED-READ FIX (reads; deferred poll) (2026-06-15)
+
+RETEST (log 16:09–16:10): the Set(YesNo) hook DID fire but with msg='' (line 182) — so it read
+just " No". Root cause: UIOverflowItemPresenter.Set fires BEFORE the prompt text is populated
+(Set is first in the sequence: Set → SetItem → Reward; no SetMessage with text ever logged). So
+reading message/description at Set() time is always empty. NOT a choking issue — the text simply
+wasn't there yet. (The yes/no navigation read fine, lines 194-217.)
+FIX: Set(YesNo) now DEFERS — stores the presenter + choice + a 0.5s deadline; PollPendingDiscardPrompt()
+(new, called from Update each frame) reads message THEN description THEN cached SetMessage until one
+is non-empty, then announces "<text>. <choice>" (High priority). Falls back to Loc
+overflow_discard_fallback "Inventory full. Discard?" if nothing populates by the deadline (so the
+user ALWAYS hears something useful even if the text lives in the prefab). Fixed a finally-clears-
+on-wait bug so the poll actually persists across frames.
+Files: NotificationHandler.cs (defer + PollPendingDiscardPrompt), Loc.cs (overflow_discard_fallback).
+Build 0/0, deployed.
+DIAGNOSTIC: new [GAME] OverflowDialogText log shows msg='…' + timedOut. If timedOut=True with the
+fallback text, the discard string is NOT in message/description and lives elsewhere (next step).
+OPEN (user requests, not yet done): (1) mission reward (Ruby x3) should read when a mission is
+HIGHLIGHTED in the list, not as a claim popup — separate reward-preview feature. (2) redundant
+"CLEAR" from GiveRewardWithWindow (5 unresolvable item keys) — consider suppressing when overflow
+already named the item.
+TEST (F12 ON): claim a mission reward with FULL inventory — expect to hear the item, then the
+discard question (real text or "Inventory full. Discard?") with Yes/No. Send log (OverflowDialogText).
+
+### Inventory-full discard prompt unread — v1 (Set-time read, empty msg) (2026-06-15)
+
+RETEST (log 15:30–15:33): v3 talent timing CONFIRMED speaking (line 393 "Learned talent Nimble
+Fingers." right after Implement IC? Yes). User notes it fires EARLIER than expected — that's
+inherent: OpenSecretTalent runs at craft-CONFIRM (15:32:05), the visual popup+SP/Fol come at
+craft-END (~15:32:14, 9s later). Announced-but-early. Left as-is pending user call on deferring.
+NEW BUG (mission reward, inventory full): claiming a mission reward when the bag is full shows a
+UIOverflowItemPresenter in DISCARD mode — item list + "inventory full, discard?" + Yes/No. SetItem
+fired ("Ruby x3" read, line 470) but the discard MESSAGE and the Yes/No prompt fired NO hook
+(UIOverflowItemPresenter has its OWN SetMessage/Set(DialogType,DialogChoices)/SelectChoices — the
+presenter doubles as a dialog — none were patched). So the discard question + choices were silent.
+FIX: patched UIOverflowItemPresenter.SetMessage (cache text), .Set(DialogType,DialogChoices)
+(announce message + focused button when type==YesNo, High priority, skip-next-select flag), and
+.SelectChoices (announce focused Yes/No on navigation). Mirrors the UIDialogPresenter handling;
+new GetOverflowChoiceLabel reads presenter.yes/no/ok. Simple reward toasts (type None/OK) ignored
+here (SetItem already reads them). Files: NotificationHandler.cs. Build 0/0, deployed.
+ALSO SEEN (pre-existing, not fixed): mission GiveRewardWithWindow (Reward count=5 msg='CLEAR')
+can't resolve its item keys (ITEM_0430/0431/0429/0433/1605 → TextManager empty) so it reads only
+"CLEAR"; the real item name comes from the overflow SetItem instead ("Ruby x3"). Redundant CLEAR.
+TEST (F12 ON): claim a mission reward with a FULL inventory — expect "Ruby x3" then the discard
+question and "Yes"/"No" as you move the cursor. Send log (want OverflowDialog + OverflowDialogChoice).
+
+### Talent buried by over-protection — FIX v3 (talent speaks; timing-early noted) (2026-06-15)
+
+RETEST of v2 (log 15:21–15:23): super-skill unlock choking FIXED (user confirmed). But the talent
+"Learned talent Nimble Fingers." (line 310, 15:21:55.263) WAS spoken yet user didn't hear it.
+ROOT CAUSE = my own over-protection: v2 made EVERY DialogPresenter.Setup High priority, incl. the
+routine "Implement IC?" Yes/No confirm. That confirm (15:21:54.278, High) opened a 1.5s protection
+window; the talent fired 1s later (15:21:55.263) and, being High AND inside an active window,
+QUEUED (interrupt=false) — landing THIRD behind "Implement IC? No" and "Yes", then result spam.
+Spoken but buried.
+FIX v3: gate Dialog High-priority on DialogType. OK-type dialogs (informational "X can now be
+used") = High + announce message only (also drops the bogus trailing "No"). YesNo dialogs
+(interactive "Implement IC?") = Normal + keep focused-button readout. Now the talent (High) fires
+with no active window → interrupts "Yes" and plays FIRST, with the crafting result queued behind.
+DialogType{None,YesNo,OK}; Setup(message,type,choice) — postfix now binds `type`.
+Files: NotificationHandler.cs (DialogPresenter_Setup_Postfix). Build 0/0, deployed.
+TEST (F12 ON): craft 10 silver accessories to trigger a talent discovery — expect to hear
+"Learned talent <X>." right after confirming, BEFORE the crafting results, not buried. Confirm
+"Implement IC?" Yes/No still navigates normally and unlock popups still read fully. Send log.
+
+### Notifications choked + talent unlock unhooked — v2 (superseded by v3 above) (2026-06-15)
+
+RETEST of v1 (log 15:07–15:10) showed two real causes, NOT the overflow-field gap:
+1. CHOKING (proven): unlock dialogs DO announce, then the routine skill readout fires ~40ms
+   later with interrupt=true and CUTS THEM OFF. Lines 771 "Specialty Oracle can now be used"
+   → 773 "Purity Level 1…" 39ms later; 948 "IC Replication can now be used" → 950 "Imitation
+   Level 1…" 42ms later. User heard only the skill readout.
+2. TALENT UNLOCK has NO hookable presenter: every OverflowItem entry this session was a plain
+   named resource (SP/BP/FOL/item itemID=90) — factorID ALWAYS INVALID. No Dialog line for a
+   talent either. So talent discovery routes through a presenter the mod can't see.
+FIX v2:
+- ScreenReader.cs: added Priority {Normal,High} + a 1.5s protection window. A High announcement
+  sets _protectUntil; within it, routine (Normal) output and later High output QUEUE
+  (interrupt=false) instead of choking the protected message. Reward/unlock popups now survive
+  the racing skill readout; a sequence of rewards chains instead of overwriting.
+- NotificationHandler.cs: unlock Dialog + reward Overflow announcements now use Priority.High.
+- TALENT (data-level hook, bypasses UI): patched CharacterParameter.OpenSecretTalent(SpecialSkillID)
+  [CallerCount 11] postfix. __result is the discovered TalentID (INVALID if none). Announces
+  "Rena learned talent Nimble Fingers." (High priority), deduped per characterID:talentID via
+  _announcedTalents HashSet. Name via new CampMenuHandler.ResolveTalentName(TalentID) (reuses the
+  status-screen TalentDisplayOrder map). Char name from CharacterParameter.CharacterName.
+- Loc.cs: talent_learned "Learned talent {0}.", talent_learned_named "{0} learned talent {1}.".
+Files: ScreenReader.cs, NotificationHandler.cs, CampMenuHandler.Status.cs, Loc.cs. Build 0/0.
+NOTE: v1 overflow enrichment (itemID/factorID/sp/bp resolution + per-entry diag) is KEPT — still
+correct, just wasn't the talent path. The per-entry diag confirmed factorID is never set here.
+TEST (F12 debug ON): in Enhance→Skill, raise a specialty to trigger "X can now be used" — should
+now read FULLY (not cut off by the skill readout). Use a specialty enough to discover a talent —
+should hear "<name> learned talent <X>." Send log: want the [GAME] TalentLearned line + no choking.
+
+### Reward popup ("GET!") drops talents & unnamed items — v1 (superseded by v2 above) (2026-06-15)
+
+User report: several award notifications didn't read; mission reward "received something but
+didn't say what"; talent unlock "read the SP I got but not that I unlocked a talent"; Rena skill
+enhancement gave many award toasts that were silent or contextless.
+LOG ANALYSIS (Latest.log 14:39–14:44): only 3 popups fired hooks, ALL via UIOverflowItemPresenter
+(GET! popup): "SP x100, BP x100", "GET! Spectacles", "GET! FOL x100". FieldInfoStack and
+GiveRewardWithWindow never fired. Root cause: OverflowItemPresenter_SetItem_Postfix read ONLY
+OverflowResourceData.name + count and SILENTLY SKIPPED any entry with an empty name. But entries
+also carry sp, bp, itemID, and factorID — talents are "factors" (FactorID FACTOR_xxx) with NO
+plain name, so talent-unlock entries were dropped; items with only itemID set were dropped too.
+FIX: BuildOverflowEntryText() resolves each entry — name, else itemID→TextUtil.ResolveItemName,
+else factorID→TextUtil.ResolveFactorName (new: GetFactorParameter(id).messageID→GetFactorMessage),
+else raw sp/bp. Talents announced as "Talent {name}". Per-entry DIAGNOSTIC logs ALL raw fields
+(name/count/sp/bp/itemID/factorID/isUnique) so the next test confirms the talent path.
+Files: NotificationHandler.cs (BuildOverflowEntryText + ConstFactorParameter ctor), TextUtil.cs
+(ResolveFactorName), Loc.cs (overflow_talent "Talent {0}"). Build 0/0, deployed.
+CAVEAT: not yet proven the talent-discovery toast routes through THIS presenter (it produced no
+log line in the captured session). If the diagnostic shows no factor entry on a talent unlock,
+the discovery uses a separate presenter and we hook that next.
+TEST (F12 debug ON): unlock a talent / complete a mission / enhance skills, then send the log.
+Want: every reward reads its name, talents read "Talent X", and the per-entry diag lines.
+
 ### IC Super Specialties: requirements read stale — TESTED & WORKING (2026-06-15)
 
 User confirmed each super specialty now reads its OWN requirement, stable on re-visit. Temporary

@@ -104,15 +104,61 @@ namespace SO2RAccess
                 }
 
                 string status = GetMissionStatusText(item);
-                ScreenReader.Say(Loc.Get("mission_item", name, status, idx + 1, total));
+                string announcement = Loc.Get("mission_item", name, status, idx + 1, total);
+
+                // Append the mission's reward (resolved names from the selector's own
+                // reward panel, which the game refreshes for the highlighted mission).
+                string reward = BuildMissionReward();
+                if (!string.IsNullOrEmpty(reward))
+                    announcement += " " + reward;
+
+                ScreenReader.Say(announcement);
 
                 DebugLogger.LogGameValue("CampMission.item",
-                    $"{name} [{status}] ({idx + 1}/{total})");
+                    $"{name} [{status}] ({idx + 1}/{total}) reward='{reward}'");
             }
             catch (Exception ex)
             {
                 MelonLogger.Warning($"CampMenuHandler.UpdateMissionList: {ex.Message}");
                 _missionListBase = null;
+            }
+        }
+
+        /// <summary>
+        /// Builds the reward clause for the highlighted mission from the selector's
+        /// rewardItemDataList — the same data the game shows in its reward panel, with
+        /// names already resolved (so it works for items whose IDs we can't resolve
+        /// ourselves, e.g. gems). Returns null when no reward data is available.
+        /// </summary>
+        private string BuildMissionReward()
+        {
+            try
+            {
+                var rewards = _missionSelector?.rewardItemDataList;
+                if (rewards == null || rewards.Count == 0) return null;
+
+                var parts = new System.Collections.Generic.List<string>();
+                for (int i = 0; i < rewards.Count; i++)
+                {
+                    var r = rewards[i];
+                    if (r == null) continue;
+
+                    string rName = TextUtil.StripTags(r.rewardName ?? "");
+                    if (string.IsNullOrEmpty(rName)) continue;
+
+                    int count = r.itemCount;
+                    parts.Add(count > 1
+                        ? Loc.Get("overflow_item_multi", rName, count)
+                        : Loc.Get("overflow_item", rName));
+                }
+
+                if (parts.Count == 0) return null;
+                return Loc.Get("mission_reward", string.Join(", ", parts));
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"BuildMissionReward error: {ex.Message}");
+                return null;
             }
         }
 
