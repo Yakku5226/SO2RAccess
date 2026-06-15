@@ -753,7 +753,11 @@ namespace SO2RAccess
             Add("collector_exchange_heading",   "Exchange.");
             Add("collector_reward_heading",     "Rewards.");
             Add("collector_selectfish_heading", "Select fish.");
-            Add("collector_need_have",          "Needs {0}, have {1}.");
+            Add("collector_owned",              "You currently have {0}.");
+            Add("collector_owned_max",          "Maximum.");
+            Add("collector_costs_named",        "Costs {0} fish: {1}.");
+            Add("collector_costs_any",          "Costs {0} fish, any kind.");
+            Add("collector_fish_req",           "{0} have {1}");
             Add("collector_exchanging",         "Exchanging {0}.");
             Add("collector_have",               "Have {0}.");
             Add("collector_reward_fish",        "{0} fish.");

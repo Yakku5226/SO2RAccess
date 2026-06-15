@@ -275,37 +275,9 @@ namespace SO2RAccess
         /// </summary>
         private static string ResolveItemName(int itemID)
         {
-            try
-            {
-                var param = ParameterManager.Instance?.GetItemParameter(itemID);
-                if (param == null) return Loc.Get("ic_unknown_item");
-
-                string nameID = param.itemNameID;
-                if (string.IsNullOrEmpty(nameID)) return Loc.Get("ic_unknown_item");
-
-                // Try TextManager resolution.
-                var tm = TextManager.Instance;
-                if (tm != null)
-                {
-                    string resolved = tm.GetMessage(nameID, TextManager.MessageType.Item);
-                    if (!string.IsNullOrEmpty(resolved))
-                        return SanitizeItemName(resolved);
-                }
-
-                // Fallback: parse key (e.g. "ITEM_BLUEBERRY" → "Blueberry").
-                string fallback = nameID;
-                if (fallback.StartsWith("ITEM_"))
-                    fallback = fallback.Substring(5);
-                fallback = fallback.Replace('_', ' ');
-                if (fallback.Length > 0)
-                    fallback = char.ToUpper(fallback[0]) + fallback.Substring(1).ToLower();
-                return fallback;
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"CampIC_Material: resolveItemName({itemID}) error: {ex.Message}");
-                return Loc.Get("ic_unknown_item");
-            }
+            string name = TextUtil.ResolveItemName(itemID);
+            if (string.IsNullOrEmpty(name)) return Loc.Get("ic_unknown_item");
+            return SanitizeItemName(name);
         }
 
         #endregion

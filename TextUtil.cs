@@ -99,12 +99,56 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// Resolves an item's display name from its numeric itemID via ParameterManager
+        /// and TextManager. Returns null when the item parameter or its name key is
+        /// missing. Falls back to parsing the raw key (e.g. "ITEM_BLUEBERRY" →
+        /// "Blueberry") when TextManager can't resolve it (some keys only resolve in
+        /// native code).
+        /// </summary>
+        public static string ResolveItemName(int itemID)
+        {
+            try
+            {
+                var param = ParameterManager.Instance?.GetItemParameter(itemID);
+                if (param == null) return null;
+
+                string nameID = param.itemNameID;
+                if (string.IsNullOrEmpty(nameID)) return null;
+
+                var tm = TextManager.Instance;
+                if (tm != null)
+                {
+                    string resolved = tm.GetMessage(nameID, TextManager.MessageType.Item);
+                    if (!string.IsNullOrEmpty(resolved)) return StripTags(resolved);
+                }
+
+                // Fallback: parse key (e.g. "ITEM_BLUEBERRY" → "Blueberry").
+                string fallback = nameID;
+                if (fallback.StartsWith("ITEM_", StringComparison.OrdinalIgnoreCase))
+                    fallback = fallback.Substring(5);
+                fallback = fallback.Replace('_', ' ');
+                if (fallback.Length > 0)
+                    fallback = char.ToUpper(fallback[0]) + fallback.Substring(1).ToLower();
+                return fallback;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"TextUtil.ResolveItemName({itemID}) error: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Appends the standard ". N of M." list-position suffix to a screen-reader
         /// message. <paramref name="index"/> is 0-based, so index 2 of count 5
-        /// produces ". 3 of 5.".
+        /// produces ". 3 of 5.". Any trailing whitespace and a single sentence period
+        /// already on the buffer are collapsed first, so a preceding segment that ends
+        /// in "." doesn't produce a double period before the suffix.
         /// </summary>
         public static void AppendPosition(StringBuilder sb, int index, int count)
         {
+            while (sb.Length > 0 && sb[sb.Length - 1] == ' ') sb.Length--;
+            if (sb.Length > 0 && sb[sb.Length - 1] == '.') sb.Length--;
             sb.Append(". ").Append(index + 1).Append(" of ").Append(count).Append('.');
         }
     }

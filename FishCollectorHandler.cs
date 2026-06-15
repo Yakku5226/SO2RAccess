@@ -1,5 +1,6 @@
 using Il2CppGame;
 using System;
+using System.Collections.Generic;
 using System.Text;
 
 namespace SO2RAccess
@@ -81,13 +82,15 @@ namespace SO2RAccess
 
         private void PollSelectFish()
         {
+            // Rows live in itemDataList (a typed list), NOT the base currentDataList,
+            // which stays empty on this screen.
             bool active = UiFinder.TryGetActiveOverlay(ref _selectFish, ref _selectFishFind,
-                s => s.gameObject?.activeInHierarchy == true && s.currentDataList?.Count > 0);
+                s => s.gameObject?.activeInHierarchy == true && s.itemDataList?.Count > 0);
             if (!active) { if (_selectFishActive) { _selectFishActive = false; _selectFishLast = -1; } return; }
             try
             {
                 int idx = _selectFish.currentIndex;
-                var list = _selectFish.currentDataList;
+                var list = _selectFish.itemDataList;
                 int count = list?.Count ?? 0;
 
                 bool entering = !_selectFishActive;
@@ -98,7 +101,7 @@ namespace SO2RAccess
                 string item = "";
                 if (count > 0 && idx >= 0 && idx < count)
                 {
-                    var it = list[idx].TryCast<UIFishCollectorSelectFishListItemData>();
+                    var it = list[idx];
                     if (it != null)
                     {
                         var sb = new StringBuilder();
@@ -144,9 +147,23 @@ namespace SO2RAccess
                 if (it != null)
                 {
                     var sb = new StringBuilder();
+                    // Reward name (and its display size, if any).
                     sb.Append(it.itemName ?? "");
                     if (!string.IsNullOrEmpty(it.fishSize)) sb.Append(", ").Append(it.fishSize);
-                    sb.Append(". ").Append(Loc.Get("collector_need_have", it.needCount, it.haveCount));
+                    sb.Append(". ");
+
+                    // How many of the REWARD item you already own (haveCount), max-stock flag.
+                    sb.Append(Loc.Get("collector_owned", it.haveCount));
+                    bool max = false;
+                    try { max = it.IsMaxStock(); }
+                    catch (Exception ex) { DebugLogger.LogState($"FishCollector IsMaxStock: {ex.Message}"); }
+                    if (max) sb.Append(" ").Append(Loc.Get("collector_owned_max"));
+
+                    // Trade requirement: the qualifying fish with the game's own resolved
+                    // names and per-fish have/need counts, read from the condition panel.
+                    string req = BuildRequirementFromConditions(it);
+                    if (!string.IsNullOrEmpty(req)) sb.Append(" ").Append(req);
+
                     if (exchangeCount > 0)
                         sb.Append(" ").Append(Loc.Get("collector_exchanging", exchangeCount));
                     TextUtil.AppendPosition(sb, idx, count);
@@ -191,6 +208,55 @@ namespace SO2RAccess
                 Announce(entering, "collector_reward_heading", item);
             }
             catch (Exception ex) { DebugLogger.LogState($"FishCollector reward: {ex.Message}"); }
+        }
+
+        /// <summary>
+        /// Builds the trade-requirement text for an exchange reward by reading the
+        /// on-screen condition panel (<see cref="UIFishCollectorExchangeSelector.conditionPresenterList"/>).
+        /// Each active row carries the game's own resolved qualifying-fish name (or a
+        /// catch-all like "All fish" / a size such as "Large") and how many the player
+        /// owns. Fish names are not stored in any readable data table (the item parameter
+        /// only yields a placeholder key and TextManager can't resolve it), so the
+        /// rendered panel is the authoritative source. The "any kind" fallback covers the
+        /// unlikely case where the panel has no rows yet.
+        /// </summary>
+        private string BuildRequirementFromConditions(UIFishCollectorExchangeListItemData it)
+        {
+            try
+            {
+                var rows = new List<string>();
+                var conds = _exchange?.conditionPresenterList;
+                if (conds != null)
+                {
+                    for (int i = 0; i < conds.Count; i++)
+                    {
+                        var p = conds[i];
+                        if (p == null || p.gameObject?.activeInHierarchy != true) continue;
+
+                        string name = TextUtil.StripTags(p.type?.text);
+                        if (string.IsNullOrEmpty(name)) continue;
+
+                        // Each row's name is the game's own resolved fish type (or "All
+                        // fish" / a size like "Large"); haveCount is how many qualify that
+                        // the player owns. useCount stays 0 while browsing (it's the
+                        // in-trade allocation), so it isn't announced.
+                        string have = TextUtil.StripTags(p.haveCount?.text);
+                        rows.Add(Loc.Get("collector_fish_req", name, have));
+                    }
+                }
+
+                if (rows.Count > 0)
+                    return Loc.Get("collector_costs_named",
+                        it?.needCount ?? 0, string.Join(", ", rows));
+
+                // No specific fish in the panel — the trade takes any fish.
+                return Loc.Get("collector_costs_any", it?.needCount ?? 0);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"FishCollector conditions: {ex.Message}");
+                return "";
+            }
         }
 
         /// <summary>

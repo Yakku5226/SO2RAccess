@@ -36,8 +36,50 @@
 ## Current Phase
 
 **Phase:** Phase 3 — Feature Implementation
-**Currently working on:** Quick Heal Menu (D-pad Right) — WORKING (v1 tested); v2 name/amount/result fixes + L3 key, low-priority retest pending (2026-06-14)
+**Last completed:** Fish Collector ("Reel") menu — fish-name resolution via condition panel. TESTED & WORKING (2026-06-15)
+**Currently working on (secondary):** Quick Heal Menu (D-pad Right) — WORKING (v1 tested); v2 name/amount/result fixes + L3 key, low-priority retest pending (2026-06-14)
 **Last completed:** Item Creation — Appraise result announcement (2026-06-13) — TESTED & WORKING
+
+### Fish Collector menu — TESTED & WORKING (2026-06-15)
+
+**Files touched:** FishCollectorHandler.cs, Loc.cs, TextUtil.cs
+**Build:** succeeds, DLL copied to Mods. Diagnostics removed.
+
+**Root cause of "reads item IDs not fish names" (CONFIRMED via 2026-06-15 log):**
+Fish names are NOT in any readable data table. For a qualifying fish ID (e.g. 1636):
+- `GetItemParameter(1636).itemNameID` = literal placeholder "ITEM_1636".
+- `TextManager.GetMessage("ITEM_1636"/"1636", Item)` = empty. Only 3 MessageTypes exist
+  (System/Skill/Item) and fish aren't in any. So the old ID->name path always failed.
+- The old `_fishNames` cache stayed empty because the exchange-amount flow never opens
+  the select-fish screen (the game auto-consumes fish; you can't pick which — GAME design,
+  confirmed with user, not a mod bug). Rewards split into:
+    * "any fish" (e.g. Seafood): rewardParam.fishItemID = [0,0,0].
+    * "specific fish" (e.g. Life in Nature): fishItemID = [1636,1637,1638].
+
+**The fix (NEW APPROACH):** read the on-screen "Goal conditions" panel directly.
+`UIFishCollectorExchangeSelector.conditionPresenterList` is a public ordered
+`List<UIFishCollectorConditionListItemPresenter>` on the SAME selector we already poll.
+Each active row exposes GameText: `type` (game's own resolved fish name), `useCount`
+(needed), `haveCount` (owned). `BuildRequirementFromConditions()` reads those rows; if
+none are active, falls back to "any kind". No cache, no ID decoding, no disk persistence.
+
+**Per-row text format (confirmed from log):** condition rows carry `type` (resolved name,
+e.g. "Krosse Carp", or catch-alls "All fish" / a size "Large") and `haveCount` (how many
+the player owns). `useCount` is ALWAYS 0 while browsing (it's the in-trade allocation), so
+it is NOT announced. Wording: collector_fish_req = "{0} have {1}" → e.g.
+"Costs 3 fish: Otiph Carp have 0, Castle Gate Carp have 0, Krosse Carp have 8."
+
+**Removed:** old ID-based BuildRequirement, _fishNames cache + select-fish learning loop,
+LogExchangeDiag, LogSelectFishDiag, COLLECTOR FISH PROBE, COLLECTOR COND ROW. Loc keys
+collector_need_have and collector_fish_owned (unused). Added collector_fish_req.
+NOTE: TextUtil.ResolveItemName(itemID) is still used by CampMenuHandler.ItemCreation.Material.cs
+— keep it.
+
+**Punctuation fix:** TextUtil.AppendPosition now collapses a trailing "." before the
+". N of M." suffix, so segments that end in a period no longer produce a double period
+(".. 1 of 5."). This applies to ALL handlers that use AppendPosition.
+
+
 **Player-facing known issues:** see `KNOWN_ISSUES.md` (ships with the mod) — currently:
 guild mission menu unreadable, world-map auto-walk town collision, IC default character not
 named on entry. Keep this doc in sync as limitations are found/fixed.
