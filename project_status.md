@@ -36,6 +36,131 @@
 ## Current Phase
 
 **Phase:** Phase 3 — Feature Implementation
+
+### Two fixes: Enhance→Skill char switch + IC consumable readout — TESTED & WORKING (2026-06-15)
+
+Build 0/0, deployed. User-confirmed working in-game; final log (13:32–13:34) verified.
+Highlights: Writing → "Needs Fountain Pen" (not the book); Alchemy → "Needs Iron"
+(the display path also corrected Alchemy's self-referential consumeItemID); Machinist →
+"Needs Mechanic's Toolbox"; Art → "Needs Magic Canvas"; skill L1/R1 switch reads the
+character name cleanly once per switch.
+
+**1. Camp → Enhance → Skill: L1/R1 character switch announcement.**
+v1 (prepend name inside the presenter) was AUDIBLY broken: log 13:09 confirmed the names
+("Rena.", "Claude.", "Celine.") WERE produced, but UISkillInformationPresenter.Set fires
+TWICE per change ~6ms apart — fire 1 carries the name + STALE SP balance, fire 2 carries
+fresh balance + NO name and interrupts fire 1, so the user only hears the nameless version.
+v2 = DEFERRED FLUSH: the presenter now only CACHES the text (no name) + currentPlayerID +
+timestamp; UpdateSkillSelector flushes it once SkillFlushDelay (0.05s) passes with no new
+fire, prepending the character name only when currentPlayerID changed since the last flush.
+Coalesces the double-fire (later fresh-balance fire wins) and also kills the routine
+double-announce. _skillFlushedOnce gate = no name on first entry.
+Files: CampMenuHandler.Formation.cs.
+
+**2. IC → Machinist: consumable material name.**
+v1 read the consumable but as a RAW ID ("Needs 0456" / "Needs 0001" / "Needs 0043"):
+consumeItemID is populated, but GetItemParameter+TextManager returns a numeric placeholder
+key for these (same limitation as fish names). v2 = ResolveConsumeItemName() asks the game's
+own UICampSpecialSkillActionSelectorBase.CreateConsumeItemData(id, count), which builds the
+exact UISpecialSkillConsumeItemListData shown on screen (resolved itemName + haveCount);
+falls back to ResolveItemName, and IsNumericName() suppresses any still-numeric result
+(silent rather than reading digits). Debug log `CampIC: consume resolve id=N -> 'name'` added.
+Files: CampMenuHandler.ItemCreation.cs (ReadConsumeRequirement/ResolveConsumeItemName/IsNumericName),
+.ItemCreation.ActionList.cs, Loc.cs (ic_consumes "Needs {0}", ic_consumes_qty "Needs {1} {0}").
+
+v2 RESULT (log 13:09–13:24): (1) Skill char switch CONFIRMED clean. (2) Machinist/Art/Cooking/
+Crafting/Alchemy consumables CONFIRMED reading real names (Mechanic's Toolbox, Magic Canvas,
+Seafood, Silver, Iron, …) via CreateConsumeItemData. ONE skill still wrong → see v3.
+
+**v3 — Writing consumable fix — TESTED & WORKING (2026-06-15).**
+User report: in Writing, the readout said "Walls of the Soul. Needs Walls of the Soul" — i.e. it
+named the BOOK being written, not the real tool (Fountain Pen). Log confirmed consumeItemID for
+Writing items is SELF-REFERENTIAL (id=174 'Walls of the Soul' == the product), so the
+consumeItemID→CreateConsumeItemData path resolves the product, not the consumable. Writing goes
+through the FALLBACK path (PollActionListFallback), not the creation hook.
+Fix: ReadConsumeRequirementFromDisplay() reads the on-screen consume display directly —
+_icActionPresenter.consumeItemPresenter.consumeItemPresenterList → each active row's
+itemNamePresenter.itemName (GameText). That is what the game actually shows (Fountain Pen), so
+it is authoritative for every skill. The FALLBACK path now prefers it
+(`ReadConsumeRequirementFromDisplay() ?? ReadConsumeRequirement(item)`). The CREATION-HOOK path
+(Art/Machinist) keeps consumeItemID — it already reads correct names AND the display may not be
+refreshed yet inside that Harmony postfix (SetConsumeItem is CallerCount(0), native-only, so it
+can't be hooked; reading it live is only safe from the per-frame poll).
+Files: CampMenuHandler.ItemCreation.cs (ReadConsumeRequirementFromDisplay),
+.ItemCreation.ActionList.cs.
+
+TEST RESULT (log 13:33): CONFIRMED — "Walls of the Soul. Needs Fountain Pen, unavailable." and
+all other books read "Needs Fountain Pen". No regression on Machinist/Art/Cooking/Crafting, and
+Alchemy (Silver/Gold/Sapphire/Ruby) now correctly reads "Needs Iron" via the display path.
+
+### Camp "Use item on character" target picker — TESTED & WORKING (2026-06-15)
+User report: using an item ON a character (e.g. reading a skill book) did not announce
+which character was highlighted.
+v1 (WRONG selector) announced nothing. Diagnostic log (12:28) RESOLVED which selector:
+  - currentState DOES flip SelectItem -> SelectCharacter (confirmed).
+  - The active picker is _itemSelector.selectCharacterSelector
+    (UICommonSelectCharacterListSelector), NOT UICampItemCharacterStatusSelector
+    (that rich roster was never active). playerIDList=[CLAUDE,RENA,CELINE].
+v2 (CampMenuHandler.ItemTarget.cs): gated on currentState==SelectCharacter; reads
+selectCharacterSelector. That type has NO currentIndex and a visual-only cursor, so the
+highlighted index = match currentSelectPresenter within selectItemPresenterList (pointer
+compare); map idx -> playerIDList[idx]; name via ParameterManager.GetCharacterFirstName,
+HP/MP via UserParameter.GetCharacterParameter (HitPoint/HitPointMax/MentalPoint/MentalPointMax).
+Announces heading on entry then "Name. HP x of y. MP x of y. n of total." per cursor move.
+Loc keys: camp_item_target_screen/_hp/_mp.
+KNOWN GAP: if the cursor sits on a non-character "all allies" option, idx not found -> silent
+(acceptable for v1; revisit if items with an All target need it — isSelectedAll available).
+TEST: Camp -> Item -> skill book (Engineer's Handbook) -> confirm -> expect "Use on which
+character?" then each member read as you move up/down.
+
+**Last completed:** Status Talents readout FIX — announces OWNED talents only via HasTalent. TESTED & WORKING (2026-06-15). Committed.
+**Currently working on (history):** Pickpocket success-rate DIAGNOSTIC (debug F7) — v2, RETEST PENDING on a FRESH never-robbed NPC (2026-06-15).
+  v1 FINDING (log 09:55–09:57): on-screen rate vs game-internal rate (GetPickPocketSuccessRates) DISAGREE.
+  On-screen: common ~1%, rare/SR 0%. Internal: common ~1.4%, rare ~70%, SR ~47% (note: internal is
+  inverted vs difficulty — rarer = higher — so internal may NOT be the true success metric). Setup is
+  confirmed good (Thief's Glove owned, Pickpocketing lv7, Nimble Fingers on Claude, PA mode active).
+  Hypothesis: tested NPCs may be tapped-out (attempt cap reached; user has 0 Relax Perfume; "Use Relax
+  Perfume" option present). v2 adds UserParameter.GetPickPocketExecutionCount / GameDefine.maxPickPocketExecutionCount
+  + per-item canDecision (stealable now?) to distinguish tapped-out from genuinely-low.
+  v2 RESULT: fresh NPC (WOMAN1, attempts 0/3) common items shown 1% = internal 1.4%, stealable. User
+  failed a steal => 1% is REAL on fresh commons. "Rarer=easier" RETRACTED (rare raw numbers came from
+  tapped-out NPCs, unreliable). Expected ~40-50% with Nimble Fingers.
+  v3 HYPOTHESIS (decompile-backed): "Nimble Fingers" = TalentID.DEXTERITY. Game's FUNCTIONAL check is
+  CharacterParameter.HasTalent(DEXTERITY) — a DIFFERENT source than the status screen (UITalentData =
+  display text only). Field pickpocket uses the on-field CONTROL PLAYER (FieldManager.GetControlPlayer()
+  .CharacterParameter), and reads talent + GetSpecialSkillLevel(PICKPOCKET=14) from THAT char (per-char,
+  not party-wide). If actor != Claude (e.g. wrong leader / PA split), rate collapses to ~1%.
+  v3 DIAGNOSTIC (built, RETEST PENDING): F7 now logs actor name/CharacterID, actor HasTalent(DEXTERITY),
+  actor pickpocket level, party leader, AND Claude's HasTalent+level. Verdict names the actor and whether
+  it has Nimble Fingers. Files: PickpocketHandler.cs (AppendActorReport/NameOf).
+  *** RESOLVED (2026-06-15) *** F7 log 189-191: Actor=Claude, Leader=Claude, PickpocketLevel=7, but
+  HasTalent(DEXTERITY)=FALSE. Claude does NOT actually have Nimble Fingers — that's the 1% cause.
+  ROOT of the confusion: the status Talents screen (UICampStatusSelector.UpdateTalent -> List<UITalentData>)
+  lists ALL talent NAMES and encodes ownership in the COLOR field (owned=highlighted, unowned=greyed).
+  Mod's TalentPresenter_Set_Postfix (CampMenuHandler.Status.cs:384) reads talentName only, ignores color,
+  so it announces greyed/unowned talents too (OCR has same blind spot). Dexterity==Nimble Fingers.
+  CURE for user: have Claude use Crafting specialty ~8-9x to unlock the talent (randomized at start).
+
+**Talent readout FIX — TESTED & WORKING (2026-06-15), OWNED-ONLY:**
+  Status talent screen announces only talents the character actually HAS, via
+  CharacterParameter.HasTalent(TalentID). Prefix Diag_StatusSelector_UpdateTalent(PlayerID) on
+  UICampStatusSelector.UpdateTalent captures the character; TalentPresenter_Set_Postfix rewritten to
+  ignore the colour-coded name list (colour = ownership, invisible to screen reader/OCR) and use
+  HasTalent + TalentDisplayOrder map. 10 talent names in Loc.cs (talent_*).
+  Files: CampMenuHandler.Status.cs, CampMenuHandler.Patches.cs, Loc.cs.
+  WHY IT MATTERED: this surfaced that Claude never had Nimble Fingers (DEXTERITY) — the real cause of the
+  1% pickpocket rate. The old readout announced greyed/unowned talents, masking it.
+  USER NEXT (gameplay, not a mod task): grind Crafting on Claude to acquire Nimble Fingers, then pickpocket improves.
+
+**Debug F7 pickpocket diagnostic: REMOVED (2026-06-15)** — investigative scaffolding, reverted after it
+  did its job. PickpocketHandler.cs restored to the announce-only poll loop; DebugHotkeys.cs F7 wiring
+  and Main.cs constructor arg reverted.
+  Investigates user report that all NPC steal rates show <=1% despite Thieves Gloves +
+  Nimble Fingers + Pickpocket lvl 7. F7 (debug mode) on an open pickpocket window logs
+  per item: rarity (N/R/SR/SSR), base probability (GetFactorProbabilityParameter), shown
+  rate, and raw rate (SpecialSkill.GetPickPocketSuccessRates). Speaks a verdict: common
+  item far below base => bonuses not applying / attempts / mood; low rate on rare item =>
+  working as intended. Files: PickpocketHandler.cs (LogPickpocketDiagnostic), DebugHotkeys.cs, Main.cs.
 **Last completed:** Fish Collector ("Reel") menu — fish-name resolution via condition panel. TESTED & WORKING (2026-06-15)
 **Currently working on (secondary):** Quick Heal Menu (D-pad Right) — WORKING (v1 tested); v2 name/amount/result fixes + L3 key, low-priority retest pending (2026-06-14)
 **Last completed:** Item Creation — Appraise result announcement (2026-06-13) — TESTED & WORKING

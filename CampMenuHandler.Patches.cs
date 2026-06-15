@@ -233,8 +233,20 @@ namespace SO2RAccess
                         nameof(Diag_StatusLevelPresenter_Setup))
                 );
 
+                // UpdateTalent(PlayerID) builds the talent list for a character. We hook
+                // it (prefix) only to capture the playerID, so the talent readout can use
+                // the authoritative HasTalent check on the correct character — the on-screen
+                // list hides ownership in colour, which a screen reader cannot perceive.
+                harmony.Patch(
+                    AccessTools.Method(typeof(UICampStatusSelector), "UpdateTalent",
+                        new Type[] { typeof(PlayerID) }),
+                    prefix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(Diag_StatusSelector_UpdateTalent))
+                );
+
                 // UITalentPresenter.Set fires when the status screen initializes
-                // (CallerCount 1 — hookable). Caches talent data; announced on page switch.
+                // (CallerCount 1 — hookable). Triggers building the talent announcement;
+                // announced on page switch.
                 harmony.Patch(
                     AccessTools.Method(typeof(UITalentPresenter), "Set",
                         new Type[] { typeof(Il2CppSystem.Collections.Generic.List<UITalentData>) }),

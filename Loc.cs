@@ -254,6 +254,11 @@ namespace SO2RAccess
             Add("camp_item_factor",          "Factor: {0}");
             Add("camp_item_position",        "{0} of {1}.");
 
+            // Camp menu — "use item on a character" target roster
+            Add("camp_item_target_screen",   "Use on which character?");
+            Add("camp_item_target_hp",       "HP {0} of {1}");
+            Add("camp_item_target_mp",       "MP {0} of {1}");
+
             // Camp menu — status sub-screen
             // Full character data: name, level, HP/MP, EXP, combat stats, base attributes.
             Add("camp_status_screen",        "Status.");
@@ -265,6 +270,18 @@ namespace SO2RAccess
             Add("camp_status_position",      "{0} of {1}.");
             Add("camp_status_talents_screen","Talents.");
             Add("camp_status_talents_none",  "No talents.");
+            // Talent display names (TalentID -> English). Owned talents only are read;
+            // the status screen hides ownership in colour, which a screen reader can't see.
+            Add("talent_originality",        "Originality");
+            Add("talent_taste",              "Taste");
+            Add("talent_nimble_fingers",     "Nimble Fingers");
+            Add("talent_design_sense",       "Design Sense");
+            Add("talent_composition",        "Composition");
+            Add("talent_rhythm_sense",       "Rhythm Sense");
+            Add("talent_acoustic_sense",     "Acoustic Sense");
+            Add("talent_love_of_animals",    "Love of Animals");
+            Add("talent_wild_instinct",      "Wild Instinct");
+            Add("talent_blessing_of_mana",   "Blessing of Mana");
             Add("camp_status_stat_attack",   "Attack");
             Add("camp_status_stat_defence",  "Defence");
             Add("camp_status_stat_magic",    "Magic");
@@ -722,6 +739,8 @@ namespace SO2RAccess
             Add("ic_skill_position",          "{0} of {1}.");
             Add("ic_action_position",         "{0} of {1}.");
             Add("ic_creates",                 "Creates: {0}");
+            Add("ic_consumes",                "Needs {0}");
+            Add("ic_consumes_qty",            "Needs {1} {0}");
             Add("ic_have_count",              "Have {0}");
             Add("ic_unavailable",             "Unavailable");
             Add("ic_factor",                  "Factor: {0}");

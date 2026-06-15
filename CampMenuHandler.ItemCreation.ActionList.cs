@@ -463,6 +463,14 @@ namespace SO2RAccess
                         var sb = new StringBuilder();
                         sb.Append(name);
 
+                        // Consumable requirement. Prefer the on-screen consume display
+                        // (authoritative — e.g. Writing's Fountain Pen, which the list
+                        // item's consumeItemID does NOT point to); fall back to the
+                        // item's consumeItemID for skills with no separate display.
+                        string need = ReadConsumeRequirementFromDisplay() ?? ReadConsumeRequirement(item);
+                        if (!string.IsNullOrEmpty(need))
+                            sb.Append(". ").Append(need);
+
                         if (!item.canDecision)
                             sb.Append(", unavailable");
 

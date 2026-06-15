@@ -131,6 +131,7 @@ namespace SO2RAccess
 
             UpdateRootMenu();
             UpdateItemSelector();
+            UpdateItemCharacterSelect();
             UpdateStatusSelector();
             UpdateEquipSelector();
             UpdateBattleSkillSelector();

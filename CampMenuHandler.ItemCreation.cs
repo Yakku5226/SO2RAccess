@@ -592,6 +592,28 @@ namespace SO2RAccess
                 sb.Append(effectDesc);
             }
 
+            // Consumable-material requirement (Machinist-style fixed recipes).
+            // Read from the highlighted action item, which carries consumeItemID.
+            try
+            {
+                if (_icActionListBase != null)
+                {
+                    int aidx = _icActionListBase.currentIndex;
+                    var alist = _icActionListBase.currentDataList;
+                    if (alist != null && aidx >= 0 && aidx < alist.Count)
+                    {
+                        var actionItem = alist[aidx]?.TryCast<UISpecialSkillConsumeListItemData>();
+                        string need = ReadConsumeRequirement(actionItem);
+                        if (!string.IsNullOrEmpty(need))
+                        {
+                            if (sb.Length > 0) sb.Append(". ");
+                            sb.Append(need);
+                        }
+                    }
+                }
+            }
+            catch { /* ignore */ }
+
             // Position from action list.
             try
             {
@@ -630,6 +652,120 @@ namespace SO2RAccess
                 if (name[i] != '?') return name;
             }
             return Loc.Get("ic_unknown_item");
+        }
+
+        /// <summary>
+        /// Reads the consumable-material requirement from a fixed-recipe action item
+        /// (Machinist's "Create Portable Item" etc.). Returns a localized "Needs X"
+        /// string, or null when the action consumes no fixed item — free-material
+        /// crafts (Cooking, Alchemy, ...) leave consumeItemID at 0, so they stay silent.
+        /// </summary>
+        private static string ReadConsumeRequirement(UISpecialSkillConsumeListItemData item)
+        {
+            if (item == null) return null;
+            try
+            {
+                int consumeID = item.consumeItemID;
+                if (consumeID <= 0) return null;
+
+                int qty = item.consumeValue;
+                string matName = ResolveConsumeItemName(consumeID, qty);
+                if (string.IsNullOrEmpty(matName)) return null;
+
+                return qty > 1
+                    ? Loc.Get("ic_consumes_qty", matName, qty)
+                    : Loc.Get("ic_consumes", matName);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Resolves a consumable's display name. GetItemParameter + TextManager returns
+        /// a numeric placeholder for these recipe consumables (same limitation as fish
+        /// names — the name key only resolves in native code), so we first ask the
+        /// game's own CreateConsumeItemData, which builds the exact data shown on screen.
+        /// Falls back to the parameter-based resolver if that is unavailable.
+        /// </summary>
+        private static string ResolveConsumeItemName(int consumeItemID, int consumeValue)
+        {
+            try
+            {
+                var selBase = _icActionSelectorBase;
+                if (selBase == null && _icActiveSelector != null)
+                    selBase = _icActiveSelector.actionSelector?.TryCast<UICampSpecialSkillActionSelectorBase>();
+
+                if (selBase != null)
+                {
+                    var data = selBase.CreateConsumeItemData(consumeItemID, consumeValue);
+                    string raw = data?.itemName;
+                    DebugLogger.LogState($"CampIC: consume resolve id={consumeItemID} -> '{raw}' (have={data?.haveCount})");
+                    string n = SanitizeItemName(raw);
+                    if (!string.IsNullOrEmpty(n) && !IsNumericName(n))
+                        return n;
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"CampIC: consume resolve id={consumeItemID} error: {ex.Message}");
+            }
+
+            string fallback = ResolveItemName(consumeItemID);
+            return (string.IsNullOrEmpty(fallback) || IsNumericName(fallback)) ? null : fallback;
+        }
+
+        /// <summary>
+        /// True when a resolved "name" is actually just a numeric placeholder key
+        /// (e.g. "0456"), so callers can suppress it rather than read digits aloud.
+        /// </summary>
+        private static bool IsNumericName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            foreach (char c in name)
+                if (!char.IsDigit(c)) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Reads the consumable requirement straight from the on-screen consume display
+        /// (UICampSpecialSkillActionPresenter.consumeItemPresenter), which the game fills
+        /// with the ACTUAL required items. This is authoritative where the list item's
+        /// consumeItemID is unreliable — e.g. Writing, whose consumeItemID points back at
+        /// the book being written rather than the Fountain Pen that is actually consumed.
+        /// Returns a localized "Needs A, B" string, or null when nothing is displayed.
+        /// Only safe to call from the per-frame poll (the display is current by then);
+        /// the creation-info Harmony postfix may run before the display is refreshed,
+        /// which is why that path keeps using consumeItemID instead.
+        /// </summary>
+        private static string ReadConsumeRequirementFromDisplay()
+        {
+            try
+            {
+                var rows = _icActionPresenter?.consumeItemPresenter?.consumeItemPresenterList;
+                if (rows == null || rows.Count == 0) return null;
+
+                var names = new List<string>();
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    var row = rows[i];
+                    if (row == null) continue;
+                    try { if (row.gameObject?.activeInHierarchy != true) continue; }
+                    catch { continue; }
+
+                    string n = TextUtil.StripTags(row.itemNamePresenter?.itemName?.text);
+                    if (string.IsNullOrWhiteSpace(n)) continue;
+                    names.Add(n.Trim());
+                }
+
+                if (names.Count == 0) return null;
+                return Loc.Get("ic_consumes", string.Join(", ", names));
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         #endregion

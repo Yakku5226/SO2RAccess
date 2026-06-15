@@ -376,41 +376,80 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// Each real talent paired with its localization key, in the screen's display
+        /// order. Excludes INVALID/MAX sentinels.
+        /// </summary>
+        private static readonly (TalentID Id, string LocKey)[] TalentDisplayOrder =
+        {
+            (TalentID.ORIGINALITY,    "talent_originality"),
+            (TalentID.TASTE,          "talent_taste"),
+            (TalentID.DEXTERITY,      "talent_nimble_fingers"),
+            (TalentID.DESIGN_SENSE,   "talent_design_sense"),
+            (TalentID.LITERARY,       "talent_composition"),
+            (TalentID.RHYTHM,         "talent_rhythm_sense"),
+            (TalentID.SENSE_OF_SOUND, "talent_acoustic_sense"),
+            (TalentID.ANIMAL_LOVER,   "talent_love_of_animals"),
+            (TalentID.INTUITION,      "talent_wild_instinct"),
+            (TalentID.MANABLESS,      "talent_blessing_of_mana"),
+        };
+
+        /// <summary>
+        /// Prefix for UICampStatusSelector.UpdateTalent(PlayerID). Runs immediately before
+        /// the talent list is (re)built, so <see cref="_statusPlayerID"/> reliably names
+        /// the character whose talents the upcoming UITalentPresenter.Set describes —
+        /// independent of UpdateName ordering.
+        /// </summary>
+        private static void Diag_StatusSelector_UpdateTalent(PlayerID playerID)
+        {
+            _statusPlayerID = playerID;
+        }
+
+        /// <summary>
         /// Postfix for UITalentPresenter.Set(List&lt;UITalentData&gt;).
         /// Fires when the status screen initializes (page 0), NOT on page switch.
         /// Caches the talent announcement string. If already on the talent page (page 1),
         /// announces immediately (handles character tab change while viewing talents).
+        ///
+        /// IMPORTANT: the on-screen list contains EVERY talent name and encodes ownership
+        /// only in <c>UITalentData.color</c> (greyed = not owned) — invisible to a screen
+        /// reader or OCR. So we ignore the list text and announce only the talents the
+        /// character ACTUALLY has, via <c>CharacterParameter.HasTalent</c> — the same check
+        /// the gameplay systems (e.g. pickpocket) use.
         /// </summary>
         private static void TalentPresenter_Set_Postfix(
             Il2CppSystem.Collections.Generic.List<UITalentData> dataList)
         {
             try
             {
-                var sb = new StringBuilder();
-                sb.Append(Loc.Get("camp_status_talents_screen"));
-
-                if (dataList != null && dataList.Count > 0)
+                var owned = new List<string>();
+                try
                 {
-                    for (int i = 0; i < dataList.Count; i++)
+                    var character = ParameterManager.Instance?.UserParameter?
+                        .GetCharacterParameter(_statusPlayerID);
+                    if (character != null)
                     {
-                        var talent = dataList[i];
-                        if (talent == null) continue;
-                        string name = talent.talentName ?? "";
-                        if (string.IsNullOrEmpty(name)) continue;
-                        sb.Append(" ");
-                        sb.Append(name);
-                        if (i < dataList.Count - 1) sb.Append(",");
+                        foreach (var entry in TalentDisplayOrder)
+                        {
+                            if (character.HasTalent(entry.Id))
+                                owned.Add(Loc.Get(entry.LocKey));
+                        }
                     }
                 }
-                else
+                catch (Exception talEx)
                 {
-                    sb.Append(" ");
-                    sb.Append(Loc.Get("camp_status_talents_none"));
+                    DebugLogger.LogState($"CampStatus: talent ownership read failed: {talEx.Message}");
                 }
+
+                var sb = new StringBuilder();
+                sb.Append(Loc.Get("camp_status_talents_screen"));
+                sb.Append(' ');
+                sb.Append(owned.Count > 0
+                    ? string.Join(", ", owned)
+                    : Loc.Get("camp_status_talents_none"));
 
                 _cachedTalentAnnouncement = sb.ToString();
                 DebugLogger.LogGameValue("CampStatus.talents",
-                    $"count={dataList?.Count ?? 0} cached='{_cachedTalentAnnouncement}'");
+                    $"player={_statusPlayerID} owned={owned.Count} cached='{_cachedTalentAnnouncement}'");
 
                 // If already on the talent page, announce immediately.
                 // This handles character tab changes while viewing talents.

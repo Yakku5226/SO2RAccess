@@ -22,6 +22,20 @@ namespace SO2RAccess
         private static UICampSkillSelector _skillSelector = null;
         private static readonly SubScreenState _skillState = new SubScreenState();
 
+        // Deferred-flush state for skill announcements. The skill-info presenter fires
+        // TWICE per navigation (~6ms apart): the first carries stale data (and, on an
+        // L1/R1 switch, would carry the name) while the second carries fresh data but
+        // no name and interrupts the first. So instead of announcing inside the
+        // presenter, we cache the latest text and flush it once the burst settles
+        // (SkillFlushDelay), prepending the character name only when the character
+        // actually changed. This also collapses the routine double-announce.
+        private const float SkillFlushDelay = 0.05f;
+        private static string _skillPendingText = null;
+        private static PlayerID _skillPendingPlayer;
+        private static float _skillPendingTime;
+        private static PlayerID _skillLastFlushedPlayer;
+        private static bool _skillFlushedOnce = false;
+
         /// <summary>
         /// Polls the UICampFormationSelector for active state changes.
         /// Announces "Formation." when the screen opens.
@@ -69,14 +83,29 @@ namespace SO2RAccess
 
                 _skillState.CheckEntry(
                     isActive,
-                    () => ScreenReader.Say(Loc.Get("camp_skill_screen")),
+                    () => { _skillPendingText = null; _skillFlushedOnce = false; ScreenReader.Say(Loc.Get("camp_skill_screen")); },
                     "CampSkill");
+
+                if (!isActive)
+                {
+                    _skillPendingText = null;
+                    return;
+                }
+
+                // Flush a pending skill announcement once the presenter's double-fire
+                // burst has settled, so the named first fire isn't interrupted away.
+                if (_skillPendingText != null
+                    && UnityEngine.Time.time - _skillPendingTime >= SkillFlushDelay)
+                {
+                    FlushPendingSkill();
+                }
             }
             catch (Exception ex)
             {
                 MelonLogger.Warning($"CampMenuHandler.UpdateSkillSelector: {ex.Message}");
                 _skillSelector = null;
                 _skillState.Reset();
+                _skillPendingText = null;
             }
         }
 
@@ -164,6 +193,8 @@ namespace SO2RAccess
                 string description = data.skillDescription ?? "";
                 int level = data.skillLevel;
 
+                var tabBase = _skillSelector.TryCast<UICharacterTabListSelectorBase>();
+
                 // Look up list item data for SP cost, max level, and current balance.
                 int spCost = 0;
                 bool isMax = false;
@@ -189,7 +220,6 @@ namespace SO2RAccess
                     if (itemData.specialSkillID != SpecialSkillID.INVALID)
                     {
                         // Specialty: call game API for fresh cost data.
-                        var tabBase = _skillSelector.TryCast<UICharacterTabListSelectorBase>();
                         if (tabBase != null)
                         {
                             var pm = ParameterManager.Instance;
@@ -263,13 +293,45 @@ namespace SO2RAccess
                     sb.Append(Loc.Get("camp_skill_position", idx + 1, total));
 
                 string result = sb.ToString().Trim();
-                if (!string.IsNullOrEmpty(result))
-                    ScreenReader.Say(result);
+                if (string.IsNullOrEmpty(result)) return;
+
+                // Cache for deferred flush (see SkillFlushDelay). Capture the character
+                // so the flush can prepend the name only on a genuine L1/R1 switch.
+                _skillPendingText = result;
+                if (tabBase != null) _skillPendingPlayer = tabBase.currentPlayerID;
+                _skillPendingTime = UnityEngine.Time.time;
             }
             catch (Exception ex)
             {
                 MelonLogger.Warning($"CampMenuHandler.SkillInfoPresenter_Set_Postfix: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Speaks the cached skill announcement once the presenter's double-fire burst
+        /// has settled. Prepends the character's first name when the character changed
+        /// since the last flush (an L1/R1 switch), matching the Item Creation menu.
+        /// </summary>
+        private static void FlushPendingSkill()
+        {
+            string text = _skillPendingText;
+            _skillPendingText = null;
+            if (string.IsNullOrEmpty(text)) return;
+
+            bool charChanged = _skillFlushedOnce && _skillPendingPlayer != _skillLastFlushedPlayer;
+            _skillLastFlushedPlayer = _skillPendingPlayer;
+            _skillFlushedOnce = true;
+
+            if (charChanged)
+            {
+                string charName = null;
+                try { charName = ParameterManager.Instance?.GetCharacterFirstName(_skillPendingPlayer); }
+                catch { /* ignore */ }
+                if (!string.IsNullOrEmpty(charName))
+                    text = charName + ". " + text;
+            }
+
+            ScreenReader.Say(text);
         }
     }
 }
