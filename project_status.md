@@ -37,6 +37,47 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+### IC Super Specialties: requirements read stale — TESTED & WORKING (2026-06-15)
+
+User confirmed each super specialty now reads its OWN requirement, stable on re-visit. Temporary
+debug line removed; committed.
+
+
+User report: in IC → Super Special Skills tab, the "Requires:" text was the SAME for every
+super specialty (and the same item read different requirements at different times). Log
+(13:47–13:48) confirmed: skill NAME + DESCRIPTION were correct per row, but the requirement
+text lagged — Bunny Call (idx 3) read "Music … Art" early then "Customization … Alchemy" later.
+Root cause: TryPollSuperSpecialtyTab read conditions from the SHARED
+infoPresenter.superSpecialSkillLearningPresenter, a sub-presenter the game refreshes on a
+different cycle than skillName/skillDescription, so it was one navigation behind.
+v1 FIX WRONG (log 13:58): cast currentDataList[idx] to UISuperSpecialSkillSelectItemData — that
+type belongs to a DIFFERENT selector (UICampSuperSpecialSkillSelector), so the cast returned null
+and NO requirement was read at all (just a trailing double period). UISelectorBaseData/
+UICampSelectSpecialSkillSelectorData is NOT a ListItemDataBase, and the SuperSpecialSkillID enum
+order does NOT match the list (FISHING is absent at idx 8 → index→ID mapping impossible).
+v2 DIAG RESULT (log 14:10): rowType=UICommonListItemData (generic — text only, NO skill id),
+cacheSSID=INVALID (cacheData does NOT track the cursor). So GetNeedCondition got nothing and it
+fell back to the lagging presenter every time (confirmed lag = strictly off-by-one: each entry
+shows the PREVIOUS entry's requirement). Also confirmed the list is enum order minus unavailable
+skills (FISHING absent) → index→id mapping impossible.
+v3 DIAG RESULT (log 14:23): name→ID map WORKS (every row resolved: Orchestra→ORCHESTRA, etc.),
+but GetNeedCondition(id) is the WRONG method — returns the battle ACTIVATION condition
+("4 or more instruments" for Orchestra) or empty, NOT the learning requirement. So it kept
+falling back to the lagging presenter.
+v4 (BUILT, AWAITING TEST) — plan-mode solution (plan: encapsulated-coalescing-thompson.md):
+Keep the proven name→ID map. With the correct ssid, construct the game's own requirement data
+object `new UISkillLearningSuperSpecialSkillInformationData(ssid)` and read its
+condition1SkillName/condition2SkillName — computed on demand from the id, so they CANNOT lag.
+Pair with the STATIC count/level descriptions from
+infoPresenter.superSpecialSkillLearningPresenter.condition1Description/condition2Description
+(those never change → no lag) via the existing AppendLearningConditions string overload.
+Falls back to the presenter read on failure. Removed the GetNeedCondition path and the heavy
+DIAG; kept a concise `CampSS tab2: ssid=… cond1=… cond2=…` debug line.
+Files: CampMenuHandler.SuperSpecialty.cs. Build 0/0, deployed.
+TEST (F12 debug): IC → R1 to Super Special Skills → scroll all 10 AND back up → each entry must
+read its OWN requirement, stable on re-visit (Orchestra=Music/Art, Group Appraising=Appraising/
+Crafting, Blacksmith=Customization/Alchemy, …). Confirm same item = same requirement every time.
+
 ### Two fixes: Enhance→Skill char switch + IC consumable readout — TESTED & WORKING (2026-06-15)
 
 Build 0/0, deployed. User-confirmed working in-game; final log (13:32–13:34) verified.
