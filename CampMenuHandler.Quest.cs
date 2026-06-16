@@ -77,29 +77,13 @@ namespace SO2RAccess
                 }
                 _questState.LastIndex = idx;
 
-                var list = _questListBase.currentDataList;
-                if (list == null) return;
-                int total = list.Count;
-                if (total == 0 || idx < 0 || idx >= total) return;
+                string announcement = QuestReadout.BuildItemAnnouncement(
+                    _questListBase, idx, out string name, out string status);
+                if (announcement == null) return;
 
-                var item = list[idx].TryCast<UIQuestListItemData>();
-                if (item == null) return;
+                ScreenReader.Say(announcement);
 
-                string name = item.missionName;
-                if (string.IsNullOrEmpty(name))
-                {
-                    ScreenReader.Say(Loc.Get("quest_empty", idx + 1, total));
-                    return;
-                }
-
-                string status = GetQuestStatusText(item);
-                if (item.isNew)
-                    ScreenReader.Say(Loc.Get("quest_item_new", name, status, idx + 1, total));
-                else
-                    ScreenReader.Say(Loc.Get("quest_item", name, status, idx + 1, total));
-
-                DebugLogger.LogGameValue("CampQuest.item",
-                    $"{name} [{status}] ({idx + 1}/{total})");
+                DebugLogger.LogGameValue("CampQuest.item", $"{name} [{status}] ({idx + 1})");
             }
             catch (Exception ex)
             {
@@ -177,45 +161,12 @@ namespace SO2RAccess
                 }
 
                 // Fallback: just re-read the item data
-                string status = GetQuestStatusText(item);
+                string status = QuestReadout.GetStatusText(item);
                 ScreenReader.Say($"{item.missionName}. {status}.");
             }
             catch (Exception ex)
             {
                 DebugLogger.LogState($"CampQuest detail error: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Maps MissionState enum to a user-friendly status string.
-        /// </summary>
-        private static string GetQuestStatusText(UIQuestListItemData item)
-        {
-            if (item.isEnd)
-                return Loc.Get("quest_status_completed");
-            if (item.isReportable)
-                return Loc.Get("quest_status_reportable");
-            if (item.isReceived)
-                return Loc.Get("quest_status_received");
-
-            // Fallback to enum
-            var state = item.missionState;
-            switch (state)
-            {
-                case UIMissionStatePresenter.MissionState.Completed:
-                    return Loc.Get("quest_status_completed");
-                case UIMissionStatePresenter.MissionState.Achieved:
-                    return Loc.Get("quest_status_completed");
-                case UIMissionStatePresenter.MissionState.Reportable:
-                    return Loc.Get("quest_status_reportable");
-                case UIMissionStatePresenter.MissionState.Received:
-                    return Loc.Get("quest_status_received");
-                case UIMissionStatePresenter.MissionState.NotAchieved:
-                    return Loc.Get("quest_status_not_achieved");
-                case UIMissionStatePresenter.MissionState.NotReceived:
-                    return Loc.Get("quest_status_available");
-                default:
-                    return Loc.Get("quest_status_available");
             }
         }
 

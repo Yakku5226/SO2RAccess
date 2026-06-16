@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
 using Il2CppGame;
@@ -169,6 +170,27 @@ namespace SO2RAccess
                 DebugLogger.LogState($"TextUtil.ResolveFactorName({factorID}) error: {ex.Message}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Joins sentence fragments into one readout separated by ". ", collapsing a
+        /// trailing period already on a fragment so the result never contains a double
+        /// period (e.g. "A straight blade." + "None" → "A straight blade. None", not
+        /// "A straight blade.. None"). Null/whitespace fragments are skipped. The
+        /// returned string carries no trailing punctuation; callers append their own.
+        /// </summary>
+        public static string JoinSentences(IEnumerable<string> fragments)
+        {
+            if (fragments == null) return "";
+            var cleaned = new List<string>();
+            foreach (var fragment in fragments)
+            {
+                if (string.IsNullOrWhiteSpace(fragment)) continue;
+                string p = fragment.Trim();
+                if (p.EndsWith(".")) p = p.Substring(0, p.Length - 1).TrimEnd();
+                if (p.Length > 0) cleaned.Add(p);
+            }
+            return string.Join(". ", cleaned);
         }
 
         /// <summary>

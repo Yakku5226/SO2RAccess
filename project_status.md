@@ -37,6 +37,99 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+### Session 2026-06-16 — stale-announcement + readout fixes (DEPLOYED, build 0/0)
+
+Three fixes, all built and copied to Mods:
+1. **Item Creation stale result** (CampMenuHandler.ItemCreation*.cs): highlighting ItemCreation
+   in camp re-announced the last-created item. The IC result selector retains data across
+   sessions; `_icResultSeenSig` was reset to null on open, so DetectNewResult saw the leftover
+   as "new". Fix: seed `_icResultSeenSig` with the selector's current signature on open
+   (extracted `GetResultSignature()` helper, shared with DetectNewResult). USER CONFIRMED FIXED.
+2. **Guild false "Guild." on shop open** (GuildHandler.cs): guild building shares its UI
+   hierarchy with the shop, so `gameObject.activeInHierarchy` read true when only the shop was
+   open. Fix: poll `IsOpened` (UIStackSelectorWindowBase) like ShopHandler/GameOver do.
+3. **Shop double period** (ShopHandler.BuildItemDetails + TextUtil): equipment readouts produced
+   "...straight blade.. None" because parts were joined with ". " over a description already
+   ending in ".". Fix: new `TextUtil.JoinSentences()` strips a trailing period per fragment
+   before joining. (Equipment stat reading was NOT broken — user's SR was just reading fast.)
+
+### Guild mission menu readout — SOLVED (source confirmed), PENDING READOUT TEST (2026-06-16)
+
+**BREAKTHROUGH — the old "native wall" was a wrong target, not a real wall.**
+A scene-wide selector scan (GuildDiagnostics.cs, debug-only) while the guild master's
+accept-missions menu was open showed:
+- `ui_mission_selector` (UIMissionWindow.missionListSelector) — DEAD: base count 0,
+  index frozen at 0, indexDataController current category empty. This is the only thing
+  every prior attempt (and the 2026-03-16 "exhaustive" test) ever read.
+- `ui_quest_selector` (UIQuestSelector) — LIVE: currentDataList populated (count 7→6→…
+  as missions were accepted), currentIndex tracked the cursor 0→6 and back.
+=> The guild renders its mission list through the QUEST selector, the SAME selector the
+camp Quest screen already reads. UIMissionWindow.IsOpened never even fired for this flow.
+
+First attempt (porting the camp MISSION readout to missionListSelector) was therefore a
+repeat of a known-empty path and correctly read nothing — replaced.
+
+Current implementation (build clean):
+- New `QuestReadout.cs` — shared quest-list helpers (BuildItemAnnouncement, GetStatusText)
+  used by both camp and guild (DRY). `CampMenuHandler.Quest.cs` now delegates to it.
+- New `MissionReadout.cs` — same DRY refactor for the camp Mission screen (kept).
+- `GuildHandler.cs` — `PollGuildQuests()` finds UIQuestSelector via UiFinder (active +
+  populated), gated on `!IsCampOpen`, announces "Guild missions." on entry then
+  name + status + position per item via QuestReadout. Fish-collector-style polling.
+- `GuildDiagnostics.cs` — TEMPORARY, debug-only, still wired for one confirming test;
+  REMOVE once readout confirmed.
+
+**TESTED & WORKING (2026-06-16):** mission list reads name + status + position
+(e.g. "Customization Mission 1, Available. 1 of 7." / "Ready to report"). Diagnostic
+removed (GuildDiagnostics.cs deleted).
+
+**Remaining gap (accepted by user — "stop here, keep the win"):**
+- The guild master's FIRST command menu (accept vs. report) does NOT read. Diagnostics
+  proved it is native-rendered: when it opens, the guild's shared UI hierarchy wakes
+  EVERY sibling selector (shop/fishcollector/mission/quest) at once, and navigating it
+  moves NO managed cursor — not a list selector, not the choice selector. Only
+  UIConversationWindow owns a UISelectChoiceSelector and it was empty (n=0, placeholder)
+  with its presenter never active. No alternate managed field exists. Left silent.
+- Mission DESCRIPTION / completion REWARD at the guild not read (native); user is fine
+  reading these from the camp Quests menu instead.
+
+**FUTURE IDEA — fixed message for the command menu:** since the accept/report menu can't
+be read live (native, no managed cursor), consider announcing a fixed/static cue when the
+guild menu opens — e.g. "Guild menu. Choose accept a mission or report a mission." It would
+NOT track which option is highlighted, only tell the user what the menu offers and the
+order, so they can operate it by position. Caveats to resolve first: (1) confirm the option
+set/order is consistent across guilds and game progress (user was unsure of exact options);
+(2) need a reliable open-detection trigger for THIS menu (the shared hierarchy wakes all
+sibling selectors, so can't gate on active-state alone — would need a distinct signal, e.g.
+the conversation/event that opens it). Low effort if those two are pinned down; flagged as a
+possibility, not committed.
+
+--- prior analysis (kept for reference) ---
+The 2026-03-16 "CONFIRMED NATIVE WALL" verdict for GuildHandler was in doubt. Two
+findings (2026-06-16):
+1. `UIMissionListItemData` (: ListItemDataBase) has a PLAIN string field `missionName`
+   (+ `stateMessage`, `isReleased`, `isAchieved`, `isClear`, `missionState`,
+   `missionParameter`) — no native text resolution needed.
+2. The CAMP Quest&Mission menu ALREADY reads this successfully: `CampMenuHandler.Mission.cs`
+   does `_missionSelector = window.missionListSelector` → `.TryCast<UIListSelectorBase>()`
+   → poll `currentIndex` → `currentDataList[idx].TryCast<UIMissionListItemData>().missionName`
+   (line ~96-99). `UIMissionListSelector : UIHelpListSelectorBase : UIListSelectorBase`, so
+   it has the standard currentDataList/currentIndex we poll everywhere.
+   The GUILD's `UIMissionWindow.missionListSelector` is the SAME TYPE — GuildHandler just
+   never got ported to this pattern (it stayed on the presenter/TMPro path that genuinely
+   IS native-empty).
+Why the old test may have been wrong: it read presenters/raw TMPro (really native-empty),
+not missionListSelector; AND guild open-detection used activeInHierarchy (shared with shop),
+so probes may have hit a window that wasn't actually the open/active one (fixed today → IsOpened).
+
+PLAN: In GuildHandler, mirror CampMenuHandler.Mission.cs. First add DIAGNOSTICS ONLY —
+log `missionListSelector` non-null, `currentDataList.Count`, and `[0].missionName` when guild
+opens — to CONFIRM data exists before building the full readout. If populated: poll currentIndex,
+announce missionName + GetMissionStatusText-style state + position (+ reward via the existing
+rewardItemDataList path if present). Watch for camp/guild sharing one UIMissionWindow instance
+(GuildHandler already bails when CampMenuHandler.IsCampOpen). See
+[guild-mission-readout-reattempt](memory note) for the detailed approach.
+
 ### Notification overhaul (choking, talents, discard prompt, mission rewards) — TESTED & WORKING (2026-06-15)
 
 User confirmed the full set working in-game. Cleaned up (removed verbose per-entry OverflowItem

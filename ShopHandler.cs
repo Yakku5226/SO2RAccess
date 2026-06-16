@@ -502,8 +502,10 @@ namespace SO2RAccess
                 DebugLogger.LogState($"Shop: BuildItemDetails error: {ex.Message}");
             }
 
-            if (parts.Count == 0) return "";
-            return string.Join(". ", parts) + ". ";
+            // Join with clean sentence separators so a description that already ends
+            // in "." (e.g. "...straight blade.") doesn't produce a double period.
+            string joined = TextUtil.JoinSentences(parts);
+            return joined.Length == 0 ? "" : joined + ". ";
         }
 
         /// <summary>

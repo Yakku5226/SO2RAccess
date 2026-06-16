@@ -96,20 +96,7 @@ namespace SO2RAccess
         /// </summary>
         private void DetectNewResult()
         {
-            string sig;
-            try
-            {
-                var listBase = _icResultSelector.TryCast<UIListSelectorBase>();
-                var list = listBase?.currentDataList;
-                sig = "";
-                if (list != null && list.Count > 0)
-                {
-                    var it = list[0]?.TryCast<UICampSpecialSkillResultListItemData>();
-                    if (it != null)
-                        sig = $"{list.Count}:{it.itemName}:{it.isSuccess}";
-                }
-            }
-            catch { return; }
+            string sig = GetResultSignature();
 
             if (sig == _icResultSeenSig) return;
             _icResultSeenSig = sig;
@@ -121,6 +108,30 @@ namespace SO2RAccess
                 _icResultReadyTime = UnityEngine.Time.time + 0.5f;
                 DebugLogger.LogState($"CampIC: new result detected ({sig}), announce scheduled.");
             }
+        }
+
+        /// <summary>
+        /// Computes the content signature ("count:name:success") of the result list's
+        /// first item, or "" when the list is empty/unavailable. Used both to seed the
+        /// seen-signature on camp open — so stale result data left in the selector from
+        /// a previous creation isn't mistaken for a fresh result when the user merely
+        /// highlights ItemCreation in the root menu — and to detect genuinely new results.
+        /// </summary>
+        private static string GetResultSignature()
+        {
+            try
+            {
+                var listBase = _icResultSelector?.TryCast<UIListSelectorBase>();
+                var list = listBase?.currentDataList;
+                if (list != null && list.Count > 0)
+                {
+                    var it = list[0]?.TryCast<UICampSpecialSkillResultListItemData>();
+                    if (it != null)
+                        return $"{list.Count}:{it.itemName}:{it.isSuccess}";
+                }
+            }
+            catch { /* fall through to empty */ }
+            return "";
         }
 
         #endregion

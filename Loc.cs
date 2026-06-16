@@ -469,6 +469,7 @@ namespace SO2RAccess
             // names and cursor position cannot be read from managed code. Only window
             // open/close detection works. Dialogue system catches accept/provisions.
             Add("guild_screen",             "Guild.");
+            Add("guild_missions_screen",    "Guild missions.");
 
             // Item acquisition popups (treasure chests, quest rewards, etc.)
             Add("overflow_item",            "{0}");

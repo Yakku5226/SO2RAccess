@@ -122,7 +122,10 @@ namespace SO2RAccess
 
             _icResultSelector = window.specialSkillResultSelector;
             _icResultState.Reset();
-            _icResultSeenSig = null;
+            // Seed with the result selector's CURRENT signature (not null) so stale
+            // result data left over from a previous creation isn't mistaken for a fresh
+            // result when the user merely highlights ItemCreation in the root menu.
+            _icResultSeenSig = GetResultSignature();
 
             _icActionState.Reset();
             _icActiveSelector = null;
