@@ -176,8 +176,8 @@ namespace SO2RAccess
             Add("nav_exit_door",      "Building entrance");
             Add("nav_exit_gate",      "Town gate");
             Add("nav_exit_with_dest", "{0} to {1}");
-            Add("nav_marker",         "Quest marker");
-            Add("nav_marker_n",       "Quest marker {0}");
+            Add("nav_marker",         "Undiscovered location");
+            Add("nav_marker_n",       "Undiscovered location {0}");
             Add("nav_npc_n",          "NPC {0}");
             Add("nav_event_story",              "Story event");
             Add("nav_event_pa",                 "Private action");

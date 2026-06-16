@@ -164,6 +164,15 @@ namespace SO2RAccess
             Vector3 playerPos)
         {
             _categories[CAT_MARKER].Clear();
+
+            // DIAGNOSTIC (debug-only): dump every location point defined for this
+            // map from game data, with world position and discovered flag. This is
+            // independent of whether the live sparkle object currently exists, so it
+            // reveals points the live list omits (e.g. far ones) and recovers their
+            // coordinates. See IsLocationPointDiscovered for why effectComponent is
+            // NOT a reliable "discovered" signal.
+            LogLocationPointDiagnostics(playerPos);
+
             if (list == null) return;
 
             var items = new List<NavItem>();
@@ -172,16 +181,31 @@ namespace SO2RAccess
                 var marker = list[i];
                 if (marker == null) continue;
 
-                // Skip discovered markers. The effectComponent (sparkle) is
-                // removed after discovery; IsEnd and isEnd stay false.
-                try
-                {
-                    if (marker.effectComponent == null) continue;
-                }
-                catch { /* property unavailable — include the marker */ }
+                // The sparkle (effectComponent) is distance-gated: the game only
+                // spawns it within the point's visibleDistance, so a null sparkle
+                // does NOT mean "discovered" — it also happens when the player is
+                // simply too far away. The reliable discovered signal is the
+                // persistent released flag (IsLocationPointDiscovered).
+                bool hasSparkle;
+                try { hasSparkle = marker.effectComponent != null; }
+                catch { hasSparkle = true; }
+                bool discovered = IsLocationPointDiscovered(marker.locationPointID);
 
                 Vector3 pos  = marker.transform.position;
                 float   dist = Vector3.Distance(playerPos, pos);
+
+                DebugLogger.LogGameValue("NAV:MARKER:LIVE",
+                    $"id={marker.locationPointID} dist={dist:F1} " +
+                    $"sparkle={hasSparkle} discovered={discovered}");
+
+                // Hide only points the player has ALREADY discovered (persistent
+                // released flag). Do NOT gate on the sparkle: it is distance-gated,
+                // so a far undiscovered point (e.g. the Old Lighthouse, ~65 m away
+                // and ~12 m up a tower) has no sparkle yet but must still be listed.
+                // Confirmed via NAV:MARKER:LIVE log: sparkle=False / discovered=False
+                // at the town entrance was wrongly filtered out before this change.
+                if (discovered) continue;
+
                 items.Add(new NavItem
                 {
                     Label         = Loc.Get("nav_marker"),
@@ -189,8 +213,6 @@ namespace SO2RAccess
                     Position      = pos,
                     LiveTransform = marker.transform,
                 });
-                DebugLogger.LogGameValue("NAV:MARKER",
-                    $"id={marker.locationPointID} dist={dist:F1}");
             }
 
             SortAndFilterUnreachable(items, playerPos);
@@ -206,6 +228,101 @@ namespace SO2RAccess
             }
 
             _categories[CAT_MARKER].AddRange(items);
+        }
+
+        /// <summary>
+        /// True if the given location point has already been discovered by the
+        /// player. Reads the persistent "released" flag from save data
+        /// (<see cref="UserParameter.GetReleasedLocationPointFlag"/>) — the reliable
+        /// discovered-state source. NOTE: the sparkle (effectComponent) is NOT a
+        /// reliable discovered signal because it is distance-gated (only spawned
+        /// within the point's visibleDistance), so a distant undiscovered point and
+        /// an already-discovered point both report a null sparkle.
+        /// Returns false (treat as undiscovered) if the data is unavailable.
+        /// </summary>
+        private bool IsLocationPointDiscovered(LocationPointID id)
+        {
+            try
+            {
+                var user = ParameterManager.Instance?.UserParameter;
+                if (user == null) return false;
+                return user.GetReleasedLocationPointFlag(id);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState(
+                    $"NAV: GetReleasedLocationPointFlag failed for {id}: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// DIAGNOSTIC (debug-only): logs every location point defined for the
+        /// current field map from game data — ID, name key, world position,
+        /// distance from the player, and whether it has already been discovered.
+        /// Sourced from <see cref="ParameterManager.GetLocationPointParameterList"/>,
+        /// which is complete and position-bearing regardless of how far away the
+        /// player is — unlike the live sparkle list. Used to diagnose why a
+        /// discoverable location (e.g. the Old Lighthouse) does or does not appear
+        /// in the navigation list, and to recover its coordinates.
+        /// </summary>
+        private void LogLocationPointDiagnostics(Vector3 playerPos)
+        {
+            try
+            {
+                var fm = FieldManager.Instance;
+                var pm = ParameterManager.Instance;
+                if (fm == null || pm == null)
+                {
+                    DebugLogger.LogState(
+                        "NAV:LOCDIAG: FieldManager/ParameterManager unavailable.");
+                    return;
+                }
+
+                FieldmapID mapID = fm.currentFieldmapID;
+                var paramList = pm.GetLocationPointParameterList(mapID);
+                if (paramList == null)
+                {
+                    DebugLogger.LogState(
+                        $"NAV:LOCDIAG: map {mapID} defines no location points.");
+                    return;
+                }
+
+                var user = pm.UserParameter;
+                DebugLogger.LogState(
+                    $"NAV:LOCDIAG: map={mapID} defines {paramList.Count} location " +
+                    $"point(s). player=({playerPos.x:F1},{playerPos.y:F1},{playerPos.z:F1})");
+
+                for (int i = 0; i < paramList.Count; i++)
+                {
+                    var p = paramList[i];
+                    if (p == null) continue;
+
+                    Vector3 pos  = p.position;
+                    float   dist = Vector3.Distance(playerPos, pos);
+                    bool discovered = false;
+                    try
+                    {
+                        if (user != null)
+                            discovered = user.GetReleasedLocationPointFlag(p.locationPointID);
+                    }
+                    catch (Exception ex)
+                    {
+                        DebugLogger.LogState(
+                            $"NAV:LOCDIAG: released-flag read failed for " +
+                            $"{p.locationPointID}: {ex.Message}");
+                    }
+
+                    DebugLogger.LogState(
+                        $"NAV:LOCDIAG: [{p.locationPointID}] nameID='{p.locationNameID}' " +
+                        $"pos=({pos.x:F1},{pos.y:F1},{pos.z:F1}) dist={dist:F1} " +
+                        $"discovered={discovered}");
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV:LOCDIAG error: {ex.Message}");
+            }
         }
 
         /// <summary>

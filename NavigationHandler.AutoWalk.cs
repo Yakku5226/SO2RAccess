@@ -440,6 +440,25 @@ namespace SO2RAccess
                 }
                 if (zones.Count == 0) return false;
 
+                // Exempt any exit zone the player is already standing in.
+                // corners[0] is the player's current position; walking OUT of a
+                // gate you are parked on (e.g. the town entrance you spawn on) is
+                // the goal, not a "crossing". Only routing THROUGH a different gate
+                // mid-journey should be blocked. Without this, opening nav while
+                // standing on a gate makes every NavMesh route fail with
+                // "Cannot reach ... without leaving the area" — see the Kurik
+                // lighthouse case where the marker was rejected at the player's own
+                // start position while an NPC 3 m away (routed via breadcrumbs,
+                // which skip this check) was reachable.
+                Vector3 start = corners[0];
+                int exempted = zones.RemoveAll(z => z.Contains(start));
+                if (exempted > 0)
+                    DebugLogger.LogState(
+                        $"NAV: exit-barrier exempted {exempted} zone(s) at player " +
+                        $"start ({start.x:F1},{start.y:F1},{start.z:F1}) — leaving a " +
+                        "gate you are standing on is allowed.");
+                if (zones.Count == 0) return false;
+
                 for (int i = 0; i < corners.Length - 1; i++)
                 {
                     Vector3 a = corners[i];
