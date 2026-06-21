@@ -301,6 +301,11 @@ namespace SO2RAccess
         private float _lastPlayerY = float.NaN;
         private float _floorChangeCooldownTimer;
 
+        // Soft spatial-awareness assist: nudges the auto-walk heading around
+        // NPCs/clutter the NavMesh doesn't know about, without leaving the route.
+        // See SpatialSensor.cs. Foundation for a future exploration mode.
+        private readonly SpatialSensor _spatialSensor = new SpatialSensor();
+
         // Observed-traversal map: records where the player actually walks and
         // routes over those breadcrumbs (100% reliable). See TraversalGraph.cs.
         private TraversalGraph _traversal = new TraversalGraph();
@@ -798,6 +803,31 @@ namespace SO2RAccess
                     }
                 }
 
+                // --- Sensor-driven fast escalation ---
+                // If the adaptive walk-assist sidestep has provably failed (a body is
+                // wedged ahead and the widened cap still made no progress), skip the
+                // NavMesh recalc — it is blind to NPCs and would just return the same
+                // route through the blocker — and go straight to a physical detour.
+                if (ModSettings.WalkAssistEnabled && _spatialSensor.IsHardWedged
+                    && !_isAvoidingObstacle)
+                {
+                    if (_avoidanceAttempt >= MaxAvoidanceAttempts)
+                    {
+                        DebugLogger.LogState(
+                            "NAV walk-assist: hard wedge, max avoidance attempts reached. Cancelling.");
+                        ScreenReader.Say(Loc.Get("nav_autowalk_stuck", _autoWalkLabel));
+                        CancelAutoWalk();
+                        return;
+                    }
+                    if (TryStartObstacleAvoidance(playerPos))
+                    {
+                        DebugLogger.LogState(
+                            "NAV walk-assist: hard wedge — escalated straight to detour " +
+                            "(skipped the NPC-blind recalc).");
+                        _spatialSensor.Reset(); // clear wedge so it doesn't re-fire
+                    }
+                }
+
                 // --- Field map stuck detection ---
                 _fieldStuckTimer += Time.deltaTime;
                 if (_fieldStuckTimer >= FieldStuckCheckInterval)
@@ -1046,7 +1076,22 @@ namespace SO2RAccess
                         ? new Vector3(wpDx / wpDist, 0f, wpDz / wpDist)
                         : Vector3.forward;
 
-                    _staticAutoWalkStickDir = WorldDirToCameraStick(moveDir);
+                    // Soft spatial-awareness assist: nudge the heading around nearby
+                    // NPCs/clutter that aren't in the NavMesh. The cap is gentle in
+                    // the open and widens when wedged, so the player keeps heading to
+                    // the same waypoint/destination. The target transform is excluded
+                    // so we never steer away from the NPC/chest we're walking toward.
+                    // The sensor logs its own throttled WALK-ASSIST diagnostic.
+                    if (ModSettings.WalkAssistEnabled)
+                    {
+                        moveDir = _spatialSensor.Steer(playerPos, moveDir,
+                            _autoWalkTransform, out bool _);
+                    }
+
+                    Vector2 walkStick = WorldDirToCameraStick(moveDir);
+                    if (ModSettings.WalkAssistEnabled)
+                        walkStick *= _spatialSensor.LastSpeedScale; // slow while threading a wedge
+                    _staticAutoWalkStickDir = walkStick;
 
                     // Camera follow: gently rotate camera to face the walking direction.
                     UpdateCameraFollow(moveDir);

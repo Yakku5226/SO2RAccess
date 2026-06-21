@@ -309,6 +309,13 @@ namespace SO2RAccess
                     LabelKey = "mod_menu_label_jump_speech",
                     GetValue = () => Loc.Get(ModSettings.JumpPromptSpeechEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.JumpPromptSpeechEnabled = !ModSettings.JumpPromptSpeechEnabled; }
+                },
+                // Walk assist (soft obstacle steering during auto-walk) toggle
+                new ModMenuItem
+                {
+                    LabelKey = "mod_menu_label_walk_assist",
+                    GetValue = () => Loc.Get(ModSettings.WalkAssistEnabled ? "mod_menu_on" : "mod_menu_off"),
+                    Change = _ => { ModSettings.WalkAssistEnabled = !ModSettings.WalkAssistEnabled; }
                 }
             };
         }

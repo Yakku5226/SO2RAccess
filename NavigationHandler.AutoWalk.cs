@@ -183,6 +183,8 @@ namespace SO2RAccess
                 DebugLogger.LogState($"NAV AutoWalkTo: run setup failed: {ex.Message}");
             }
 
+            _spatialSensor.Reset(); // fresh wedge/obstacle state for this walk
+
             ScreenReader.Say(Loc.Get("nav_autowalk_start", item.Label));
             DebugLogger.LogState(
                 $"NAV auto-walk started. target={item.Label} " +
@@ -566,6 +568,7 @@ namespace SO2RAccess
             _wmDirectMoveActive  = false;
             _isAvoidingObstacle  = false;
             _pathCorners         = null;
+            _spatialSensor.Reset();
         }
 
         /// <summary>

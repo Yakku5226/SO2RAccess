@@ -19,6 +19,12 @@ namespace SO2RAccess
             if (_icActiveSkillCategory == "Train" && PollTrainSwitchSelector()) return;
             if (_icActiveSkillCategory == "Scouting" && PollScoutActionSelector()) return;
 
+            // Replication and Remaking show an item picker (itemListSelector) first, not
+            // the generic action list — handle them before generic focus tracking. When
+            // no picker is on screen this returns false and the count stage falls through
+            // to the generic action poller below.
+            if (PollItemListSkills()) return;
+
             // Every selector reports activeInHierarchy == true for the whole IC session,
             // so we can't use that flag to know which skill is on screen. Instead, find
             // the selector the user is actually navigating: the one whose action list
@@ -328,6 +334,201 @@ namespace SO2RAccess
                 DebugLogger.LogState($"CampIC: Scout action error: {ex.Message}");
             }
 
+            return true;
+        }
+
+        /// <summary>
+        /// Polls the item-list-first special skills (Replication and Remaking). Each shows
+        /// an inventory item list (itemListSelector) as its first screen rather than the
+        /// generic action selector, so <see cref="ResolveFocusedActionSelector"/> never
+        /// sees them. Only one is ever on screen, so this checks the shared count adjuster
+        /// first (it overlays the still-populated item list), then each picker in turn.
+        /// Returns true when one is active and handled (suppresses generic polling); false
+        /// when none is on screen (skill selection or the count stage), letting the generic
+        /// action poller take over.
+        /// </summary>
+        private bool PollItemListSkills()
+        {
+            // The count adjuster overlays on top of the still-populated item list, so check
+            // it FIRST — otherwise a picker's "no move" path would swallow the frame and
+            // the count would never read.
+            if (TryPollItemSkillCreateMode(_icDuplicateSelector?.ActionSelector)) return true;
+            if (TryPollItemSkillCreateMode(_icRemakeSelector?.ActionSelector)) return true;
+
+            if (_icDuplicateSelector != null)
+            {
+                if (_icDuplicateItemListBase == null)
+                    try { _icDuplicateItemListBase = _icDuplicateSelector.itemListSelector?.TryCast<UIListSelectorBase>(); }
+                    catch { /* leave null */ }
+                if (PollItemPicker(_icDuplicateItemListBase, ref _icDuplicateItemLastIndex, "ic_duplicate_screen", "duplicate"))
+                    return true;
+            }
+
+            if (_icRemakeSelector != null)
+            {
+                if (_icRemakeItemListBase == null)
+                    try { _icRemakeItemListBase = _icRemakeSelector.itemListSelector?.TryCast<UIListSelectorBase>(); }
+                    catch { /* leave null */ }
+                if (PollItemPicker(_icRemakeItemListBase, ref _icRemakeItemLastIndex, "ic_remake_screen", "remake"))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Polls a single item-list-first picker (the inventory list the user scrolls to
+        /// choose which item to replicate/remake). Detection mirrors the action-list focus
+        /// trick: a populated list means the picker is on screen, and a previously-empty
+        /// list (last index -1) means the user just entered it. Returns true when this
+        /// picker is active and handled; false when its list is empty (off screen).
+        /// </summary>
+        private bool PollItemPicker(UIListSelectorBase itemList, ref int lastIndex, string headingKey, string logTag)
+        {
+            if (itemList == null) { lastIndex = -1; return false; }
+
+            try
+            {
+                var list = itemList.currentDataList;
+                int count = list?.Count ?? 0;
+                if (count <= 0)
+                {
+                    // Picker not on screen. Reset so the next populate counts as a fresh
+                    // entry; the count adjuster was already handled by the create-mode poll.
+                    lastIndex = -1;
+                    return false;
+                }
+
+                int idx = itemList.currentIndex;
+                bool entry = lastIndex == -1;
+                // No cursor movement: do NOT claim the frame. The item list stays
+                // populated even when this picker is off screen (a different skill is on
+                // screen), so claiming it here would block the other item-list skill and
+                // the generic action poller. Returning false lets them run; this picker
+                // re-engages as soon as its own cursor actually moves.
+                if (!entry && idx == lastIndex) return false;
+                // Entering the picker clears any leftover count state from a cancelled
+                // create, so re-entering the count stage announces its heading + rate.
+                if (entry) ResetCreateModeState();
+                lastIndex = idx;
+
+                var sb = new StringBuilder();
+                if (entry)
+                    sb.Append(Loc.Get(headingKey)).Append(' ');
+
+                if (idx >= 0 && idx < count)
+                {
+                    var item = list[idx]?.TryCast<UIItemListItemData>();
+                    if (item != null)
+                    {
+                        string name = SanitizeItemName(item.itemName);
+                        sb.Append(string.IsNullOrEmpty(name) ? Loc.Get("ic_unknown_item") : name);
+
+                        int qty = item.itemCount;
+                        if (qty > 1)
+                            sb.Append(", x").Append(qty);
+
+                        TextUtil.AppendPosition(sb, idx, count);
+                        ScreenReader.Say(sb.ToString());
+                        DebugLogger.LogState($"CampIC: {logTag} item [{idx}] {name}");
+                        return true;
+                    }
+                }
+
+                // Fallback: heading (if entering) plus bare position.
+                sb.Append(Loc.Get("ic_action_position", idx + 1, count));
+                ScreenReader.Say(sb.ToString());
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"CampIC: {logTag} item poll error: {ex.Message}");
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Seeds the item-list-first pickers' last-index from their current state. The game
+        /// keeps these item lists populated even across camp close/reopen, so a stale list
+        /// would otherwise be mistaken for a fresh entry and re-announced whenever Item
+        /// Creation is merely highlighted. Seeds to the current index when populated so no
+        /// move is detected; leaves -1 when empty so a genuine first entry still reads.
+        /// Called at camp open and on each Item Creation re-entry.
+        /// </summary>
+        private static void SeedItemPickersOnEntry()
+        {
+            SeedOnePicker(_icDuplicateSelector?.itemListSelector, ref _icDuplicateItemListBase, ref _icDuplicateItemLastIndex);
+            SeedOnePicker(_icRemakeSelector?.itemListSelector, ref _icRemakeItemListBase, ref _icRemakeItemLastIndex);
+        }
+
+        private static void SeedOnePicker(
+            Il2CppInterop.Runtime.InteropTypes.Il2CppObjectBase itemListSelector,
+            ref UIListSelectorBase listBase, ref int lastIndex)
+        {
+            lastIndex = -1;
+            if (itemListSelector == null) return;
+            try
+            {
+                if (listBase == null)
+                    listBase = itemListSelector.TryCast<UIListSelectorBase>();
+                int count = listBase?.currentDataList?.Count ?? 0;
+                if (count > 0)
+                    lastIndex = listBase.currentIndex;
+            }
+            catch { lastIndex = -1; }
+        }
+
+        /// <summary>
+        /// Drives the shared create-mode poller for an item-list-first skill's count
+        /// adjuster, which appears after the user picks an item. These selectors expose
+        /// their own typed action selector whose presenter's createCountParent is active
+        /// only while the adjuster is on screen and currentCreateCount is positive then.
+        /// Returns true when the adjuster is active (handled), false otherwise.
+        /// </summary>
+        private bool TryPollItemSkillCreateMode(UICampSpecialSkillActionSelectorBase actionBase)
+        {
+            if (actionBase == null) return false;
+
+            UICampSpecialSkillActionPresenter presenter;
+            try { presenter = actionBase.actionPresenter; }
+            catch { return false; }
+            if (presenter == null) return false;
+
+            bool shown;
+            int createCount;
+            try
+            {
+                // createCountParent is toggled active only while the count adjuster is on
+                // screen — a clean signal that survives the item list staying populated
+                // underneath it.
+                shown = presenter.createCountParent?.activeInHierarchy ?? false;
+                createCount = presenter.currentCreateCount;
+            }
+            catch { return false; }
+
+            // Diagnostic: confirm the adjuster is detected and what count it reports.
+            if (shown != _icDupCountShownLast)
+            {
+                _icDupCountShownLast = shown;
+                if (shown)
+                    DebugLogger.LogState($"CampIC: count adjuster shown, count={createCount}");
+            }
+
+            if (!shown || createCount <= 0)
+            {
+                // Adjuster not on screen (or count not yet set). Clear leftover count state
+                // so a later entry re-announces heading + rate, and let other flows
+                // (item picker) handle this frame.
+                if (_icLastCreateCount > 0 && _icActionPresenter == presenter)
+                    ResetCreateModeState();
+                return false;
+            }
+
+            // Point the shared create-mode state at this skill's action selector and reuse
+            // PollCreateMode for entry/count-change/exit announcements.
+            _icActionSelectorBase = actionBase;
+            _icActionPresenter = presenter;
+            PollCreateMode();
             return true;
         }
 

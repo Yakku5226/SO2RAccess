@@ -111,6 +111,32 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// Re-seeds the result sub-screen state when the user re-enters Item Creation
+        /// (root cursor lands on it). Mirrors the camp-open seed: marks the current
+        /// result signature as already-seen and pre-seeds the cursor index with the
+        /// heading suppressed, so leftover result data from an earlier creation this
+        /// session is not re-announced. A later, genuinely new creation changes the
+        /// signature, so DetectNewResult still fires for real results.
+        /// </summary>
+        private static void SeedResultStateOnEntry()
+        {
+            _icResultSeenSig = GetResultSignature();
+            try
+            {
+                var listBase = _icResultSelector?.TryCast<UIListSelectorBase>();
+                if (listBase != null)
+                    _icResultState.SeedOnOpen(listBase.currentIndex);
+                else
+                    _icResultState.SuppressNextHeading();
+            }
+            catch
+            {
+                _icResultState.SuppressNextHeading();
+            }
+            DebugLogger.LogState("CampIC_Result: re-seeded on IC re-entry.");
+        }
+
+        /// <summary>
         /// Computes the content signature ("count:name:success") of the result list's
         /// first item, or "" when the list is empty/unavailable. Used both to seed the
         /// seen-signature on camp open — so stale result data left in the selector from

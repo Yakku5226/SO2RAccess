@@ -37,11 +37,15 @@ namespace SO2RAccess
 
         public void Update()
         {
-            // Find or verify the selector. activeInHierarchy alone is unreliable
-            // (stays true when hidden), so also require the choice list to have items.
+            // Find or verify the selector. The selector's OWN gameObject stays
+            // activeInHierarchy == true even when the menu is closed (so it would
+            // re-announce stale items during cutscenes, dialogue, shops, etc.).
+            // The selectChoicePresenter's gameObject, however, is toggled on show/hide
+            // — the same reliable signal DialogueChoiceHandler uses. Require it visible
+            // AND the choice list populated.
             bool isActive = UiFinder.TryGetActiveOverlay(
                 ref _selector, ref _nextFindTime,
-                s => s.gameObject?.activeInHierarchy == true
+                s => s.selectChoicePresenter?.gameObject?.activeInHierarchy == true
                      && s.choiceDataList?.Count > 0);
 
             // Post-transition settle window: silently adopt whatever the overlay is

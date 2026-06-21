@@ -552,6 +552,7 @@ namespace SO2RAccess
             Add("mod_menu_label_gauge_percent",     "Bonus gauge percentage announcement");
             Add("mod_menu_label_jump_sound",        "Jump prompt sound");
             Add("mod_menu_label_jump_speech",       "Jump prompt speech");
+            Add("mod_menu_label_walk_assist",       "Walk assist");
 
             // Field prompts (button guide above the player / interactables)
             Add("jump_prompt",            "Press {0} to jump down.");
@@ -761,6 +762,8 @@ namespace SO2RAccess
             Add("ic_material_slot",           "Slot {0}");
             Add("ic_material_create",         "Create");
             Add("ic_material_rate",           "Success rate: {0} percent.");
+            Add("ic_duplicate_screen",        "Choose item to replicate.");
+            Add("ic_remake_screen",           "Choose item to remake.");
 
             // Train switch selector (toggle ON/OFF per party member)
             Add("ic_train_item",              "{0}, {1}. {2} of {3}.");

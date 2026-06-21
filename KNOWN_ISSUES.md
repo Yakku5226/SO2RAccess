@@ -6,15 +6,18 @@ They are listed here so you know what to expect. If you run into something that 
 
 ---
 
-## Guild menu does not read
+## Guild menu — partially reads
 
-In the Guild, the list of missions and the cursor position are not announced. The game
-draws this menu in a way the mod cannot read, so individual mission names and your
-current selection are silent.
+In the Guild, the **mission list now reads**: each mission's name, status, and position
+(e.g. "Customization Mission 1, Available. 1 of 7.") are announced as you move the cursor.
 
-- What still works: the spoken dialogue around accepting a mission, receiving provisions,
-  and "there are no more missions" is read normally.
-- Workaround: none for the mission list itself at this time.
+What is still **not** read (a game limitation we don't expect to fix):
+- The guild master's first command menu (choosing "accept a mission" vs "report a mission")
+  is drawn natively with no cursor the mod can follow — it stays silent. Operate it by
+  position.
+- A mission's full description and completion reward are not read at the guild itself.
+- Workaround for both: open the **Quests** menu in the Camp menu to read mission descriptions
+  and rewards there.
 
 ## World map auto-walk and towns
 

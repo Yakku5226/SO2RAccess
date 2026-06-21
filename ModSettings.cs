@@ -86,6 +86,14 @@ namespace SO2RAccess
         /// </summary>
         public static bool JumpPromptSpeechEnabled { get; set; } = true;
 
+        /// <summary>
+        /// Whether the soft spatial-awareness walk assist is enabled. When on, the
+        /// auto-walk heading is gently nudged around nearby NPCs/clutter so the
+        /// player gets stuck less often. The nudge is hard-capped in angle and
+        /// never changes the destination. See <see cref="SpatialSensor"/>.
+        /// </summary>
+        public static bool WalkAssistEnabled { get; set; } = true;
+
         #endregion
 
         #region Persistence
@@ -135,6 +143,7 @@ namespace SO2RAccess
                     JumpPromptSoundEnabled = data.JumpPromptSoundEnabled;
                     JumpPromptSoundVolume = Math.Clamp(data.JumpPromptSoundVolume, 0f, 1f);
                     JumpPromptSpeechEnabled = data.JumpPromptSpeechEnabled;
+                    WalkAssistEnabled = data.WalkAssistEnabled;
                 }
                 MelonLogger.Msg("ModSettings: loaded.");
             }
@@ -171,7 +180,8 @@ namespace SO2RAccess
                     BonusGaugePercentAnnounceEnabled = BonusGaugePercentAnnounceEnabled,
                     JumpPromptSoundEnabled = JumpPromptSoundEnabled,
                     JumpPromptSoundVolume = JumpPromptSoundVolume,
-                    JumpPromptSpeechEnabled = JumpPromptSpeechEnabled
+                    JumpPromptSpeechEnabled = JumpPromptSpeechEnabled,
+                    WalkAssistEnabled = WalkAssistEnabled
                 };
 
                 var options = new JsonSerializerOptions { WriteIndented = true };
@@ -207,6 +217,7 @@ namespace SO2RAccess
             public bool JumpPromptSoundEnabled { get; set; } = true;
             public float JumpPromptSoundVolume { get; set; } = 0.8f;
             public bool JumpPromptSpeechEnabled { get; set; } = true;
+            public bool WalkAssistEnabled { get; set; } = true;
         }
 
         #endregion

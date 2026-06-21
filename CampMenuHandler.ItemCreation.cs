@@ -62,6 +62,22 @@ namespace SO2RAccess
         private static UIListSelectorBase _icScoutActionListBase;
         private static int _icScoutLastIndex = -1;
 
+        // --- Screen 2a: item-list-first special skills (Replication, Remaking) ---
+        // These skills' first screen is an inventory item list (itemListSelector), NOT
+        // the generic action selector — so the generic focus tracker never sees them.
+        // Polled by a shared dedicated method. Only one is ever on screen at a time.
+        private static UICampSpecialSkillDuplicateSelector _icDuplicateSelector;
+        private static UICampSpecialSkillRemakeSelector _icRemakeSelector;
+        private static UIListSelectorBase _icDuplicateItemListBase;
+        private static UIListSelectorBase _icRemakeItemListBase;
+        private static int _icDuplicateItemLastIndex = -1;
+        private static int _icRemakeItemLastIndex = -1;
+        /// <summary>Last-seen visibility of the copy/remake count adjuster (for diagnostics).</summary>
+        private static bool _icDupCountShownLast;
+
+        /// <summary>IsICActive() value last frame — detects re-entry into Item Creation.</summary>
+        private static bool _icPrevActive;
+
         // --- Screen 2b: Create mode (after selecting material) ---
         private static UICampSpecialSkillActionSelectorBase _icActionSelectorBase;
         private static UICampSpecialSkillActionPresenter _icActionPresenter;
@@ -137,6 +153,15 @@ namespace SO2RAccess
             _icScoutSelector = window.scoutSelector;
             _icScoutActionListBase = null;
             _icScoutLastIndex = -1;
+            _icDuplicateSelector = window.duplicateSelector;
+            _icRemakeSelector = window.remakeSelector;
+            _icDuplicateItemListBase = null;
+            _icRemakeItemListBase = null;
+            _icDupCountShownLast = false;
+            _icPrevActive = false;
+            // Seed the picker indices from the (possibly stale-populated) item lists so a
+            // leftover list isn't re-announced when Item Creation is highlighted.
+            SeedItemPickersOnEntry();
             ResetCreateModeState();
             _icPendingSkillName = null;
             _icCreationHookFired = false;
@@ -335,7 +360,21 @@ namespace SO2RAccess
         /// </summary>
         private void UpdateItemCreation()
         {
-            if (!IsICActive()) return;
+            bool active = IsICActive();
+
+            // Re-entry seed: each time the root cursor lands on Item Creation (false->true),
+            // re-seed the result signature and index so result data left over from an
+            // earlier creation this session is treated as already-seen and NOT re-announced
+            // when Item Creation is highlighted. A genuinely new creation changes the
+            // signature afterward, so DetectNewResult still fires for real results.
+            if (active && !_icPrevActive)
+            {
+                SeedResultStateOnEntry();
+                SeedItemPickersOnEntry();
+            }
+            _icPrevActive = active;
+
+            if (!active) return;
 
             try
             {
@@ -518,9 +557,11 @@ namespace SO2RAccess
             if (data == null) return;
             if (!IsICActive()) return;
 
-            // Skills like Scouting and Survival have no creation items —
-            // their action lists use UISpecialSkillConsumeListItemData.actionName.
-            // Don't announce or set hookFired so dedicated polls handle them.
+            // Skills with no creation items expose a category/action list instead
+            // (Master Chef, Blacksmith, Music, Survival). The generic action poller reads
+            // those rows (name + needs + position); Train and Scouting have dedicated
+            // pollers gated on _icActiveSkillCategory. So just record the category here and
+            // let those handle navigation — don't announce or set hookFired.
             var creationListCheck = data.dataList;
             if (creationListCheck == null || creationListCheck.Count == 0)
             {
