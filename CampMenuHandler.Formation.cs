@@ -209,7 +209,20 @@ namespace SO2RAccess
                     total = dataList?.Count ?? 0;
                 }
 
+                // Pick the data list that matches what's on screen. The specialty
+                // filter (Square, then Triangle) narrows the visible list to
+                // narrowDownItemDataList; currentIndex is relative to that narrowed
+                // list. Indexing the full itemDataList while narrowed read the wrong
+                // skill's SP cost (e.g. Piety reported Biology's 235 SP instead of its
+                // own 24, since both sit at the same list position). narrowDownSpecialSkillID
+                // is INVALID when no filter is active.
                 var itemList = _skillSelector.itemDataList;
+                if (_skillSelector.narrowDownSpecialSkillID != SpecialSkillID.INVALID)
+                {
+                    var narrowed = _skillSelector.narrowDownItemDataList;
+                    if (narrowed != null && narrowed.Count > 0)
+                        itemList = narrowed;
+                }
                 int itemCount = itemList?.Count ?? 0;
                 if (itemCount > 0 && idx >= 0 && idx < itemCount)
                 {

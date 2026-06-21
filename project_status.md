@@ -37,6 +37,162 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> ⏳ **PENDING USER TEST (ask first thing next session):**
+> **Pickpocket stale-announcement fix (2026-06-21).** Verify the stray "Pickpocket /
+> Strength Bottle" no longer intrudes during cutscenes/dialogue/shops, AND that a real
+> pickpocket (L1 on an NPC) still opens and reads items/rates. Fix = PickpocketHandler.cs
+> now detects via `selectChoicePresenter.gameObject.activeInHierarchy`. Details below.
+
+### Fix: Enhance→Skill specialty filter showed wrong SP costs — TESTED & WORKING (2026-06-21)
+
+- **Symptom:** Camp → Enhance → Skill, then Square (specialty list) → Triangle (narrow to a
+  specialty's component skills, e.g. Oracle = ESP/Piety/Purity). In this filtered view the SP
+  level-up cost was wildly wrong (Purity read 200+/no value instead of 8); some skills (ESP)
+  read no SP requirement at all. Costs were correct in the unfiltered full skill list.
+- **Root cause:** `SkillInfoPresenter_Set_Postfix` (CampMenuHandler.Formation.cs) reads name/level/
+  desc from the fresh presenter `data`, but read SP cost / max-level from
+  `_skillSelector.itemDataList[currentIndex]`. `currentIndex` is relative to the *visible* list.
+  The specialty filter swaps the visible list to a separate `narrowDownItemDataList`, so indexing
+  the full `itemDataList` pulled the cost of whatever skill happened to sit at that slot in the
+  full list (Piety@slot2 → Biology's 235; ESP@slot1 → Determination maxed → 0). Confirmed exactly
+  from the debug log.
+- **Fix:** when `_skillSelector.narrowDownSpecialSkillID != SpecialSkillID.INVALID`, read per-row
+  data from `narrowDownItemDataList` instead of `itemDataList`. Name/level/desc unaffected (same
+  item type); only the cost/max lookup is corrected. No change when no filter is active.
+
+### Item Creation special skills complete + pickpocket stale-fix (2026-06-21)
+
+- **Replication & Remaking now fully read — CONFIRMED WORKING by user.** Both are
+  "item-list-first" special skills: their first screen is an inventory item picker
+  (`itemListSelector`), not the generic action selector, so `ResolveFocusedActionSelector`
+  never saw them. Added a shared poller (`PollItemListSkills` / `PollItemPicker` /
+  `TryPollItemSkillCreateMode` / `SeedItemPickersOnEntry` in
+  CampMenuHandler.ItemCreation.ActionList.cs) covering both. Item picker reads name/qty/
+  position; the copy/remake count adjuster reads via the shared `PollCreateMode` driven off
+  the presenter's `createCountParent` (the selector's own count flag is stale).
+  - **Key gotcha:** the picker item lists stay populated across camp close/reopen, so they're
+    seeded on entry (`SeedItemPickersOnEntry`) and `PollItemPicker` returns FALSE on "no move"
+    — a stale picker must NOT claim the frame, or it blocks the other item-list skill AND the
+    generic action poller (this caused a Remaking regression + earlier Master Chef silence).
+  - Remaking note: pressing confirm on equipment "does nothing" is a GAME mechanic, not a mod
+    gap (item list reads fine). Not investigated further.
+- **Master Chef / Blacksmith / Music (no-item super specialties) — CONFIRMED WORKING.** Their
+  category lists (Seafood/Fruit…, Normal/Use a Tool, Compose/Perform…) are read by the generic
+  action fallback once the stale-picker blocking was fixed. An interim `AnnounceNoItemCategory`
+  hook band-aid was added then REMOVED (it double-announced); the action fallback is the proper
+  handler (reads name + needs + position).
+- **Pickpocket stale announcement — FIXED, PENDING USER TEST.** "Strength Bottle"/etc. was
+  announced mid-cutscene/dialogue/shop because PickpocketHandler keyed off the selector's own
+  `gameObject.activeInHierarchy` (stale-true when closed). Switched detection to
+  `selectChoicePresenter.gameObject.activeInHierarchy` — the visible choice presenter, the same
+  reliable signal DialogueChoiceHandler uses (PickpocketHandler.cs).
+
+### Housekeeping + status confirmations (2026-06-20)
+
+- **Dead world-map LIDAR removed.** Deleted the disabled `ApplyWorldmapMovement_Lidar` method
+  and its 4 unused constants (LidarRayCount/Range/ActivationRange + WmLidarLayerMask) from
+  NavigationHandler.Worldmap.cs (−174 lines). `WmObstacleLayerMask` kept (used by the live
+  pathfinder). Build 0/0. NOTE: this was the OLD shelved lidar; the NEW soft walk-assist
+  (SpatialSensor.cs) is unrelated and stays.
+- **"Island system" dead code:** confirmed already removed in a prior refactor (user recall +
+  grep — only legitimate "island" comments remain in DebugHotkeys F11 diag + Build.cs). No action.
+- **Quick Heal menu (D-pad Right): CONFIRMED WORKING by user (2026-06-20).** v2 (name/amount/
+  result + L3 key) done. No longer a pending item.
+- **Guild menu: accepted as-is by user.** Mission LIST reads (name/status/position). The guild
+  master's accept/report command menu + mission description/reward at the guild stay native-
+  silent — "as good as it's going to get; maybe revisit one day, likely unfixable." KNOWN_ISSUES.md
+  updated to reflect the partial-read reality (was stale, said "does not read").
+- **Walk assist (SpatialSensor): COMPLETE & confirmed smoother by user** (see entry below).
+
+### Soft spatial-awareness walk assist (LIDAR v2) — DONE, confirmed smoother (2026-06-20)
+
+User wants a "soft lidar" so the auto-walking player stops getting stuck on NPCs in
+towns/dungeons, WITHOUT veering off the route or failing to arrive. Foundation for a
+future exploration mode + manual-walk assist.
+
+PRIOR-ART CHECK: there IS an old 36-ray world-map LIDAR (`ApplyWorldmapMovement_Lidar`
+in NavigationHandler.Worldmap.cs, lines ~480-635) but it is DEAD CODE — explicitly
+"preserved but disabled"; all call sites use the plain `ApplyWorldmapMovement`. The
+world map was solved with the CalcHeight A* + safe approach/exit points instead. Kept
+as reference. Field/town auto-walk had NO sensing at all — NavMesh waypoints only, with
+reactive post-stuck recalc + big 3/5/8m detours (the "too aggressive" behavior).
+
+NEW (this session): `SpatialSensor.cs` — reusable soft-steering component. HYBRID detection
+(user-chosen): position-based repulsion from cached FieldNpcCharacter transforms (NPCs +
+enemy symbols; player/followers excluded) PLUS a short 3-ray forward wall fan on L22|L23.
+Returns the desired heading nudged away from obstacles, HARD-CAPPED at ±35° (Vector3.
+SignedAngle clamp), decaying to zero when clear — can't redirect or change destination.
+Target transform passed as `exclude` so it never steers off the NPC/chest being approached.
+Rescans dynamic bodies every 30 frames; self-prunes dead transforms.
+
+Wiring: NavigationHandler.cs field walk loop (~line 1049) nudges `moveDir` via
+`_spatialSensor.Steer(...)` before WorldDirToCameraStick, gated on ModSettings.WalkAssistEnabled
+(default ON). New F4 toggle "Walk assist" (A/B test). Throttled debug line "NAV walk-assist:
+steering around a nearby obstacle." Existing stuck-detection/detour stays as heavy fallback.
+Files: SpatialSensor.cs (new), NavigationHandler.cs, ModSettings.cs, ModMenuHandler.cs, Loc.cs.
+Build 0/0, deployed.
+
+WATCH IN TEST (F12 debug ON): (1) auto-walk through a town with NPCs in the path — player
+should slip around them instead of grinding to a stuck stop; expect the throttled walk-assist
+log lines. (2) Confirm it still ARRIVES at every target (NPCs, chests, exits) and doesn't
+veer in tight corridors/doorways. If corridor veering shows up, flip `UseWallRays=false` in
+SpatialSensor.cs (one line) to fall back to NPC-only steering. (3) F4 → "Walk assist" toggles
+it so you can compare on/off.
+
+TEST 1 RESULT (2026-06-20, Latest.log 12:58–13:00, map MF_0009_01A): walk-assist IS engaging
+but player still went fully stuck (moved 0.00) on ONE specific NPC — `cn_0031_01` (pickpocketable
+town NPC; Talk|Pickpocket FieldPrompt confirms player wedged at contact range). Same NPC blocked
+routes to Fishing spot AND Story event (x2). The OLD heavy fallback (stuck recalc → 3m detour)
+freed the player each time after ~6–10s; targets STILL arrived. So soft cap (±35°) is too gentle
+to squeeze past a hard blocker in that chokepoint — by design the detour should take over, and did.
+UNKNOWN from that log: is she stationary-in-narrow-gap or wandering into the path? Old logging too
+thin to tell (user is blind, can't observe).
+
+DIAGNOSTIC BUILD (2026-06-20, build 0/0, deployed): SpatialSensor now emits a throttled (~3/sec)
+`WALK-ASSIST:` line whenever a body is ahead — logs nearest obstacle name + world pos, player dist,
+desired heading, nudge degrees, and `CAPPED` flag when the ±35° limit is the limiter. Reading the
+obstacle pos across lines reveals if she MOVES; steady small dist = pressed-against = narrow gap.
+Removed the old generic "steering around a nearby obstacle" line (replaced by the rich one).
+TEST 2 RESULT (2026-06-20, Latest.log 13:08, map MF_0009_01A): DEFINITIVE. Blocker NPC
+`NPC_0009_01a_107_WOMAN1` at (-13.0,20.0) — position ROCK-STEADY for the full 5s wedge → she is
+STATIONARY. Player frozen at (-12.9,19.0), d=0.96m, nudge=-35° CAPPED every line. Wall on the
+sidestep side (couldn't pass left). So: narrow chokepoint, soft ±35° too gentle to sidestep a
+sub-metre blocker. Old recalc fired first (useless — NavMesh is NPC-blind, returns same route),
+THEN the 3m detour freed the player after ~5s; user cancelled, fed up.
+
+FIX — ADAPTIVE SIDESTEP (Option 1) — BUILT, build 0/0, deployed (2026-06-20):
+- SpatialSensor cap is now ADAPTIVE. Gentle BaseCap=35° in the open. When wedged (obstacle ahead +
+  no >0.30m progress), after WedgeGrace=0.5s the cap ramps 35°→MaxWedgeCap=70° over WedgeRamp=0.7s
+  and speed drops to WedgeSpeedScale=0.6, so the sensor itself threads past the blocker smoothly.
+  Progress (>0.30m) resets it to gentle. New `LastSpeedScale` (caller scales stick) + `IsHardWedged`.
+- FAST HAND-OFF: if still no progress at HandoffDelay=1.6s, `IsHardWedged`=true. NavigationHandler
+  then SKIPS the NPC-blind recalc and calls TryStartObstacleAvoidance directly (physical 3m detour),
+  respecting MaxAvoidanceAttempts. So worst-case recovery ~1.6s vs old ~4s, and the jarring detour is
+  only reached if the smooth sidestep genuinely fails.
+- Sensor resets wedge/obstacle state on auto-walk start + StopAutoWalk.
+- Diagnostic enriched: WALK-ASSIST line now also logs cap=, wedge=Ns, and HARD-WEDGE flag.
+Files: SpatialSensor.cs (adaptive cap + speed + IsHardWedged), NavigationHandler.cs (speed scale +
+fast-escalation block), NavigationHandler.AutoWalk.cs (Reset on start/stop).
+WATCH IN TEST (F12): same cn_0031_01 chokepoint. Expect: brief CAPPED at 35°, then cap= climbs
+toward 70° and the player slips past smoothly WITHOUT the 3m detour; if it can't, expect HARD-WEDGE
+then "escalated straight to detour" within ~1.6s. Confirm no veering elsewhere / still arrives.
+
+TEST 3 RESULT (2026-06-20, Latest.log 14:51) — ADAPTIVE SIDESTEP CONFIRMED, kept. User: "seems
+smoother." Trace: cap widened cleanly 35→46→63→70° as wedge=0→1.4s, HARD-WEDGE at ~1.6s →
+"escalated straight to detour (skipped the NPC-blind recalc)" → player freed, went downstairs,
+reached target floor, progressing (game closed mid-walk). Recovery ~1.6s vs old ~4s = the smoothness.
+HONEST FINDING: the adaptive SIDESTEP itself did NOT free the player — the DETOUR did. Two reasons
+from the log: (1) the steer blend only ever asks ~42°, so the 70° cap was never exercised
+(SteerStrength limits it); (2) more fundamentally, NPC is in a CORNER — she sits slightly to the
+player's right (east), so "push away from her" steered the player LEFT (west) into a WALL (player
+moved 0.0m). The detour succeeded by going EAST (+1.4x) — the open gap was AROUND her on the
+blocked-looking side, the opposite of where soft repulsion pushes. So simple repulsion can't solve a
+cornered chokepoint; the detour's multi-direction NavMesh search is the right tool and now fires fast.
+DECISION (user): LEAVE AS IS — works + smoother, detour is correct for cornered blockers. Did NOT
+shorten HandoffDelay (1.6s) or add open-side probing (would reinvent the detour). Walk-assist
+feature COMPLETE for now. Future, if revisited: trim HandoffDelay to ~1.0s to cut wall-grind, or
+make sidestep choose the OPEN side (bigger change). F4 "Walk assist" toggles the whole thing.
+
 ### Session 2026-06-16 — stale-announcement + readout fixes (DEPLOYED, build 0/0)
 
 Three fixes, all built and copied to Mods:
@@ -455,7 +611,7 @@ character?" then each member read as you move up/down.
   item far below base => bonuses not applying / attempts / mood; low rate on rare item =>
   working as intended. Files: PickpocketHandler.cs (LogPickpocketDiagnostic), DebugHotkeys.cs, Main.cs.
 **Last completed:** Fish Collector ("Reel") menu — fish-name resolution via condition panel. TESTED & WORKING (2026-06-15)
-**Currently working on (secondary):** Quick Heal Menu (D-pad Right) — WORKING (v1 tested); v2 name/amount/result fixes + L3 key, low-priority retest pending (2026-06-14)
+**Quick Heal Menu (D-pad Right): DONE — CONFIRMED WORKING by user (2026-06-20).** v1 + v2 (name/amount/result fixes + L3 key) both verified in-game.
 **Last completed:** Item Creation — Appraise result announcement (2026-06-13) — TESTED & WORKING
 
 ### Fish Collector menu — TESTED & WORKING (2026-06-15)
