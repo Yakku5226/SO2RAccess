@@ -195,6 +195,9 @@ namespace SO2RAccess
                 ? Time.time + CarveSettleDelay
                 : 0f;
 
+            // Fresh carve-oscillation (livelock) state for this walk.
+            ResetLivelockState();
+
             ScreenReader.Say(Loc.Get("nav_autowalk_start", item.Label));
             DebugLogger.LogState(
                 $"NAV auto-walk started. target={item.Label} " +
@@ -237,6 +240,8 @@ namespace SO2RAccess
             _carveRefreshTimer          = 0f;
             _carvePeriodicTimer         = 0f;
             _carveWedgeRecalcs          = 0;
+            // Clear livelock state + lift carve suppression so the next walk carves again.
+            ResetLivelockState();
             DebugLogger.LogState("NAV auto-walk cancelled.");
         }
 
@@ -418,6 +423,7 @@ namespace SO2RAccess
             _fieldStuckRecalcAttempted  = false;
             _isAvoidingObstacle         = false;
             _avoidanceAttempt           = 0;
+            ResetLivelockState();
 
             try { _autoWalkSpeed = player.GetMoveSpeed(true); }
             catch { _autoWalkSpeed = 10.0f; }
@@ -885,8 +891,205 @@ namespace SO2RAccess
             _pathCornerIndex = corners.Length > 1 ? 1 : 0;
             _pathRecalcTimer = 0f;
 
+            TrackPathStability(corners);
             LogPath(corners);
             return true;
+        }
+
+        /// <summary>
+        /// Clears all carve-oscillation (livelock) tracking state and lifts any carve
+        /// suppression so the next walk starts clean. Called on walk start, resume, and cancel.
+        /// </summary>
+        private void ResetLivelockState()
+        {
+            _lastPathFirstLegDir     = Vector3.zero;
+            _pathFirstLegValid       = false;
+            _pathReversalCount       = 0;
+            _livelockAnchored        = false;
+            _walkBestApproach        = float.MaxValue;
+            _carveSuppressedForBlock = false;
+            _blockCommitDeadline     = 0f;
+            _carverPool.Suppress(false);
+        }
+
+        /// <summary>
+        /// Records the first-leg heading of each accepted path and counts how often it
+        /// REVERSES between consecutive recalcs. Carve-oscillation (a goal walled in by
+        /// near-only-carved NPCs) is the only case that keeps alternating the first-leg
+        /// direction toward ↔ away; a legitimate long detour keeps one stable heading.
+        /// Every accepted path funnels through CalculateAndStorePathCore, so this single
+        /// instrument covers every recalc site. See <see cref="HandleCarveLivelock"/>.
+        /// </summary>
+        private void TrackPathStability(Vector3[] corners)
+        {
+            if (_isWorldmap) return;
+
+            Vector3 dir = Vector3.zero;
+            if (corners != null && corners.Length >= 2)
+            {
+                dir = corners[1] - corners[0];
+                dir.y = 0f;
+                dir = dir.sqrMagnitude > 1e-4f ? dir.normalized : Vector3.zero;
+            }
+
+            if (_pathFirstLegValid && dir != Vector3.zero && _lastPathFirstLegDir != Vector3.zero
+                && Vector3.Dot(dir, _lastPathFirstLegDir) < PathReversalDot)
+            {
+                _pathReversalCount++;
+                _livelockAnchored = true;
+                DebugLogger.LogState($"NAV livelock: first-leg reversed, count={_pathReversalCount}.");
+            }
+
+            _lastPathFirstLegDir = dir;
+            _pathFirstLegValid = dir != Vector3.zero;
+        }
+
+        /// <summary>
+        /// Announces an auto-walk give-up. When a physically-blocking NPC sits in the
+        /// forward cone toward the target, the player is told the destination is blocked
+        /// by people; otherwise the generic "path blocked" message is used.
+        /// </summary>
+        private void AnnounceBlockedGiveUp(Vector3 playerPos)
+        {
+            bool people = IsBlockedByPersonAhead(playerPos);
+            ScreenReader.Say(Loc.Get(
+                people ? "nav_autowalk_blocked_people" : "nav_autowalk_stuck",
+                _autoWalkLabel));
+            DebugLogger.LogState($"NAV give-up: blockedByPeople={people} label='{_autoWalkLabel}'.");
+        }
+
+        /// <summary>
+        /// True if a physically-blocking NPC is in the forward cone toward the target,
+        /// within <see cref="BlockProbeRange"/>. Uses the game's own ground truth:
+        /// <c>FieldNpcCharacter.isPlayerObstacle</c> (or a non-empty
+        /// <c>obstacleEventFunction</c>, i.e. an NPC that fires an event when bumped).
+        /// Same enumeration/filter pattern as <see cref="GatherCarveTargets"/>.
+        /// </summary>
+        private bool IsBlockedByPersonAhead(Vector3 playerPos)
+        {
+            try
+            {
+                Vector3 dir = _autoWalkTarget - playerPos;
+                dir.y = 0f;
+                if (dir.sqrMagnitude < 1e-4f) return false;
+                dir.Normalize();
+
+                var found = UnityEngine.Object.FindObjectsOfType<FieldNpcCharacter>();
+                if (found == null) return false;
+
+                foreach (var npc in found)
+                {
+                    if (npc == null) continue;
+                    if (npc.TryCast<FieldPlayer>() != null) continue;
+                    if (npc.TryCast<FieldFollowCharacter>() != null) continue;
+                    if (npc.TryCast<FieldEnemy>() != null) continue;
+
+                    Vector3 to = npc.transform.position - playerPos;
+                    to.y = 0f;
+                    float d = to.magnitude;
+                    if (d < 0.01f || d > BlockProbeRange) continue;
+                    if (Vector3.Dot(dir, to / d) < BlockAheadCos) continue; // not ahead
+
+                    bool blk = false;
+                    string ev = null;
+                    try { blk = npc.isPlayerObstacle; } catch { }
+                    try { ev = npc.obstacleEventFunction; } catch { }
+                    if (blk || !string.IsNullOrEmpty(ev))
+                    {
+                        DebugLogger.LogState(
+                            $"NAV give-up: blocking NPC '{npc.name}' d={d:F1}m " +
+                            $"isPlayerObstacle={blk} evt='{ev}'.");
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV blocked-ahead error: {ex.Message}");
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Carve-oscillation (livelock) handler. Confirms the flip-flop (alternating
+        /// first-leg reversals with no genuine approach to the target), then suppresses
+        /// carving for the rest of the walk and commits to the un-carved (pre-carving)
+        /// route so the player heads straight at the blockers and is told the destination
+        /// is blocked. Returns true if the walk was ended this frame.
+        /// Called every frame from the field auto-walk update loop.
+        /// </summary>
+        private bool HandleCarveLivelock(Vector3 playerPos)
+        {
+            try
+            {
+                // Already committed: walk the direct route until we wedge or time out.
+                if (_carveSuppressedForBlock)
+                {
+                    bool wedged = ModSettings.WalkAssistEnabled && _spatialSensor.IsHardWedged;
+                    if (wedged || Time.time >= _blockCommitDeadline)
+                    {
+                        AnnounceBlockedGiveUp(playerPos);
+                        CancelAutoWalk();
+                        return true;
+                    }
+                    return false; // keep walking; normal arrival still fires upstream if the way is clear
+                }
+
+                // Own horizontal distance to the target — the loop's targetDist is
+                // float.MaxValue for different-floor targets, which would neuter the
+                // best-approach guard, so compute it here (XZ works on any floor).
+                float ddx = _autoWalkTarget.x - playerPos.x;
+                float ddz = _autoWalkTarget.z - playerPos.z;
+                float targetDist = Mathf.Sqrt(ddx * ddx + ddz * ddz);
+
+                // Detours legitimately change direction — never count those as reversals.
+                if (_isAvoidingObstacle)
+                {
+                    _livelockAnchored = false;
+                    _pathReversalCount = 0;
+                    return false;
+                }
+
+                // Genuine progress = beating the best approach ever achieved this walk.
+                // (The player keeps re-touching the blocker line at the same distance during
+                // the oscillation, so only a NEW closest distance counts — a real detour keeps
+                // beating it; a walled-in goal plateaus.)
+                if (targetDist < _walkBestApproach - LivelockApproachEps)
+                {
+                    _walkBestApproach = targetDist;
+                    _livelockAnchored = false;
+                    _pathReversalCount = 0;
+                    return false;
+                }
+                if (targetDist < _walkBestApproach) _walkBestApproach = targetDist;
+
+                if (_livelockAnchored && _pathReversalCount >= LivelockMinReversals)
+                {
+                    DebugLogger.LogState(
+                        $"NAV livelock CONFIRMED: reversals={_pathReversalCount}, " +
+                        $"bestApproach={_walkBestApproach:F1}m (no improvement). " +
+                        "Suppressing carvers, committing to the direct route.");
+
+                    _carverPool.Suppress(true);
+                    _carveSuppressedForBlock = true;
+                    _blockCommitDeadline = Time.time + BlockCommitTimeout;
+                    _pathFirstLegValid = false; // don't count the commit recompute as a reversal
+
+                    if (!CalculateAndStorePathCore(playerPos, _autoWalkTarget,
+                            allowPartial: true, isCounter: _autoWalkIsCounter))
+                    {
+                        AnnounceBlockedGiveUp(playerPos);
+                        CancelAutoWalk();
+                        return true;
+                    }
+                    // else: fall through and walk the committed un-carved route this frame.
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV livelock error: {ex.Message}");
+            }
+            return false;
         }
 
         /// <summary>Logs the accepted path details.</summary>
@@ -1057,6 +1260,11 @@ namespace SO2RAccess
                     _fieldLastStuckCheckPos = playerPos;
                     _fieldStuckTimer = 0f;
                     _fieldStuckRecalcAttempted = false;
+                    // A detour legitimately changes heading — don't let the next stored
+                    // path's reversal vs the pre-detour heading count as oscillation.
+                    _pathFirstLegValid = false;
+                    _pathReversalCount = 0;
+                    _livelockAnchored = false;
 
                     DebugLogger.LogState(
                         $"NAV obstacle avoidance: detour " +

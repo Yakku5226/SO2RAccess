@@ -165,6 +165,7 @@ namespace SO2RAccess
             Add("nav_autowalk_no_navmesh", "No navigation data available.");
             Add("nav_autowalk_lost_path",  "Lost path to {0}.");
             Add("nav_autowalk_stuck",      "Path blocked to {0}. Auto-walk stopped.");
+            Add("nav_autowalk_blocked_people", "{0} is blocked by people. Auto-walk stopped.");
             Add("nav_floor_up",            "Went upstairs.");
             Add("nav_floor_down",          "Went downstairs.");
             Add("nav_label_above",         "{0} (above)");

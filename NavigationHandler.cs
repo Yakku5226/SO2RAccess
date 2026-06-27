@@ -321,12 +321,37 @@ namespace SO2RAccess
         private float _carvePeriodicTimer;
         // Bounded carve recalcs on hard-wedge before falling back to the physical detour.
         private int _carveWedgeRecalcs;
+
+        // Carve-oscillation (livelock) state — see HandleCarveLivelock / TrackPathStability.
+        private Vector3 _lastPathFirstLegDir;     // first-leg heading of the currently stored path
+        private bool    _pathFirstLegValid;       // false until a usable first leg exists / after a detour
+        private int     _pathReversalCount;       // alternating first-leg reversals in the current window
+        private bool    _livelockAnchored;        // a reversal window is open
+        private float   _walkBestApproach;        // smallest XZ dist-to-target this walk; improvement = real progress
+        private bool    _carveSuppressedForBlock; // committed to the un-carved (pre-carving) route for this walk
+        private float   _blockCommitDeadline;     // Time.time by which the block is confirmed or we give up
+
         private const int CarverCap = 12;          // max NPCs carved at once
         private const float CarverRefreshInterval = 0.25f; // reposition cadence (s)
         private const float CarveSettleDelay = 0.4f;       // wait before initial carved recalc (s)
         private const float CarvePeriodicInterval = 1.0f;  // re-route cadence while carving (s)
         private const int MaxCarveWedgeRecalcs = 3;        // carve recalcs per walk before detour
         private const float CarveBand = 7f;        // only carve NPCs within this radius of the player (m)
+
+        // Carve-oscillation (livelock) detection. When an auto-walk target sits behind a
+        // line of blocking NPCs (e.g. an event behind a row of soldiers), the near-only
+        // carvers toggle as the player moves, so the planner flip-flops the route between
+        // "straight at the goal" and a big "loop around the room" — the player paces back
+        // and forth forever. A baked wall never toggles, so a legitimate long detour keeps
+        // ONE stable first-leg heading and the player nets genuinely closer over time. The
+        // oscillation is the only case that ALTERNATES the stored path's first-leg direction
+        // while best-ever approach to the target never improves. See HandleCarveLivelock.
+        private const float PathReversalDot = -0.25f;   // first-leg dot below this = a reversal (~>104 deg)
+        private const int   LivelockMinReversals = 3;   // alternating reversals to confirm oscillation
+        private const float LivelockApproachEps = 1.5f; // best-approach must improve by this to count as progress (m)
+        private const float BlockCommitTimeout = 3f;    // s to confirm the block after committing to the direct route
+        private const float BlockProbeRange = 1.8f;     // m: blocking-NPC search radius for the give-up message
+        private const float BlockAheadCos = 0.5f;       // forward cone (cos ~ 60 deg) for the give-up message
 
         // Observed-traversal map: records where the player actually walks and
         // routes over those breadcrumbs (100% reliable). See TraversalGraph.cs.
@@ -656,6 +681,7 @@ namespace SO2RAccess
                 {
                     _carveForceRecalcAt = 0f;
                     if (_carverPool.ActiveCount > 0 && !_isAvoidingObstacle
+                        && !_carveSuppressedForBlock
                         && CalculateAndStorePath(playerPos, _autoWalkTarget,
                                 allowPartial: true, isCounter: _autoWalkIsCounter))
                     {
@@ -670,7 +696,8 @@ namespace SO2RAccess
                 // and the moving-NPC recalc below never fires for a stationary target).
                 // Keeps the route around oncoming spectators BEFORE the player wedges.
                 if (_carverPool.ActiveCount > 0 && ModSettings.NpcAwarePathfindingEnabled
-                    && !_isAvoidingObstacle && _carveForceRecalcAt == 0f)
+                    && !_isAvoidingObstacle && _carveForceRecalcAt == 0f
+                    && !_carveSuppressedForBlock)
                 {
                     _carvePeriodicTimer += Time.deltaTime;
                     if (_carvePeriodicTimer >= CarvePeriodicInterval)
@@ -849,7 +876,7 @@ namespace SO2RAccess
                         else
                         {
                             DebugLogger.LogState("NAV obstacle avoidance: recalc failed after detour.");
-                            ScreenReader.Say(Loc.Get("nav_autowalk_stuck", _autoWalkLabel));
+                            AnnounceBlockedGiveUp(playerPos);
                             CancelAutoWalk();
                             return;
                         }
@@ -865,13 +892,21 @@ namespace SO2RAccess
                     }
                 }
 
+                // --- Carve-oscillation (livelock) detection ---
+                // When the goal is walled in by near-only-carved NPCs the route flip-flops
+                // and the player paces forever. Confirm that, then suppress carving and
+                // commit to the direct route so the player is told the way is blocked.
+                // (While committed, HandleCarveLivelock above owns the wedge/timeout give-up
+                // and the carve recalc paths below are frozen via _carveSuppressedForBlock.)
+                if (HandleCarveLivelock(playerPos)) return;
+
                 // --- Sensor-driven fast escalation ---
                 // If the adaptive walk-assist sidestep has provably failed (a body is
                 // wedged ahead and the widened cap still made no progress), skip the
                 // NavMesh recalc — it is blind to NPCs and would just return the same
                 // route through the blocker — and go straight to a physical detour.
                 if (ModSettings.WalkAssistEnabled && _spatialSensor.IsHardWedged
-                    && !_isAvoidingObstacle)
+                    && !_isAvoidingObstacle && !_carveSuppressedForBlock)
                 {
                     // With NPC-aware carving the recalc is NO LONGER blind — the blocker
                     // is a hole in the NavMesh, so a recalc CAN route around it. Try that
@@ -896,7 +931,7 @@ namespace SO2RAccess
                     {
                         DebugLogger.LogState(
                             "NAV walk-assist: hard wedge, max avoidance attempts reached. Cancelling.");
-                        ScreenReader.Say(Loc.Get("nav_autowalk_stuck", _autoWalkLabel));
+                        AnnounceBlockedGiveUp(playerPos);
                         CancelAutoWalk();
                         return;
                     }
@@ -937,13 +972,23 @@ namespace SO2RAccess
                             else
                             {
                                 DebugLogger.LogState("NAV field stuck recalc failed. Cancelling.");
-                                ScreenReader.Say(Loc.Get("nav_autowalk_stuck", _autoWalkLabel));
+                                AnnounceBlockedGiveUp(playerPos);
                                 CancelAutoWalk();
                                 return;
                             }
                         }
                         else
                         {
+                            // Committed to the un-carved route after a confirmed carve
+                            // oscillation — the blockers are people, so give up here
+                            // instead of detouring around them.
+                            if (_carveSuppressedForBlock)
+                            {
+                                AnnounceBlockedGiveUp(playerPos);
+                                CancelAutoWalk();
+                                return;
+                            }
+
                             // Recalc didn't help — try obstacle avoidance detour.
                             // Give up after MaxAvoidanceAttempts to prevent infinite
                             // stuck loops (e.g. guards blocking the path).
@@ -952,7 +997,7 @@ namespace SO2RAccess
                                 DebugLogger.LogState(
                                     $"NAV field stuck: max avoidance attempts " +
                                     $"({MaxAvoidanceAttempts}) reached. Cancelling.");
-                                ScreenReader.Say(Loc.Get("nav_autowalk_stuck", _autoWalkLabel));
+                                AnnounceBlockedGiveUp(playerPos);
                                 CancelAutoWalk();
                                 return;
                             }
@@ -968,7 +1013,7 @@ namespace SO2RAccess
                                 // No walkable detour found — give up.
                                 DebugLogger.LogState(
                                     $"NAV field stuck after recalc, no detour available. Cancelling.");
-                                ScreenReader.Say(Loc.Get("nav_autowalk_stuck", _autoWalkLabel));
+                                AnnounceBlockedGiveUp(playerPos);
                                 CancelAutoWalk();
                                 return;
                             }

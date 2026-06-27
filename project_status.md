@@ -37,6 +37,49 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> ⏳ **PENDING USER TEST (2026-06-27): Auto-walk carve-oscillation (livelock) fix.**
+> BUG: walking to a target walled in by NPCs (repro: Crosse Castle throne room MF_0007_01A,
+> a side-event ~2m behind a row of soldiers you must talk to) made the player PACE BACK AND
+> FORTH FOREVER. Root cause (log Latest.log/26-6-27_13-56-42): the near-only NPC carvers
+> (CarveBand=7) toggle as the player moves → NavMesh flip-flops between the short direct route
+> and a ~32-wp loop around the room (far soldiers ringing the event are un-carved, so the
+> planner thinks that floor is open). Existing stuck give-up never fired because it resets on
+> RAW movement and the player IS moving (back and forth).
+> FIX (no length heuristics — user rejected those twice; near-only carving KEPT): detect the
+> flip-flop by counting first-leg HEADING REVERSALS of successive stored paths
+> (TrackPathStability, dot < PathReversalDot=-0.25) combined with NO improvement to best-ever
+> XZ approach to the target (LivelockApproachEps=1.5). A baked-wall detour keeps one stable
+> heading + keeps netting closer, so it's structurally immune (no false positive on legit long
+> routes). On confirm (>=3 reversals, HandleCarveLivelock): SUPPRESS carving for the rest of the
+> walk (_carverPool.Suppress + _carveSuppressedForBlock), recompute un-carved (= pre-carving
+> behavior), then give up on hard-wedge or a 3s timeout. Give-up message is CAUSAL via the game's
+> own truth FieldNpcCharacter.isPlayerObstacle / obstacleEventFunction (IsBlockedByPersonAhead,
+> forward cone 1.8m): new Loc nav_autowalk_blocked_people "{0} is blocked by people. Auto-walk
+> stopped." (neutral wording per user — no "talk to them", no event claim). All existing stuck
+> give-ups now route through AnnounceBlockedGiveUp so they're people-aware too. Carve recalc sites
+> frozen while committed; livelock state reset on start/resume/cancel/detour (ResetLivelockState).
+> Files: NavigationHandler.cs, NavigationHandler.AutoWalk.cs, Loc.cs. Build 0/0, deployed.
+> **TEST RESULT (CONFIRMED WORKING, log 26-6-27 18:56 / 19:02 / 19:05):** oscillation is FIXED —
+> `NAV livelock: first-leg reversed, count=1..3` → `NAV livelock CONFIRMED: reversals=3,
+> bestApproach=2.9m (no improvement). Suppressing carvers, committing to the direct route` → the
+> pacing stops and auto-walk gives up cleanly (~3s timeout) on the side-event AND the King. User
+> confirms it works as intended. Committed.
+> **KNOWN SHORTFALL (people-aware message not yet firing — `blockedByPeople=False` every time):**
+> at commit the recomputed path is STILL the 32-wp loop (log line 857) because
+> `_carverPool.Suppress(true)` deactivates the carvers but the NavMesh carve-restore is DEFERRED a
+> frame, so `CalculateAndStorePathCore` returns the stale loop. The player therefore walks partway
+> AROUND the loop instead of straight into the soldiers, and at give-up sits ~2.48m from the
+> nearest soldier (just outside BlockProbeRange=1.8m) → generic "Path blocked to {0}" message (still
+> correct + useful). FIX IDEA (untested, next session): on commit, walk a STRAIGHT-LINE path to the
+> target (set `_pathCorners = {player, target}`, bypassing the lagged NavMesh) so the player presses
+> into the blockers; AND switch `IsBlockedByPersonAhead` to the PascalCase property
+> `IsPlayerObstacle` (runtime-invoke) not the lowercase `isPlayerObstacle` field — same IL2CPP
+> stale-backing-field rule as IsAcquired/IsPlayerObstacle. The 2.48m soldier never entered range so
+> the field-vs-property question is still UNCONFIRMED.
+> REGRESSION CHECKS still to do: a legit long detour (around a wall / upstairs) must still complete
+> (reversals stay <3, no CONFIRMED line); a normal threadable crowd (arena) must still carve around.
+> Tunables: LivelockMinReversals, LivelockApproachEps, PathReversalDot, BlockCommitTimeout, BlockProbeRange.
+
 > ⏳ **PENDING USER TEST (2026-06-27): Event NPCs in Events category + toggle.**
 > Event-carrying NPCs (active "!", detected via NpcEnableScenario/NpcEnableSub) can now also
 > appear in the Events nav category, so they're findable in crowded maps (castle/arena). New
