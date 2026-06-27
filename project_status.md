@@ -64,22 +64,16 @@
 > bestApproach=2.9m (no improvement). Suppressing carvers, committing to the direct route` → the
 > pacing stops and auto-walk gives up cleanly (~3s timeout) on the side-event AND the King. User
 > confirms it works as intended. Committed.
-> **PEOPLE-AWARE MESSAGE — FIX APPLIED, PENDING USER TEST (committed after the confirmed-working
-> oscillation fix above).** First test showed `blockedByPeople=False` every time: at commit the
-> recomputed path was STILL the 32-wp loop (log line 857) because `_carverPool.Suppress(true)`
-> deactivates the carvers but the NavMesh carve-restore is DEFERRED a frame, so an immediate
-> `CalculateAndStorePathCore` returns the stale loop — the player walked partway AROUND the loop and
-> gave up ~2.48m from the nearest soldier (just outside BlockProbeRange=1.8m). TWO FIXES NOW MADE
-> (HandleCarveLivelock + IsBlockedByPersonAhead): (1) on commit, walk a STRAIGHT-LINE 2-point path
-> `_pathCorners = {player, target}` bypassing the lagged NavMesh, so the player presses straight
-> into the blockers and the game's own collision stops them there; (2) `IsBlockedByPersonAhead` now
-> reads the PascalCase property `IsPlayerObstacle` (IL2CPP runtime-invoke), not the lowercase
-> `isPlayerObstacle` field which can read stale (same rule as IsAcquired for chests). Build 0/0,
-> deployed. EXPECT NOW: at give-up the player is against the soldiers → `NAV give-up: blocking NPC
-> '...' IsPlayerObstacle=True` (or non-empty evt) → speaks "<dest> is blocked by people. Auto-walk
-> stopped." If IsPlayerObstacle is STILL False with a soldier in range, the obstacleEventFunction
-> fallback should still catch event-gating blockers; if neither, the soldiers block via a different
-> mechanism (re-investigate — FieldEventCollision / contactDistance).
+> **PEOPLE-AWARE MESSAGE — CLOSED (generic message kept, by user choice).** The straight-line
+> commit fix WORKED (log 26-6-27 19:55): the player now presses straight into the soldiers (give-up
+> at player (0.1,-56.7), SOLDIER1b 1.0m ahead, in cone). BUT `blockedByPeople` is still False — a
+> diagnostic build confirmed these throne-room soldiers expose NEITHER `IsPlayerObstacle`/
+> `isPlayerObstacle` NOR an `obstacleEventFunction`; they block via ordinary character collision, so
+> the people-aware branch never fires. User decided the generic "Path blocked to {0}. Auto-walk
+> stopped." is fine and NOT worth chasing the "blocked by people" wording. Diagnostics reverted; the
+> IsBlockedByPersonAhead helper + nav_autowalk_blocked_people Loc key are KEPT (harmless, and they
+> WILL fire for any NPC that does expose isPlayerObstacle/obstacleEventFunction elsewhere). The
+> committed oscillation fix (4bfe481) + straight-line/property follow-up (14b414a) is the final state.
 > REGRESSION CHECKS still to do: a legit long detour (around a wall / upstairs) must still complete
 > (reversals stay <3, no CONFIRMED line); a normal threadable crowd (arena) must still carve around.
 > Tunables: LivelockMinReversals, LivelockApproachEps, PathReversalDot, BlockCommitTimeout, BlockProbeRange.
