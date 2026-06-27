@@ -179,6 +179,7 @@ namespace SO2RAccess
             Add("nav_marker",         "Undiscovered location");
             Add("nav_marker_n",       "Undiscovered location {0}");
             Add("nav_npc_n",          "NPC {0}");
+            Add("nav_npc_event_tag",  "{0} (event)");
             Add("nav_event_story",              "Story event");
             Add("nav_event_pa",                 "Private action");
             // Honest "could not reach" messages — used when the path stops short
@@ -553,6 +554,11 @@ namespace SO2RAccess
             Add("mod_menu_label_jump_sound",        "Jump prompt sound");
             Add("mod_menu_label_jump_speech",       "Jump prompt speech");
             Add("mod_menu_label_walk_assist",       "Walk assist");
+            Add("mod_menu_label_npc_aware_path",    "NPC-aware pathfinding");
+            Add("mod_menu_label_event_npc_display", "Event NPCs in nav list");
+            Add("mod_menu_event_npc_npclist",       "NPC list");
+            Add("mod_menu_event_npc_events",        "Events list");
+            Add("mod_menu_event_npc_both",          "Both lists");
 
             // Field prompts (button guide above the player / interactables)
             Add("jump_prompt",            "Press {0} to jump down.");

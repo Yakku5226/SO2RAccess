@@ -59,6 +59,20 @@ namespace SO2RAccess
         /// </summary>
         private const float MaxClearancePenalty = 3.0f;
 
+        /// <summary>
+        /// Preferred minimum clearance (meters) for the first pathfinding
+        /// pass. The grid bakes a hard 0.50m floor at generation time, which
+        /// equals the player's capsule radius — gaps that tight wedge the
+        /// player (they cannot fit even when aimed dead-center). We first
+        /// search for a route where every cell has at least this much
+        /// clearance (a real safety margin). Only if NO such route exists do
+        /// we fall back to the 0.50m-floor route. This steers the player onto
+        /// wider roads when one exists, WITHOUT ever making a destination less
+        /// reachable than before: the fallback pass is identical to the
+        /// original behavior.
+        /// </summary>
+        private const float PreferredMinClearance = 0.60f;
+
         /// <summary>8-directional movement offsets.</summary>
         private static readonly int[,] Directions = {
             { 0, 1 }, { 1, 0 }, { 0, -1 }, { -1, 0 },
@@ -229,9 +243,24 @@ namespace SO2RAccess
                     return null;
                 }
 
-                // A* search with slope checking and wall proximity penalty.
+                // Tiered A* search: first try a route where every cell has a
+                // real clearance margin (PreferredMinClearance) so the player
+                // is never threaded through a body-width gap. Only if no such
+                // route exists do we fall back to the grid's baked 0.50m floor
+                // (the original behavior). This prefers wide roads when one
+                // exists but never removes a reachable destination.
                 var path = AStarSearch(startAx, startAz, endAx, endAz,
-                    workHeight, gridW, gridH, grid);
+                    workHeight, gridW, gridH, grid, PreferredMinClearance);
+
+                if (path == null)
+                {
+                    DebugLogger.LogState(
+                        $"NAV WM pathfinder: no route at " +
+                        $"{PreferredMinClearance:F2}m clearance — falling back " +
+                        $"to the 0.50m floor.");
+                    path = AStarSearch(startAx, startAz, endAx, endAz,
+                        workHeight, gridW, gridH, grid, 0f);
+                }
 
                 if (path == null)
                 {
@@ -293,7 +322,8 @@ namespace SO2RAccess
         private static List<Vector2Int> AStarSearch(
             int sx, int sz, int ex, int ez,
             ushort[,] height, int gridW, int gridH,
-            WorldmapGridGenerator.CachedGrid grid = null)
+            WorldmapGridGenerator.CachedGrid grid = null,
+            float minClearance = 0f)
         {
             var gCost = new float[gridW, gridH];
             var parentDir = new byte[gridW, gridH];
@@ -351,6 +381,13 @@ namespace SO2RAccess
                     if (grid != null)
                     {
                         float clr = grid.GetClearance(nx, nz);
+
+                        // Hard clearance floor (first pass only). Cells too
+                        // narrow for the player to fit through are skipped
+                        // entirely. minClearance == 0 in the fallback pass
+                        // disables this, preserving original reachability.
+                        if (minClearance > 0f && clr < minClearance) continue;
+
                         if (clr < ComfortableClearance)
                         {
                             float ratio = (ComfortableClearance - clr) /

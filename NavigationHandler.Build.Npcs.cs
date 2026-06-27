@@ -35,24 +35,87 @@ namespace SO2RAccess
             var npcItems = new List<NavItem>();
             var interactItems = new List<NavItem>();
             var paItems = new List<NavItem>();
+            // Event-carrying NPCs (active "!") routed into the Events category when the
+            // EventNpcDisplay setting is EventsList or Both (see BuildNpcs tail).
+            var eventNpcItems = new List<NavItem>();
             foreach (var npc in found)
             {
                 if (npc == null) continue;
 
-                // Skip enemies — they have their own category
-                if (npc.TryCast<FieldEnemy>() != null) continue;
-
                 Vector3 pos  = npc.transform.position;
                 float   dist = Vector3.Distance(playerPos, pos);
 
-                // Skip player character and party members — not interactable on field
-                if (npc.TryCast<FieldPlayer>() != null) continue;
-                if (npc.TryCast<FieldFollowCharacter>() != null) continue;
+                // Skip enemies — they have their own category
+                if (npc.TryCast<FieldEnemy>() != null)
+                {
+                    DebugLogger.LogState(
+                        $"NAV:NPCSKIP '{SafeNpcName(npc)}' dist={dist:F1} — FieldEnemy.");
+                    continue;
+                }
+
+                // Skip player character and party members — not interactable on field.
+                // DIAGNOSTIC: split-off party members (e.g. Celine after the party leaves,
+                // GameObject "cp_0003_01") may be spawned as FieldPlayer instances and
+                // dropped here. Log + flag whether this is the actual control player so we
+                // can tell the real player from a placed party character.
+                var asPlayer = npc.TryCast<FieldPlayer>();
+                if (asPlayer != null)
+                {
+                    bool isControl = false;
+                    try
+                    {
+                        var cp = FieldManager.Instance?.GetControlPlayer();
+                        isControl = cp != null && cp.GetInstanceID() == asPlayer.GetInstanceID();
+                    }
+                    catch { /* best-effort flag */ }
+                    DebugLogger.LogState(
+                        $"NAV:NPCSKIP '{SafeNpcName(npc)}' dist={dist:F1} — FieldPlayer (control={isControl}).");
+                    continue;
+                }
+                if (npc.TryCast<FieldFollowCharacter>() != null)
+                {
+                    // DIAGNOSTIC (debug-only): event-placed party characters (code
+                    // name prefix "cp_", e.g. Celine after the party splits) may land
+                    // here and be silently dropped. Log the GameObject name + reason so
+                    // we can confirm why such a story-trigger NPC is missing from nav.
+                    DebugLogger.LogState(
+                        $"NAV:NPCSKIP '{SafeNpcName(npc)}' dist={dist:F1} — FieldFollowCharacter.");
+                    continue;
+                }
 
                 // Skip INVALID-type NPCs — background/decoration NPCs not meant for interaction
-                if (npc.NpcType == NpcType.INVALID) continue;
+                if (npc.NpcType == NpcType.INVALID)
+                {
+                    DebugLogger.LogState(
+                        $"NAV:NPCSKIP '{SafeNpcName(npc)}' dist={dist:F1} — NpcType.INVALID.");
+                    continue;
+                }
 
                 string label = ResolveNpcName(npc, npcParams, out string codeName);
+
+                // Tag NPCs that CURRENTLY have an active event the player can trigger
+                // (the game's red "!" map icon) so they stand out from identically-named
+                // background NPCs (e.g. the one story "Soldier" among a dozen). Kept in
+                // the NPC category per user preference.
+                //
+                // Uses the DYNAMIC GetEnable* signals — non-null only while the event's
+                // conditions are satisfied — NOT the static "ev_" code name. Confirmed via
+                // NAV:NPCEVT log (2026-06-27): the gatekeeper soldier read scenario=True
+                // before triggering and scenario=False after, while its "ev_" name and
+                // HasEvent() stayed true the whole time (which is why the prefix tag went
+                // stale). This also catches triggers with ordinary code names (e.g. a
+                // spectator that becomes a story trigger), which the prefix would miss.
+                // PA NPCs are handled separately below, so PA is excluded here.
+                bool enScenario = NpcEnableScenario(npc);
+                bool enSub      = NpcEnableSub(npc);
+                bool hasActiveEvent = enScenario || enSub;
+                if (hasActiveEvent)
+                {
+                    label = Loc.Get("nav_npc_event_tag", label);
+                    DebugLogger.LogState(
+                        $"NAV:NPCEVT tagged '{label}' codeName={codeName} "
+                        + $"scenario={enScenario} sub={enSub}");
+                }
                 bool isCounter = IsFunctionalNpcType(npc.npcType);
                 bool isInteractable = IsInteractableNpcType(npc.npcType);
 
@@ -113,16 +176,31 @@ namespace SO2RAccess
                 {
                     DebugLogger.LogGameValue(isInteractable ? "NAV:INTERACT" : "NAV:NPC",
                         $"[{label}] type={npc.npcType} dist={dist:F1} pos={pos}");
-                    if (isInteractable)
-                        interactItems.Add(item);
-                    else
-                        npcItems.Add(item);
+
+                    // Event-carrying NPCs (active "!") can be shown in the NPCs category,
+                    // the Events category, or both, per the EventNpcDisplay setting — so
+                    // story triggers are easy to find in crowded maps. Non-event NPCs are
+                    // unaffected and always go to their usual category.
+                    var mode = ModSettings.EventNpcDisplay;
+                    bool toNpcList = !hasActiveEvent || mode != EventNpcDisplayMode.EventsList;
+                    bool toEvents  = hasActiveEvent && mode != EventNpcDisplayMode.NpcList;
+
+                    if (toNpcList)
+                    {
+                        if (isInteractable)
+                            interactItems.Add(item);
+                        else
+                            npcItems.Add(item);
+                    }
+                    if (toEvents)
+                        eventNpcItems.Add(item); // NavItem is a struct → independent copy
                 }
             }
 
             SortAndFilterUnreachable(npcItems, playerPos);
             SortAndFilterUnreachable(interactItems, playerPos);
             SortAndFilterUnreachable(paItems, playerPos);
+            SortAndFilterUnreachable(eventNpcItems, playerPos);
 
             // Number any NPCs that still carry the generic "NPC" label.
             int npcNum = 1;
@@ -139,6 +217,34 @@ namespace SO2RAccess
             _categories[CAT_NPC].AddRange(npcItems);
             _categories[CAT_INTERACTABLE].AddRange(interactItems);
             _categories[CAT_EVENT].AddRange(paItems);
+            _categories[CAT_EVENT].AddRange(eventNpcItems);
+        }
+
+        /// <summary>
+        /// Returns the NPC GameObject name for diagnostics, guarded against IL2CPP
+        /// access errors. Used to identify skipped story-trigger NPCs (e.g. "cp_0003_01").
+        /// </summary>
+        private static string SafeNpcName(FieldNpcCharacter npc)
+        {
+            try { return npc.name; }
+            catch { return "?"; }
+        }
+
+        /// <summary>
+        /// True if the NPC currently has an ENABLED scenario event — its conditions are
+        /// satisfied right now (the game's red "!" is showing). Goes false once the event
+        /// has fired, unlike the static code name. IL2CPP-guarded.
+        /// </summary>
+        private static bool NpcEnableScenario(FieldNpcCharacter npc)
+        {
+            try { return npc.GetEnableScenarioEvent() != null; } catch { return false; }
+        }
+
+        /// <summary>True if the NPC currently has an ENABLED sub-event (see
+        /// <see cref="NpcEnableScenario"/>). IL2CPP-guarded.</summary>
+        private static bool NpcEnableSub(FieldNpcCharacter npc)
+        {
+            try { return npc.GetEnableSubEvent() != null; } catch { return false; }
         }
 
         /// <summary>

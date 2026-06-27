@@ -185,6 +185,16 @@ namespace SO2RAccess
 
             _spatialSensor.Reset(); // fresh wedge/obstacle state for this walk
 
+            // Arm NPC-aware carving: carvers are placed on the first field-update frame
+            // (UpdateFieldCarvers), then the path is recomputed once they've cut the mesh
+            // (the path above was computed on the un-carved mesh). World map excluded.
+            _carveRefreshTimer  = 0f;
+            _carvePeriodicTimer = 0f;
+            _carveWedgeRecalcs  = 0;
+            _carveForceRecalcAt = (!_isWorldmap && ModSettings.NpcAwarePathfindingEnabled)
+                ? Time.time + CarveSettleDelay
+                : 0f;
+
             ScreenReader.Say(Loc.Get("nav_autowalk_start", item.Label));
             DebugLogger.LogState(
                 $"NAV auto-walk started. target={item.Label} " +
@@ -221,6 +231,12 @@ namespace SO2RAccess
             _isAvoidingObstacle         = false;
             _avoidanceAttempt           = 0;
             _isWorldmap                 = false;
+            // Stop carving (also covers scene change — Main.OnSceneWasLoaded cancels).
+            _carverPool.DeactivateAll();
+            _carveForceRecalcAt         = 0f;
+            _carveRefreshTimer          = 0f;
+            _carvePeriodicTimer         = 0f;
+            _carveWedgeRecalcs          = 0;
             DebugLogger.LogState("NAV auto-walk cancelled.");
         }
 
@@ -785,6 +801,37 @@ namespace SO2RAccess
         private bool CalculateAndStorePath(Vector3 playerPos, Vector3 targetPos,
             bool allowPartial = false, bool isCounter = false)
         {
+            bool ok = CalculateAndStorePathCore(playerPos, targetPos, allowPartial, isCounter);
+            if (ok) return true;
+
+            // Disconnection safety net: if carving markers are active and no path was
+            // found, the carved holes may have sealed the only lane. Retry once on the
+            // un-carved mesh so NPC-aware pathing can never make a reachable target
+            // unreachable — worst case equals the pre-carving behavior.
+            if (!_isWorldmap && _carverPool.ActiveCount > 0 && !_carverPool.Suppressed)
+            {
+                _carverPool.Suppress(true);
+                try
+                {
+                    if (CalculateAndStorePathCore(playerPos, targetPos, allowPartial, isCounter))
+                    {
+                        DebugLogger.LogState(
+                            "NAV carve: route was blocked by carving — recomputed on the un-carved mesh.");
+                        return true;
+                    }
+                }
+                finally { _carverPool.Suppress(false); }
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// Core NavMesh/traversal path computation (unchanged behavior). Wrapped by
+        /// <see cref="CalculateAndStorePath"/> which adds the carving disconnection fallback.
+        /// </summary>
+        private bool CalculateAndStorePathCore(Vector3 playerPos, Vector3 targetPos,
+            bool allowPartial = false, bool isCounter = false)
+        {
             // World map has no NavMesh — use the game's A* pathfinder instead.
             if (_isWorldmap) return WorldmapCalculateAndStorePath(playerPos, targetPos);
 
@@ -851,6 +898,77 @@ namespace SO2RAccess
                 sb.Append($" [{i}]=({corners[i].x:F1},{corners[i].y:F1},{corners[i].z:F1})");
             DebugLogger.LogState(sb.ToString());
         }
+
+        #region NPC-aware carving
+
+        private readonly List<Vector3> _carveScratch = new List<Vector3>(CarverCap);
+
+        /// <summary>
+        /// Parks carving markers on the nearest standing NPCs around the player so the
+        /// NavMesh routes around them. Throttled to <see cref="CarverRefreshInterval"/>.
+        /// No-op (and clears carvers) when the NPC-aware setting is off or on the world map.
+        /// </summary>
+        private void UpdateFieldCarvers(Vector3 playerPos)
+        {
+            if (_isWorldmap || !ModSettings.NpcAwarePathfindingEnabled)
+            {
+                if (_carverPool.ActiveCount > 0) _carverPool.DeactivateAll();
+                return;
+            }
+
+            // Place immediately on first use (ActiveCount==0); then throttle.
+            _carveRefreshTimer += Time.deltaTime;
+            if (_carverPool.ActiveCount > 0 && _carveRefreshTimer < CarverRefreshInterval)
+                return;
+            _carveRefreshTimer = 0f;
+
+            GatherCarveTargets(playerPos, _carveScratch);
+            _carverPool.SetPositions(_carveScratch);
+        }
+
+        /// <summary>
+        /// Fills <paramref name="outPositions"/> with the nearest NPC body positions
+        /// within <see cref="CarveBand"/> of the player (closest first, capped to the
+        /// pool size). Excludes the player, party followers, enemies, and the auto-walk
+        /// goal NPC (so we never carve the destination).
+        /// </summary>
+        private void GatherCarveTargets(Vector3 playerPos, List<Vector3> outPositions)
+        {
+            outPositions.Clear();
+            try
+            {
+                var found = UnityEngine.Object.FindObjectsOfType<FieldNpcCharacter>();
+                if (found == null) return;
+
+                var cand = new List<(Vector3 pos, float d)>();
+                float bandSq = CarveBand * CarveBand;
+                foreach (var npc in found)
+                {
+                    if (npc == null) continue;
+                    if (npc.TryCast<FieldPlayer>() != null) continue;
+                    if (npc.TryCast<FieldFollowCharacter>() != null) continue;
+                    if (npc.TryCast<FieldEnemy>() != null) continue;
+
+                    Vector3 p = npc.transform.position;
+                    float dSq = (p - playerPos).sqrMagnitude;
+                    if (dSq > bandSq) continue;
+                    // Don't carve the goal NPC (or anything sitting right on it).
+                    if ((p - _autoWalkTarget).sqrMagnitude < 1.0f) continue;
+
+                    cand.Add((p, dSq));
+                }
+
+                cand.Sort((a, b) => a.d.CompareTo(b.d));
+                int n = Math.Min(cand.Count, CarverCap);
+                for (int i = 0; i < n; i++) outPositions.Add(cand[i].pos);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV carve gather error: {ex.Message}");
+            }
+        }
+
+        #endregion
 
         /// <summary>
         /// Attempts to find a walkable detour point on the NavMesh to route around

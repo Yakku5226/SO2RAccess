@@ -306,6 +306,28 @@ namespace SO2RAccess
         // See SpatialSensor.cs. Foundation for a future exploration mode.
         private readonly SpatialSensor _spatialSensor = new SpatialSensor();
 
+        // NPC-aware field pathfinding: parks invisible carving NavMeshObstacles on
+        // nearby standing NPCs so NavMesh.CalculatePath routes AROUND them (the game's
+        // own A* does the work — no custom steering). See NavMeshCarverPool.cs.
+        // CarveOnlyStationary=false → immediate carve, matching the proven F7 POC.
+        private readonly NavMeshCarverPool _carverPool =
+            new NavMeshCarverPool(CarverCap) { CarveOnlyStationary = false };
+        private float _carveRefreshTimer;
+        // One-shot timestamp: recompute the path once after carvers have had time to
+        // cut the mesh (the initial path is computed before they exist). 0 = disarmed.
+        private float _carveForceRecalcAt;
+        // Periodic carve-aware recalc so the path keeps bending around the crowd the
+        // player is approaching (the forced recalc only saw the start-area crowd).
+        private float _carvePeriodicTimer;
+        // Bounded carve recalcs on hard-wedge before falling back to the physical detour.
+        private int _carveWedgeRecalcs;
+        private const int CarverCap = 12;          // max NPCs carved at once
+        private const float CarverRefreshInterval = 0.25f; // reposition cadence (s)
+        private const float CarveSettleDelay = 0.4f;       // wait before initial carved recalc (s)
+        private const float CarvePeriodicInterval = 1.0f;  // re-route cadence while carving (s)
+        private const int MaxCarveWedgeRecalcs = 3;        // carve recalcs per walk before detour
+        private const float CarveBand = 7f;        // only carve NPCs within this radius of the player (m)
+
         // Observed-traversal map: records where the player actually walks and
         // routes over those breadcrumbs (100% reliable). See TraversalGraph.cs.
         private TraversalGraph _traversal = new TraversalGraph();
@@ -624,6 +646,46 @@ namespace SO2RAccess
                 if (_autoWalkTransform != null)
                     _autoWalkTarget = _autoWalkTransform.position;
 
+                // Keep carving markers parked on the nearby crowd so the NavMesh
+                // (and therefore every CalculateAndStorePath below) routes around them.
+                UpdateFieldCarvers(playerPos);
+
+                // Initial carved recalc: the path was computed before the carvers cut
+                // the mesh, so recompute once they've settled. Disarmed after firing.
+                if (_carveForceRecalcAt > 0f && Time.time >= _carveForceRecalcAt)
+                {
+                    _carveForceRecalcAt = 0f;
+                    if (_carverPool.ActiveCount > 0 && !_isAvoidingObstacle
+                        && CalculateAndStorePath(playerPos, _autoWalkTarget,
+                                allowPartial: true, isCounter: _autoWalkIsCounter))
+                    {
+                        DebugLogger.LogState(
+                            $"NAV carve: re-routed around {_carverPool.ActiveCount} NPCs "
+                            + $"({_pathCorners.Length} waypoints).");
+                    }
+                }
+
+                // Periodic carve-aware recalc: re-bend the path around the crowd the
+                // player is NOW near (the one-shot recalc above only saw the start crowd,
+                // and the moving-NPC recalc below never fires for a stationary target).
+                // Keeps the route around oncoming spectators BEFORE the player wedges.
+                if (_carverPool.ActiveCount > 0 && ModSettings.NpcAwarePathfindingEnabled
+                    && !_isAvoidingObstacle && _carveForceRecalcAt == 0f)
+                {
+                    _carvePeriodicTimer += Time.deltaTime;
+                    if (_carvePeriodicTimer >= CarvePeriodicInterval)
+                    {
+                        _carvePeriodicTimer = 0f;
+                        if (CalculateAndStorePath(playerPos, _autoWalkTarget,
+                                allowPartial: true, isCounter: _autoWalkIsCounter))
+                        {
+                            DebugLogger.LogState(
+                                $"NAV carve: periodic re-route around {_carverPool.ActiveCount} NPCs "
+                                + $"({_pathCorners.Length} wp).");
+                        }
+                    }
+                }
+
                 // --- Check arrival at the final target (not waypoint) ---
                 // Use XZ distance for same-floor targets. For different-floor targets,
                 // skip the proximity arrival check entirely — arrival is handled at
@@ -811,7 +873,26 @@ namespace SO2RAccess
                 if (ModSettings.WalkAssistEnabled && _spatialSensor.IsHardWedged
                     && !_isAvoidingObstacle)
                 {
-                    if (_avoidanceAttempt >= MaxAvoidanceAttempts)
+                    // With NPC-aware carving the recalc is NO LONGER blind — the blocker
+                    // is a hole in the NavMesh, so a recalc CAN route around it. Try that
+                    // first (smooth) and only fall back to the physical detour if carving
+                    // is off/unavailable or we've already retried it a few times.
+                    bool carveActive = ModSettings.NpcAwarePathfindingEnabled
+                        && _carverPool.ActiveCount > 0;
+                    if (carveActive && _carveWedgeRecalcs < MaxCarveWedgeRecalcs
+                        && CalculateAndStorePath(playerPos, _autoWalkTarget,
+                               allowPartial: true, isCounter: _autoWalkIsCounter))
+                    {
+                        _carveWedgeRecalcs++;
+                        _spatialSensor.Reset();          // give the new route a chance
+                        _fieldStuckTimer = 0f;
+                        _fieldLastStuckCheckPos = playerPos;
+                        _fieldStuckRecalcAttempted = false;
+                        DebugLogger.LogState(
+                            $"NAV carve: hard wedge — re-routed around {_carverPool.ActiveCount} NPCs "
+                            + $"({_pathCorners.Length} wp), carve-recalc {_carveWedgeRecalcs}.");
+                    }
+                    else if (_avoidanceAttempt >= MaxAvoidanceAttempts)
                     {
                         DebugLogger.LogState(
                             "NAV walk-assist: hard wedge, max avoidance attempts reached. Cancelling.");
@@ -819,11 +900,11 @@ namespace SO2RAccess
                         CancelAutoWalk();
                         return;
                     }
-                    if (TryStartObstacleAvoidance(playerPos))
+                    else if (TryStartObstacleAvoidance(playerPos))
                     {
                         DebugLogger.LogState(
-                            "NAV walk-assist: hard wedge — escalated straight to detour " +
-                            "(skipped the NPC-blind recalc).");
+                            "NAV walk-assist: hard wedge — escalated to physical detour " +
+                            "(carve recalc exhausted/off).");
                         _spatialSensor.Reset(); // clear wedge so it doesn't re-fire
                     }
                 }

@@ -1,7 +1,9 @@
 using Il2CppGame;
 using MelonLoader;
 using System;
+using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.InputSystem;
 
 namespace SO2RAccess
@@ -22,6 +24,17 @@ namespace SO2RAccess
     {
         private readonly NavigationHandler _navigationHandler;
 
+        // --- F7 NavMesh-carving proof-of-concept state ---
+        private NavMeshCarverPool _pocPool;
+        private readonly NavMeshPath _pocPath = new NavMeshPath();
+        private bool _pocActive;
+        private float _pocFireTime;
+        private Vector3 _pocPlayerSample;
+        private Vector3 _pocTargetSample;
+        private int _pocUncarvedCount;
+        private NavMeshPathStatus _pocUncarvedStatus;
+        private int _pocCarvedNpcs;
+
         public DebugHotkeys(NavigationHandler navigationHandler)
         {
             _navigationHandler = navigationHandler;
@@ -33,6 +46,15 @@ namespace SO2RAccess
         /// </summary>
         public bool Process(Keyboard kb)
         {
+            // Advance the F7 carving proof-of-concept (deferred path comparison).
+            TickPoc();
+
+            // F7 — NavMesh carving proof-of-concept (debug only, field map)
+            if (kb[Key.F7].wasPressedThisFrame)
+            {
+                StartCarvePoc();
+                return true;
+            }
             // F5 — scan L22/L23 obstacle parents near player (debug only, world map)
             if (kb[Key.F5].wasPressedThisFrame)
             {
@@ -190,5 +212,186 @@ namespace SO2RAccess
             }
             return false;
         }
+
+        #region F7 — NavMesh carving proof-of-concept
+
+        /// <summary>
+        /// Phase A test: computes a NavMesh path to a far NPC on the UN-carved mesh,
+        /// then parks carver markers on the nearest NPCs and (after a short settle, in
+        /// <see cref="TickPoc"/>) recomputes the path on the CARVED mesh and logs the
+        /// difference. Answers whether runtime carving (a) works in this IL2CPP interop
+        /// and (b) actually reroutes the path around standing NPCs without sealing the
+        /// crowd. Field maps only.
+        /// </summary>
+        private void StartCarvePoc()
+        {
+            try
+            {
+                var fm = FieldManager.Instance;
+                var player = fm?.GetControlPlayer();
+                if (fm == null || player == null || fm.IsWorldmap())
+                {
+                    ScreenReader.Say("Carve test only available on a field map.");
+                    return;
+                }
+                if (_pocActive)
+                {
+                    MelonLogger.Msg("[F7] Carve test already running.");
+                    return;
+                }
+
+                Vector3 playerPos = player.transform.position;
+
+                // Gather candidate NPC bodies (exclude player, followers, enemies).
+                var npcs = GatherNpcBodies(playerPos);
+                if (npcs.Count < 2)
+                {
+                    ScreenReader.Say("Not enough NPCs nearby for the carve test.");
+                    MelonLogger.Msg($"[F7] Only {npcs.Count} NPC bodies found.");
+                    return;
+                }
+
+                // Target = farthest NPC within 60m (forces a long crossing); fallback farthest.
+                npcs.Sort((a, b) => a.dist.CompareTo(b.dist));
+                Vector3 targetPos = npcs[npcs.Count - 1].pos;
+                for (int i = npcs.Count - 1; i >= 0; i--)
+                {
+                    if (npcs[i].dist <= 60f) { targetPos = npcs[i].pos; break; }
+                }
+
+                if (!SampleNav(playerPos, out _pocPlayerSample) ||
+                    !SampleNav(targetPos, out _pocTargetSample))
+                {
+                    ScreenReader.Say("Could not sample NavMesh for the carve test.");
+                    MelonLogger.Msg("[F7] NavMesh sample failed for player or target.");
+                    return;
+                }
+
+                // 1) UN-CARVED baseline path.
+                NavMesh.CalculatePath(_pocPlayerSample, _pocTargetSample, NavMesh.AllAreas, _pocPath);
+                _pocUncarvedStatus = _pocPath.status;
+                _pocUncarvedCount = _pocPath.corners != null ? _pocPath.corners.Length : 0;
+                MelonLogger.Msg($"[F7] UN-CARVED path to ({_pocTargetSample.x:F1},{_pocTargetSample.z:F1}): "
+                    + $"status={_pocUncarvedStatus} corners={_pocUncarvedCount} "
+                    + $"len={PathLength(_pocPath):F1}m");
+
+                // 2) Park carvers on the nearest NPCs (excluding the target), carve now.
+                var carvePositions = new List<Vector3>();
+                foreach (var n in npcs)
+                {
+                    if ((n.pos - _pocTargetSample).sqrMagnitude < 1.0f) continue; // skip target
+                    carvePositions.Add(n.pos);
+                    if (carvePositions.Count >= 10) break;
+                }
+
+                if (_pocPool == null) _pocPool = new NavMeshCarverPool(12) { CarveOnlyStationary = false };
+                _pocPool.Suppress(false);
+                _pocPool.SetPositions(carvePositions);
+                _pocCarvedNpcs = carvePositions.Count;
+
+                _pocFireTime = Time.time + 0.4f; // let carving rebuild the local mesh
+                _pocActive = true;
+
+                MelonLogger.Msg($"[F7] Carving {_pocCarvedNpcs} NPCs (radius 0.35m); "
+                    + "recomputing carved path in 0.4s...");
+                ScreenReader.Say("Carve test started. Check log.");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Msg($"[F7] StartCarvePoc error: {ex.Message}");
+                _pocActive = false;
+                _pocPool?.Destroy();
+            }
+        }
+
+        /// <summary>Deferred half of the F7 test: recomputes the carved path and reports.</summary>
+        private void TickPoc()
+        {
+            if (!_pocActive || Time.time < _pocFireTime) return;
+            _pocActive = false;
+
+            try
+            {
+                NavMesh.CalculatePath(_pocPlayerSample, _pocTargetSample, NavMesh.AllAreas, _pocPath);
+                NavMeshPathStatus carvedStatus = _pocPath.status;
+                int carvedCount = _pocPath.corners != null ? _pocPath.corners.Length : 0;
+                float carvedLen = PathLength(_pocPath);
+
+                bool changed = carvedCount != _pocUncarvedCount || carvedStatus != _pocUncarvedStatus;
+                MelonLogger.Msg($"[F7] CARVED path ({_pocCarvedNpcs} NPCs carved): "
+                    + $"status={carvedStatus} corners={carvedCount} len={carvedLen:F1}m "
+                    + $"| baseline status={_pocUncarvedStatus} corners={_pocUncarvedCount} "
+                    + $"| changed={changed}");
+
+                if (carvedStatus != NavMeshPathStatus.PathComplete
+                    && _pocUncarvedStatus == NavMeshPathStatus.PathComplete)
+                {
+                    MelonLogger.Msg("[F7] WARNING: carving turned a COMPLETE path into "
+                        + $"{carvedStatus} — crowd may be getting sealed (try a smaller radius / fewer carvers).");
+                }
+
+                ScreenReader.Say(changed
+                    ? "Carve test done. The path changed. Check log."
+                    : "Carve test done. The path did not change. Check log.");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Msg($"[F7] TickPoc error: {ex.Message}");
+            }
+            finally
+            {
+                _pocPool?.Destroy(); // never leave carvers in the world
+            }
+        }
+
+        /// <summary>Collects FieldNpcCharacter body positions, excluding player/followers/enemies.</summary>
+        private static List<(Vector3 pos, float dist)> GatherNpcBodies(Vector3 playerPos)
+        {
+            var list = new List<(Vector3, float)>();
+            try
+            {
+                var found = UnityEngine.Object.FindObjectsOfType<FieldNpcCharacter>();
+                if (found == null) return list;
+                foreach (var npc in found)
+                {
+                    if (npc == null) continue;
+                    if (npc.TryCast<FieldPlayer>() != null) continue;
+                    if (npc.TryCast<FieldFollowCharacter>() != null) continue;
+                    if (npc.TryCast<FieldEnemy>() != null) continue;
+                    Vector3 p = npc.transform.position;
+                    list.Add((p, Vector3.Distance(playerPos, p)));
+                }
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Msg($"[F7] GatherNpcBodies error: {ex.Message}");
+            }
+            return list;
+        }
+
+        /// <summary>Snaps a world position onto the NavMesh (2 m search). False if off-mesh.</summary>
+        private static bool SampleNav(Vector3 pos, out Vector3 result)
+        {
+            if (NavMesh.SamplePosition(pos, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+            {
+                result = hit.position;
+                return true;
+            }
+            result = pos;
+            return false;
+        }
+
+        /// <summary>Total XZ length of a NavMesh path's corner polyline.</summary>
+        private static float PathLength(NavMeshPath path)
+        {
+            var c = path?.corners;
+            if (c == null || c.Length < 2) return 0f;
+            float len = 0f;
+            for (int i = 1; i < c.Length; i++)
+                len += Vector3.Distance(c[i - 1], c[i]);
+            return len;
+        }
+
+        #endregion
     }
 }

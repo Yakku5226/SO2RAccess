@@ -37,11 +37,184 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> ⏳ **PENDING USER TEST (2026-06-27): Event NPCs in Events category + toggle.**
+> Event-carrying NPCs (active "!", detected via NpcEnableScenario/NpcEnableSub) can now also
+> appear in the Events nav category, so they're findable in crowded maps (castle/arena). New
+> setting `ModSettings.EventNpcDisplay` (EventNpcDisplayMode NpcList/EventsList/Both, default
+> Both) + F4 menu item "Event NPCs in nav list" (cycles NPC list / Events list / Both). NavItem
+> is a struct so the Events copy is independent. Files: ModSettings.cs, NavigationHandler.Build.Npcs.cs,
+> ModMenuHandler.cs, Loc.cs. Build 0/0, deployed. (Celine `cp_` resolved: split party = FieldPlayer
+> control=False, surfaced via their trigger NPC's event flag — confirmed in log 26-6-27 11:20.)
+>
+> ⏳ **PENDING USER TEST (2026-06-27): NavMesh-carving Phase B — LIVE auto-walk.** POC (F7)
+> PASSED (log 12:27): AddComponent<NavMeshObstacle> works, carved path stayed PathComplete,
+> changed=True (rerouted, no sealing). Phase B now wires carving into field auto-walk:
+> `NavigationHandler` parks the carver pool on the nearest ≤12 NPCs within 7m of the player
+> (`UpdateFieldCarvers`/`GatherCarveTargets`, throttled 0.25s, excludes player/followers/enemies/goal),
+> recomputes the path 0.4s after walk-start (`_carveForceRecalcAt`) so it routes around the crowd,
+> and the existing stuck-recalc is now ALSO carve-aware (no longer NPC-blind). Disconnection safety
+> net: `CalculateAndStorePath` retries on the un-carved mesh if carving yields no path (wrapper around
+> new `CalculateAndStorePathCore`). Cleanup: `CancelAutoWalk` → `DeactivateAll` (covers scene change
+> via Main.OnSceneWasLoaded). Carvers are mod-owned DontDestroyOnLoad GameObjects (radius 0.35m,
+> carveOnlyStationary=false). New F4 toggle "NPC-aware pathfinding" (ModSettings.NpcAwarePathfindingEnabled,
+> default ON). SpatialSensor/detour UNTOUCHED (still the fallback). Build 0/0, deployed.
+> Files: NavMeshCarverPool.cs, NavigationHandler.cs, NavigationHandler.AutoWalk.cs, ModSettings.cs,
+> ModMenuHandler.cs, Loc.cs.
+> WATCH IN TEST (F12 ON): auto-walk to a party member across the arena — expect the route to bend
+> around the stands with far fewer/no 8s wedges; log shows `NAV carve: re-routed around N NPCs`. Toggle
+> F4 "NPC-aware pathfinding" OFF to A/B vs old behavior. Re-check a town + a dungeon for no "cannot reach"
+> regressions (watch for `recomputed on the un-carved mesh` = disconnection fallback firing). F7 POC
+> hotkey kept for radius tuning.
+>
+> **TEST 1 RESULT (log 12:40) — "much better, not perfect" + v2 FIX (2026-06-27):** Attempt 2 (same-floor)
+> fired `NAV carve: re-routed around 5 NPCs` → ARRIVED in ~4.6s (smooth, the win). Attempt 1 (different-floor,
+> longer) still hard-wedged on GRANDFATHER1 and cancelled — because the carve reroute never ran: the forced
+> recalc fires ONCE at +0.4s (player still far from the crowd → ActiveCount 0 → skipped), and the hard-wedge
+> fast-track SKIPPED the recalc (that skip was from when recalc was NPC-blind). **v2 (build 0/0, deployed):**
+> (1) PERIODIC carve-aware recalc every 1.0s while carving (`_carvePeriodicTimer`/CarvePeriodicInterval) so
+> the path re-bends around the crowd the player is approaching BEFORE wedging — fixes the root cause (the
+> moving-NPC recalc never fires for a stationary target). (2) Hard-wedge now tries a carve-aware recalc FIRST
+> (up to MaxCarveWedgeRecalcs=3) and only falls to the physical detour if carving is off/exhausted; logs
+> `NAV carve: hard wedge — re-routed …`. Counters reset in AutoWalkTo/CancelAutoWalk. NEXT TEST: re-run the
+> different-floor arena walk — expect periodic re-routes and far fewer detours; A/B with F4.
+>
+> --- (POC, now passed) NavMesh-carving Phase A (F7). Plan approved
+> (`happy-knitting-flamingo.md`): make the FIELD pathfinder NPC-aware by carving small
+> NavMeshObstacle holes on standing NPCs so NavMesh.CalculatePath routes around them (game
+> already carves via FieldGimmick16). New `NavMeshCarverPool.cs` = pool of mod-owned invisible
+> GameObjects each with a carving NavMeshObstacle (capsule, radius 0.35m, height 2m). POC hotkey
+> **F7** (DebugHotkeys.cs, debug-only, FIELD maps): computes an un-carved path to the farthest
+> NPC, parks carvers on the nearest ~10 NPCs (carveOnlyStationary=false for immediate carve),
+> waits 0.4s, recomputes the carved path, logs `[F7]` status/corners/length for both + a "changed"
+> flag + a WARNING if carving turned a Complete path into Partial (crowd sealed). Carvers destroyed
+> after each test. Build 0/0, deployed.
+> **DECISION GATE before Phase B:** F12 debug ON, stand in the arena near the crowd, press F7, send
+> the `[F7]` log lines. Proceed only if carving (a) CHANGES the path (routes around NPCs) and (b)
+> keeps it PathComplete (no sealing). If it seals or doesn't carve → fall back to gap-seeking steering.
+> NOTE: AddComponent<NavMeshObstacle> in IL2CPP is the key unproven bit — F7 confirms it works.
+>
+> 🔵 **NEXT (planning): crowd navigation.** Auto-walk struggles in dense NPC crowds (arena/castle) —
+> 8s wedges on stationary spectators, ~3 min to cross the colosseum. NOT walls (every blocker logged
+> is an NPC). User wants the spatial sensor to thread toward open gaps while STAYING on the plotted
+> path — no exaggerated veers, don't rewrite the model. Idea: inject NPC positions into pathfinder/steer.
+> User's "X" presses in the log were MANUAL stuck-testing, not ambient dialogue (so the dialogue-cancel
+> theory is DROPPED).
+
+> ⏳ **PENDING USER TEST (ask first thing next session):**
+> **Quick Recovery stale announcement during cutscenes (2026-06-24).** Verify the stray
+> "Quick Recovery. Recover party? Yes. Press NumPad 0 or L3 for party status." no longer
+> intrudes during conversations/cutscenes, AND that a real D-pad-Right quick heal still
+> opens, reads Yes/No + party status (L3) + result. Fix = QuickRecoveryHandler now gates
+> detection on `FieldState.IsFieldFree()` (cutscenes set EventManager.IsRunning, which the
+> menu's own isPause=False did NOT reflect) plus a `UIConversationWindow.IsShowingConversation`
+> belt-and-suspenders check. Build 0/0, deployed. Details below.
+>
+> ⏳ **PENDING USER TEST + 1 REPRO (2026-06-27):**
+> **Story-trigger NPCs in nav — TWO DISTINCT bugs found (log 26-6-27).** The "event NPC
+> doesn't show" turned out to be two different problems:
+>   1. **`ev_` event actors = present but UNLABELLED.** The arena gatekeeper that triggers
+>      the tournament scene is `ev_1902500_r_Soldier` (codeName prefix `ev_`, contactDistance
+>      1.0 → kept as a counter NPC). It WAS in the nav list, just as a generic "Soldier" among
+>      ~15 identical soldiers → unidentifiable to a blind user (no visual "!"). **FIX v1
+>      CONFIRMED WORKING (log 26-6-27 10:15):** codeName-prefix `ev_` → "(event)" tag, e.g.
+>      "Soldier (event)", kept in NPCs category. Loc `nav_npc_event_tag`. **v3 — DYNAMIC SIGNAL,
+>      PENDING USER TEST (2026-06-27):** the static prefix tag went STALE (persisted after the event
+>      fired). NAV:NPCEVT log (10:56–10:57) PROVED the fix: gatekeeper soldier read `scenario=True`
+>      BEFORE triggering, `scenario=False` AFTER — while its `ev_` name and `HasEvent()` stayed true
+>      the whole time (HasEvent is static junk, true for ~every NPC). Also a `Spectator` +
+>      `EV_Colosseum_Woman` read `scenario=True` at the next story beat — ordinary names the prefix
+>      would MISS. SWITCHED the tag to `GetEnableScenarioEvent()!=null || GetEnableSubEvent()!=null`
+>      (dynamic, IL2CPP-guarded helpers NpcEnableScenario/NpcEnableSub); DROPPED the `ev_` prefix and
+>      `HasEvent()` entirely. Tag now clears after the event AND catches non-`ev_` triggers. Lean
+>      `NAV:NPCEVT tagged …` diag kept. PA NPCs still handled separately (PA excluded from this tag).
+>      Files: NavigationHandler.Build.Npcs.cs, Loc.cs. Build 0/0, deployed.
+>      WATCH IN TEST: a CURRENT story-trigger NPC reads "X (event)"; after you trigger it (or once
+>      its "!" is gone) it reverts to plain "X"; no false "(event)" on background NPCs.
+>   2b. **Celine `cp_0003_01` = NOT a FieldNpcCharacter (narrowed 2026-06-27).** Repro CONFIRMED
+>      she's present at scan time (prompt 10:59:22, scan 10:59:29, convo 10:59:34) yet appears in
+>      NEITHER the NPC list NOR any NAV:NPCSKIP line. Since every Field*Character inherits
+>      FieldNpcCharacter, FindObjectsOfType<FieldNpcCharacter> would catch her unless she's hit by
+>      a SILENT skip (FieldEnemy or FieldPlayer — the only two without logging). HYPOTHESIS:
+>      split-off party members spawn as FieldPlayer instances. Added NAV:NPCSKIP logging to the
+>      FieldEnemy and FieldPlayer branches (+ control-player flag via GetControlPlayer instance-id).
+>      NEXT REPRO: stand at Celine's Talk prompt, open nav; expect e.g.
+>      `NAV:NPCSKIP 'cp_0003_01(Clone)' — FieldPlayer (control=False)`. Then fix = include
+>      non-control FieldPlayer characters that have an active event (NpcEnableScenario) as nav
+>      targets, tagged "(event)". Build 0/0, deployed. Files: NavigationHandler.Build.Npcs.cs.
+>
+>   2. **`cp_` party characters = EXCLUDED entirely (DIFFERENT bug).** The Celine trigger
+>      (anchor `cp_0003_01(Clone)`, near log end ~09:45:24) never appeared in the NPC list at
+>      all — the full scrolled readout had no party members. These are party members placed in
+>      the world after they split off ("Celine left / Precis left" at 09:43:16). They're being
+>      dropped by one of BuildNpcs's silent skips (`FieldFollowCharacter` OR `NpcType.INVALID`).
+>      **DIAGNOSTIC ADDED:** both skips now log `NAV:NPCSKIP '<gameobject name>' — <reason>`
+>      (SafeNpcName). REPRO NEEDED (F12 ON): at the Celine-conversation story point, walk near
+>      her and open nav; the log will show e.g. `NAV:NPCSKIP 'cp_0003_01(Clone)' — NpcType.INVALID`.
+>      Then the fix = include `cp_`/`ev_` event characters even when INVALID-typed, tagged
+>      "(event)". Build 0/0, deployed. Files: NavigationHandler.Build.Npcs.cs, Loc.cs.
+>
+> ⏳ **(SUPERSEDED — see above) PENDING USER REPRO (2nd diagnostic build):**
+> **Arena story-event marker missing from nav (2026-06-24, round 2).** EVENTDIAG repro
+> (log 26-6-24 19:33) was decisive: arena room **MF_0017_51A has 0 FieldEventCollision**,
+> the party members are NOT present as NPCs, and the only exit is the GATE back to the hall
+> (MF_0017_01A). The neighbour map DID have 2 FieldEventCollision (`ev_block_lacuer_*`,
+> sub isDisableIcon) — so the scanner WORKS, the arena just has no event collision. =>
+> the red "!" is **NOT a FieldEventCollision**. It is a `MapIconType.SCENARIO_EVENT` minimap
+> icon. `FieldMapjumpCollision` (exits) carries BOTH `iconType` AND `subIconType` — the arena
+> exit's primary iconType=GATE, but the code never read `subIconType`, where a "!" overlay
+> would live. NEW HYPOTHESIS: the story marker is a SCENARIO_EVENT/SUB_EVENT **subIconType on
+> an exit** (the gate to the staging area), shown by nav as a plain "Town gate to …".
+> Enriched NAV:EXIT diag now logs `iconType=… subIconType=…` for every exit on every map +
+> NAV:EXITDIAG count. REPRO NEEDED (F12 ON): at the story point where the "!" is active, walk
+> the arena AND the hall, OPEN nav on each, send the log — look for any exit/object with
+> subIconType (or iconType) = SCENARIO_EVENT/SUB_EVENT/PA_EVENT. ALSO awaiting user answer:
+> last time, did sighted help guide them to a DOOR/GATE, to a spot in the open room, or to
+> specific characters? That disambiguates exit-vs-NPC-vs-position. Build 0/0, deployed.
+> NOTE: BuildEvents NAV:EVENTDIAG diagnostics from round 1 are KEPT.
+>
+> ⏳ **PENDING USER TEST (ask first thing next session):**
+> **World-map wide-route preference (2026-06-21).** Verify auto-walk to **Lacuer City**
+> (and other world-map destinations) now takes the wider road instead of wedging in the
+> body-width pinch at ~(789.8, -316.3). Fix = tiered A* in WorldmapPathfinder.cs: first
+> pass requires 0.60m clearance, falls back to the old 0.50m floor only if no wider route
+> exists (so nothing reachable today becomes unreachable). Details below.
+>
 > ⏳ **PENDING USER TEST (ask first thing next session):**
 > **Pickpocket stale-announcement fix (2026-06-21).** Verify the stray "Pickpocket /
 > Strength Bottle" no longer intrudes during cutscenes/dialogue/shops, AND that a real
 > pickpocket (L1 on an NPC) still opens and reads items/rates. Fix = PickpocketHandler.cs
 > now detects via `selectChoicePresenter.gameObject.activeInHierarchy`. Details below.
+
+### World-map auto-walk wedged in body-width pinch (Lacuer City) — FIX, PENDING USER TEST (2026-06-21)
+
+- **Symptom:** Auto-walk to Lacuer City failed identically every attempt — player got
+  physically stuck at world ~(789.8, 51.4, -316.3), then "Cannot reach Lacuer City". User
+  confirmed they could not squeeze through there even walking manually, and that an
+  ALTERNATIVE wider route exists (reached Lacuer by approaching from another direction).
+- **Diagnosis (from log 26-6-21_15-30-40, lines ~11625-11644 et al.):** the pinch is a gap
+  between two CharaWalls (layer 23 Col_Obstacle) at 0.51m and 0.81m. Player capsule radius
+  is 0.50m (CLAUDE bounds 1.0m wide), so a 0.50m gap = zero margin → wedge. Two flaws in
+  WorldmapPathfinder.cs: (1) the clearance penalty is capped at MaxClearancePenalty=3.0 —
+  far too weak to beat a long detour, so A* takes the deadly shortcut; (2) the grid's hard
+  floor MinPassableClearance=0.50m equals the player radius, so body-width gaps are treated
+  as passable at all. Stuck-recovery then blocks a 2m radius (nuking the only narrow
+  corridor) and gives up.
+- **Fix (no grid regen — clearance is already baked per-cell):** tiered A* in
+  `WorldmapPathfinder.FindPath`. First pass requires every cell >= `PreferredMinClearance`
+  (0.60m = radius + 0.10m margin) via a hard cutoff in `AStarSearch` (new `minClearance`
+  param, folded into the existing GetClearance block). If that finds no route, it falls back
+  to a second pass with `minClearance=0f` — IDENTICAL to the previous behavior (grid's 0.50m
+  floor). So a wider route is preferred when one exists, but **nothing reachable today can
+  become unreachable** (this was the failure mode of every prior hard-floor attempt). Fallback
+  is logged: `no route at 0.60m clearance — falling back to the 0.50m floor`.
+- **Both the initial path and the stuck-recalc go through FindPath**, so one change covers
+  all callers (pre-validate/exit in NavigationHandler.Worldmap.Pathfinding.cs; recalc in
+  NavigationHandler.Worldmap.cs).
+- Build 0/0, DLL deployed. Files: WorldmapPathfinder.cs.
+- **WATCH IN TEST (F12 debug ON):** walk to Lacuer City from the failing spot — expect the
+  wider road, not the pinch. If 0.60m still threads somewhere too tight, the margin is a
+  one-line constant nudge. If a known-reachable place ever reports unreachable, check the log
+  for the fallback line. The clearance number may want tuning once tested on several routes.
 
 ### Fix: Enhance→Skill specialty filter showed wrong SP costs — TESTED & WORKING (2026-06-21)
 

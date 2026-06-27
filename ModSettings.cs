@@ -17,6 +17,22 @@ namespace SO2RAccess
     }
 
     /// <summary>
+    /// Where NPCs that currently have an active event (the red "!") appear in the
+    /// navigation list. In crowded maps (castle, arena) they are hard to find among
+    /// dozens of identically-named NPCs, so they can be surfaced in the Events
+    /// category instead of, or in addition to, the NPCs category.
+    /// </summary>
+    public enum EventNpcDisplayMode
+    {
+        /// <summary>Only in the NPCs category (tagged "(event)").</summary>
+        NpcList = 0,
+        /// <summary>Only in the Events category.</summary>
+        EventsList = 1,
+        /// <summary>In both the NPCs and the Events categories.</summary>
+        Both = 2
+    }
+
+    /// <summary>
     /// Persistent mod settings. Loads from and saves to a JSON file
     /// in UserData/SO2RAccess/settings.json. Settings are exposed as
     /// static properties for easy access from handlers and the future
@@ -94,6 +110,21 @@ namespace SO2RAccess
         /// </summary>
         public static bool WalkAssistEnabled { get; set; } = true;
 
+        /// <summary>
+        /// Where event-carrying NPCs (the red "!") appear in the navigation list:
+        /// the NPCs category, the Events category, or both. Default Both so they are
+        /// easy to find in crowded maps without disappearing from the usual NPC list.
+        /// </summary>
+        public static EventNpcDisplayMode EventNpcDisplay { get; set; } = EventNpcDisplayMode.Both;
+
+        /// <summary>
+        /// Whether field auto-walk carves nearby standing NPCs into the NavMesh so the
+        /// game's own pathfinder routes around crowds (castle/arena). When off, auto-walk
+        /// behaves as before (NavMesh-only path + reactive walk-assist/detour). See
+        /// <see cref="NavMeshCarverPool"/>.
+        /// </summary>
+        public static bool NpcAwarePathfindingEnabled { get; set; } = true;
+
         #endregion
 
         #region Persistence
@@ -144,6 +175,10 @@ namespace SO2RAccess
                     JumpPromptSoundVolume = Math.Clamp(data.JumpPromptSoundVolume, 0f, 1f);
                     JumpPromptSpeechEnabled = data.JumpPromptSpeechEnabled;
                     WalkAssistEnabled = data.WalkAssistEnabled;
+                    EventNpcDisplay = Enum.IsDefined(typeof(EventNpcDisplayMode), data.EventNpcDisplay)
+                        ? (EventNpcDisplayMode)data.EventNpcDisplay
+                        : EventNpcDisplayMode.Both;
+                    NpcAwarePathfindingEnabled = data.NpcAwarePathfindingEnabled;
                 }
                 MelonLogger.Msg("ModSettings: loaded.");
             }
@@ -181,7 +216,9 @@ namespace SO2RAccess
                     JumpPromptSoundEnabled = JumpPromptSoundEnabled,
                     JumpPromptSoundVolume = JumpPromptSoundVolume,
                     JumpPromptSpeechEnabled = JumpPromptSpeechEnabled,
-                    WalkAssistEnabled = WalkAssistEnabled
+                    WalkAssistEnabled = WalkAssistEnabled,
+                    EventNpcDisplay = (int)EventNpcDisplay,
+                    NpcAwarePathfindingEnabled = NpcAwarePathfindingEnabled
                 };
 
                 var options = new JsonSerializerOptions { WriteIndented = true };
@@ -218,6 +255,8 @@ namespace SO2RAccess
             public float JumpPromptSoundVolume { get; set; } = 0.8f;
             public bool JumpPromptSpeechEnabled { get; set; } = true;
             public bool WalkAssistEnabled { get; set; } = true;
+            public int EventNpcDisplay { get; set; } = (int)EventNpcDisplayMode.Both;
+            public bool NpcAwarePathfindingEnabled { get; set; } = true;
         }
 
         #endregion

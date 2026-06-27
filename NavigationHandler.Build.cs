@@ -122,7 +122,13 @@ namespace SO2RAccess
             _categories[CAT_EXIT].Clear();
 
             var found = UnityEngine.Object.FindObjectsOfType<FieldMapjumpCollision>();
-            if (found == null) return;
+            if (found == null)
+            {
+                DebugLogger.LogState("NAV:EXITDIAG: FindObjectsOfType<FieldMapjumpCollision> returned null.");
+                return;
+            }
+
+            DebugLogger.LogState($"NAV:EXITDIAG: {found.Length} FieldMapjumpCollision in scene.");
 
             var items = new List<NavItem>();
             foreach (var exit in found)
@@ -141,8 +147,18 @@ namespace SO2RAccess
                     string     label    = Loc.Get("nav_exit_with_dest", typeLabel, destName);
 
                     items.Add(new NavItem { Label = label, Distance = dist, Position = pos });
+
+                    // DIAGNOSTIC (debug-only): log BOTH icon fields raw. The red "!"
+                    // story marker is MapIconType.SCENARIO_EVENT and may ride on the
+                    // exit's subIconType (overlaid on a GATE/DOOR) — which the label
+                    // logic above ignores. This reveals whether a story-objective exit
+                    // is being shown as a plain entrance.
+                    string subIcon;
+                    try { subIcon = exit.subIconType.ToString(); }
+                    catch { subIcon = "?"; }
                     DebugLogger.LogGameValue("NAV:EXIT",
-                        $"[{label}] dest={destId} dist={dist:F1}");
+                        $"[{label}] dest={destId} dist={dist:F1} "
+                        + $"iconType={icon} subIconType={subIcon}");
                 }
                 catch (Exception ex)
                 {
@@ -338,7 +354,17 @@ namespace SO2RAccess
             // added private-action NPCs to this category earlier in the scan.
 
             var found = UnityEngine.Object.FindObjectsOfType<FieldEventCollision>();
-            if (found == null) return;
+            if (found == null)
+            {
+                DebugLogger.LogState("NAV:EVENTDIAG: FindObjectsOfType<FieldEventCollision> returned null.");
+                return;
+            }
+
+            // DIAGNOSTIC (debug-only): log how many event-collision triggers exist and
+            // why each is included or dropped. Without this only SURVIVING events were
+            // logged, so a story-event marker that fails a filter was invisible in the
+            // log (could not tell "no trigger present" from "trigger rejected").
+            DebugLogger.LogState($"NAV:EVENTDIAG: {found.Length} FieldEventCollision in scene.");
 
             var items = new List<NavItem>();
             foreach (var evt in found)
@@ -346,7 +372,15 @@ namespace SO2RAccess
                 if (evt == null) continue;
                 try
                 {
-                    if (!evt.IsEventActivate()) continue;
+                    Vector3 evtPos  = evt.transform.position;
+                    float   evtDist = Vector3.Distance(playerPos, evtPos);
+
+                    if (!evt.IsEventActivate())
+                    {
+                        DebugLogger.LogState(
+                            $"NAV:EVENTDIAG: drop '{evt.name}' dist={evtDist:F1} — IsEventActivate=false.");
+                        continue;
+                    }
 
                     var scenario = evt.GetEnableScenarioEvent();
                     var pa       = evt.GetEnablePrivateActionEvent();
@@ -354,14 +388,34 @@ namespace SO2RAccess
 
                     // Drop generic events — no script attached, nothing happens
                     if (scenario == null && pa == null && sub == null)
+                    {
+                        DebugLogger.LogState(
+                            $"NAV:EVENTDIAG: drop '{evt.name}' dist={evtDist:F1} — "
+                            + "no scenario/PA/sub event enabled (generic).");
                         continue;
+                    }
 
                     // Skip events the game itself marks as hidden
-                    if (pa != null && pa.isDisableIcon) continue;
-                    if (sub != null && sub.isDisableIcon) continue;
+                    if (pa != null && pa.isDisableIcon)
+                    {
+                        DebugLogger.LogState(
+                            $"NAV:EVENTDIAG: drop '{evt.name}' dist={evtDist:F1} — PA isDisableIcon.");
+                        continue;
+                    }
+                    if (sub != null && sub.isDisableIcon)
+                    {
+                        DebugLogger.LogState(
+                            $"NAV:EVENTDIAG: drop '{evt.name}' dist={evtDist:F1} — sub isDisableIcon.");
+                        continue;
+                    }
 
-                    Vector3 pos  = evt.transform.position;
-                    float   dist = Vector3.Distance(playerPos, pos);
+                    DebugLogger.LogState(
+                        $"NAV:EVENTDIAG: keep '{evt.name}' dist={evtDist:F1} "
+                        + $"scenario={scenario != null} pa={pa != null} sub={sub != null} "
+                        + "(pre-reachability).");
+
+                    Vector3 pos  = evtPos;
+                    float   dist = evtDist;
 
                     string label;
                     if (scenario != null)

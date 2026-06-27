@@ -41,6 +41,11 @@ namespace SO2RAccess
         private float _nextFindTime;
         private float _settleUntil;
 
+        // Cached conversation window for the cutscene/dialogue gate (see
+        // IsBlockedByEventOrDialogue). Refreshed lazily, throttled.
+        private UIConversationWindow _conversationWindow;
+        private float _nextConversationFindTime;
+
         private List<MemberSnap> _snapshot;
         private float _snapshotTime = -999f;
 
@@ -107,6 +112,8 @@ namespace SO2RAccess
             _lastChoice = UIDefine.DialogChoices.None;
             _nextFindTime = 0f;
             _settleUntil = UnityEngine.Time.time + 3f;
+            _conversationWindow = null;
+            _nextConversationFindTime = 0f;
         }
 
         /// <summary>
@@ -129,6 +136,17 @@ namespace SO2RAccess
                 ref _selector, ref _nextFindTime,
                 s => s.gameObject?.activeInHierarchy == true
                      && s.recoveryDataList?.Count > 0);
+
+            // The recovery overlay stays active with populated data even while a
+            // scripted event or conversation is running, which previously produced a
+            // false "Quick Recovery. Recover party?..." announcement mid-cutscene
+            // (the menu's own isPause flag is False during these, so it can't be
+            // used). The menu is only legitimately reachable during free field
+            // control, so suppress detection entirely otherwise.
+            if (isActive && IsBlockedByEventOrDialogue())
+            {
+                isActive = false;
+            }
 
             // Post-transition settle window: silently adopt the overlay's state so a
             // stale recovery menu lingering after a map change isn't read as a fresh
@@ -223,6 +241,44 @@ namespace SO2RAccess
             {
                 DebugLogger.LogState($"QuickRecovery: poll error: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// True when the field is NOT in a state where the quick-recovery menu can
+        /// legitimately be open — i.e. a scripted event/cutscene is running, the game
+        /// is paused, or a conversation is on screen. Used to ignore the overlay's
+        /// stale active+populated state during cutscenes (see <see cref="Update"/>).
+        /// </summary>
+        private bool IsBlockedByEventOrDialogue()
+        {
+            // FieldState covers the common cases: no field/player, game paused,
+            // EventManager running (cutscenes/scripted scenes), camp or shop open.
+            if (!FieldState.IsFieldFree()) return true;
+
+            // Belt-and-suspenders: a conversation can be showing for a frame while
+            // the field still reports free. Check the conversation window directly.
+            try
+            {
+                if (_conversationWindow == null
+                    && UnityEngine.Time.time >= _nextConversationFindTime)
+                {
+                    _nextConversationFindTime = UnityEngine.Time.time + 1f;
+                    _conversationWindow =
+                        UnityEngine.Object.FindObjectOfType<UIConversationWindow>();
+                }
+
+                if (_conversationWindow != null && _conversationWindow.IsShowingConversation)
+                    return true;
+            }
+            catch (Exception ex)
+            {
+                // Window destroyed on scene change, etc. — drop the cache and treat
+                // as not-blocking (FieldState already handled the important cases).
+                _conversationWindow = null;
+                DebugLogger.LogState($"QuickRecovery: conversation check error: {ex.Message}");
+            }
+
+            return false;
         }
 
         /// <summary>Maps a Yes/No dialog choice to its localized spoken label.</summary>

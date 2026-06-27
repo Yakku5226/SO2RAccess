@@ -316,6 +316,25 @@ namespace SO2RAccess
                     LabelKey = "mod_menu_label_walk_assist",
                     GetValue = () => Loc.Get(ModSettings.WalkAssistEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.WalkAssistEnabled = !ModSettings.WalkAssistEnabled; }
+                },
+                // NPC-aware field pathfinding (carve nearby NPCs so the path routes around them)
+                new ModMenuItem
+                {
+                    LabelKey = "mod_menu_label_npc_aware_path",
+                    GetValue = () => Loc.Get(ModSettings.NpcAwarePathfindingEnabled ? "mod_menu_on" : "mod_menu_off"),
+                    Change = _ => { ModSettings.NpcAwarePathfindingEnabled = !ModSettings.NpcAwarePathfindingEnabled; }
+                },
+                // Where event NPCs (the "!") appear in nav: NPC list / Events list / both
+                new ModMenuItem
+                {
+                    LabelKey = "mod_menu_label_event_npc_display",
+                    GetValue = () => Loc.Get(EventNpcDisplayValueKey(ModSettings.EventNpcDisplay)),
+                    Change = delta =>
+                    {
+                        int v = ((int)ModSettings.EventNpcDisplay + delta) % 3;
+                        if (v < 0) v += 3;
+                        ModSettings.EventNpcDisplay = (EventNpcDisplayMode)v;
+                    }
                 }
             };
         }
@@ -323,6 +342,17 @@ namespace SO2RAccess
         private static float ClampVolume(float v)
         {
             return (float)Math.Round(Math.Clamp(v, 0f, 1f), 1);
+        }
+
+        /// <summary>Loc key for the spoken value of the event-NPC display setting.</summary>
+        private static string EventNpcDisplayValueKey(EventNpcDisplayMode mode)
+        {
+            switch (mode)
+            {
+                case EventNpcDisplayMode.EventsList: return "mod_menu_event_npc_events";
+                case EventNpcDisplayMode.Both:       return "mod_menu_event_npc_both";
+                default:                             return "mod_menu_event_npc_npclist";
+            }
         }
 
         #endregion
