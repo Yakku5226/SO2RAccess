@@ -992,7 +992,9 @@ namespace SO2RAccess
 
                     bool blk = false;
                     string ev = null;
-                    try { blk = npc.isPlayerObstacle; } catch { }
+                    // PascalCase property does the IL2CPP runtime-invoke; the lowercase
+                    // backing field can read stale (same rule as IsAcquired for chests).
+                    try { blk = npc.IsPlayerObstacle; } catch { }
                     try { ev = npc.obstacleEventFunction; } catch { }
                     if (blk || !string.IsNullOrEmpty(ev))
                     {
@@ -1073,16 +1075,18 @@ namespace SO2RAccess
                     _carverPool.Suppress(true);
                     _carveSuppressedForBlock = true;
                     _blockCommitDeadline = Time.time + BlockCommitTimeout;
-                    _pathFirstLegValid = false; // don't count the commit recompute as a reversal
+                    _pathFirstLegValid = false; // committed; stop reversal tracking
 
-                    if (!CalculateAndStorePathCore(playerPos, _autoWalkTarget,
-                            allowPartial: true, isCounter: _autoWalkIsCounter))
-                    {
-                        AnnounceBlockedGiveUp(playerPos);
-                        CancelAutoWalk();
-                        return true;
-                    }
-                    // else: fall through and walk the committed un-carved route this frame.
+                    // Walk a STRAIGHT LINE at the target rather than recomputing a NavMesh
+                    // path. Suppressing the carvers does NOT restore the carved mesh until
+                    // the next frame, so an immediate recompute still returns the loop (the
+                    // player would wander off around it). A direct 2-point path presses the
+                    // player into the blockers; the game's own collision stops them there and
+                    // the wedge/timeout give-up fires with the blocker right ahead.
+                    _pathCorners = new[] { playerPos, _autoWalkTarget };
+                    _pathCornerIndex = 1;
+                    _pathRecalcTimer = 0f;
+                    // fall through and walk the committed straight-line route this frame.
                 }
             }
             catch (Exception ex)
