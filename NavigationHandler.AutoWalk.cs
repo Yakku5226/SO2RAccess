@@ -103,10 +103,17 @@ namespace SO2RAccess
             // surface that passed IsReachable (e.g. nearby exit with small Y gap).
             // Always allow partial — IsReachable already filtered truly unreachable
             // targets. Refusing partial here would block items that passed the filter.
+            // For world-map locations, walk to the enter-trigger RING (where the
+            // "Press X to enter" prompt fires), not the location centre — so the
+            // pathfinder keeps the model wall impassable and still reaches the entrance.
+            Vector3 walkTarget = item.Position;
+            if (_isWorldmap && _currentCategoryIndex == CAT_LOCATION)
+                walkTarget = ComputeEnterTriggerTarget(item.Position, playerPos);
+
             bool pathFound;
             try
             {
-                pathFound = CalculateAndStorePath(playerPos, item.Position,
+                pathFound = CalculateAndStorePath(playerPos, walkTarget,
                     allowPartial: true, isCounter: item.IsCounterNpc);
             }
             catch (Exception ex)
@@ -127,9 +134,9 @@ namespace SO2RAccess
                 return;
             }
 
-            _autoWalkTarget        = item.Position;
+            _autoWalkTarget        = walkTarget;
             _autoWalkLabel         = item.Label;
-            LastAutoWalkTarget     = item.Position;
+            LastAutoWalkTarget     = walkTarget;
             LastAutoWalkLabel      = item.Label;
             _autoWalkTransform     = item.LiveTransform; // may be null for exits
             _autoWalkIsCounter      = item.IsCounterNpc;
@@ -147,6 +154,8 @@ namespace SO2RAccess
             {
                 _wmStuckTimer        = 0f;
                 _wmLastStuckCheckPos = playerPos;
+                _wmTightTerrain      = false;
+                _wmTightProbeCounter = 0;
             }
             else
             {

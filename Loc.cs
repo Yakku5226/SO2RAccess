@@ -554,6 +554,7 @@ namespace SO2RAccess
             Add("mod_menu_label_gauge_percent",     "Bonus gauge percentage announcement");
             Add("mod_menu_label_jump_sound",        "Jump prompt sound");
             Add("mod_menu_label_jump_speech",       "Jump prompt speech");
+            Add("mod_menu_label_enter_speech",      "Enter prompt speech");
             Add("mod_menu_label_walk_assist",       "Walk assist");
             Add("mod_menu_label_npc_aware_path",    "NPC-aware pathfinding");
             Add("mod_menu_label_event_npc_display", "Event NPCs in nav list");
@@ -564,6 +565,11 @@ namespace SO2RAccess
             // Field prompts (button guide above the player / interactables)
             Add("jump_prompt",            "Press {0} to jump down.");
             Add("jump_prompt_no_button",  "Jump down available.");
+            Add("enter_prompt",           "Press {0} to {1}.");
+            Add("enter_prompt_no_button", "{0} available.");
+            // Echo wrapper for label-operation prompts — the game text it carries is already
+            // localized, so this is a pass-through that future translators can re-shape.
+            Add("enter_prompt_echo",      "{0}");
 
             // Battle target (L2 target change mode)
             Add("battle_target_hp_pct",         "HP {0}%.");

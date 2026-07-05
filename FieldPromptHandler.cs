@@ -49,9 +49,30 @@ namespace SO2RAccess
         /// <summary>The presenter currently showing the jump prompt, cached for hide polling.</summary>
         private static UIFieldOperationPresenter _jumpPresenter = null;
 
+        // --- Label-operation prompt (e.g. world-map "Press X to enter <town>") ---
+
+        /// <summary>True while a label-operation prompt is currently showing.</summary>
+        private static bool _enterShowing = false;
+
+        /// <summary>The label presenter currently showing the prompt, cached for hide polling.</summary>
+        private static UIFieldLabelOperationPresenter _enterPresenter = null;
+
+        /// <summary>
+        /// True while a label-operation prompt (world-map "enter" guide) is on screen.
+        /// Navigation reads this as an authoritative "arrived at the location" signal during
+        /// world-map auto-walk, since the prompt only appears once the player is close enough
+        /// to enter — even when the location's collision ring blocks getting nearer.
+        /// </summary>
+        public static bool EnterPromptShowing => _enterShowing;
+
+        /// <summary>The cleaned label text of the current enter prompt (location name), or "".</summary>
+        public static string EnterPromptLabel { get; private set; } = "";
+
         // --- Debug-log dedup (suppresses per-frame repeats of the same prompt) ---
         private static string _lastSignature = "";
         private static float _lastLogTime = -100f;
+        private static string _lastLabelSignature = "";
+        private static float _lastLabelLogTime = -100f;
         private const float DedupWindow = 2f;
 
         #endregion
@@ -76,6 +97,16 @@ namespace SO2RAccess
                     AccessTools.Method(typeof(UIFieldOperationPresenter), "Set"),
                     postfix: new HarmonyMethod(typeof(FieldPromptHandler),
                         nameof(FieldOperationPresenter_Set_Postfix))
+                );
+
+                // Label-operation prompt (label + single operation glyph) — the world-map
+                // "Press X to enter <town>" guide is shown through this sibling presenter.
+                RuntimeHelpers.RunClassConstructor(
+                    typeof(UIFieldLabelOperationPresenter).TypeHandle);
+                harmony.Patch(
+                    AccessTools.Method(typeof(UIFieldLabelOperationPresenter), "Set"),
+                    postfix: new HarmonyMethod(typeof(FieldPromptHandler),
+                        nameof(FieldLabelOperationPresenter_Set_Postfix))
                 );
 
                 _patchesApplied = true;
@@ -133,6 +164,39 @@ namespace SO2RAccess
             }
         }
 
+        /// <summary>
+        /// Postfix for UIFieldLabelOperationPresenter.Set(...). Fires when a labelled button
+        /// prompt is shown — most notably the world-map "Press X to enter &lt;town&gt;" guide.
+        /// Speaks the prompt once (honouring its F4 toggle) and raises <see cref="EnterPromptShowing"/>
+        /// so world-map auto-walk can treat it as arrival. In debug mode every label prompt is
+        /// logged so its exact label/operation text can be confirmed.
+        /// </summary>
+        private static void FieldLabelOperationPresenter_Set_Postfix(
+            UIFieldLabelOperationPresenter __instance,
+            string label,
+            string operation,
+            UnityEngine.Transform followTransform,
+            bool isPlayer)
+        {
+            try
+            {
+                // Announce once on a new appearance, not every frame it is re-Set.
+                if (!_enterShowing)
+                {
+                    _enterShowing = true;
+                    EnterPromptLabel = NotificationHandler.StripTagsPublic(label ?? "").Trim();
+                    AnnounceEnter(label, operation);
+                }
+                _enterPresenter = __instance;   // always track the live presenter
+
+                LogLabelPromptDebug(__instance, label, operation, followTransform, isPlayer);
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"FieldLabelOperationPresenter_Set_Postfix: {ex.Message}");
+            }
+        }
+
         #endregion
 
         #region Update (hide detection)
@@ -145,13 +209,19 @@ namespace SO2RAccess
         /// </summary>
         public void Update()
         {
-            if (!_jumpShowing) return;
-
-            if (!IsJumpStillShowing())
+            if (_jumpShowing && !IsJumpStillShowing())
             {
                 _jumpShowing = false;
                 _jumpPresenter = null;
                 DebugLogger.LogState("FieldPrompt: jump prompt cleared.");
+            }
+
+            if (_enterShowing && !IsEnterStillShowing())
+            {
+                _enterShowing = false;
+                _enterPresenter = null;
+                EnterPromptLabel = "";
+                DebugLogger.LogState("FieldPrompt: enter prompt cleared.");
             }
         }
 
@@ -190,6 +260,29 @@ namespace SO2RAccess
             }
         }
 
+        /// <summary>
+        /// Returns true if the cached label presenter is still active and still displaying
+        /// label or operation text. Any IL2CPP access failure is treated as "not showing".
+        /// </summary>
+        private static bool IsEnterStillShowing()
+        {
+            try
+            {
+                if (_enterPresenter == null) return false;
+                // The label presenter is dedicated to label prompts (not shared like the
+                // operation presenter), so its active state is a reliable hide signal.
+                if (!_enterPresenter.gameObject.activeInHierarchy) return false;
+
+                var op = _enterPresenter.operation;
+                string opText = op != null ? op.text : null;
+                return !string.IsNullOrEmpty(opText);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         #endregion
 
         #region Announce
@@ -212,6 +305,43 @@ namespace SO2RAccess
             }
 
             DebugLogger.LogGameValue("FieldPrompt", $"jump prompt shown (button='{button}')");
+        }
+
+        /// <summary>
+        /// Speaks a label-operation prompt once via the screen reader, honouring its F4 toggle.
+        /// The game text is already localized, so it is echoed through Loc unchanged (the Loc
+        /// template is a pass-through placeholder). Builds "Press {button} to {action}. {label}"
+        /// when the operation carries a sprite-tagged action word, else falls back to the raw
+        /// cleaned text so the player always hears whatever the game shows.
+        /// </summary>
+        private static void AnnounceEnter(string label, string operation)
+        {
+            if (!ModSettings.EnterPromptSpeechEnabled) return;
+
+            ParseOperation(operation ?? "", out string button, out string action);
+            string cleanLabel = NotificationHandler.StripTagsPublic(label ?? "").Trim();
+
+            string core;
+            if (!string.IsNullOrEmpty(button) && !string.IsNullOrEmpty(action))
+                core = Loc.Get("enter_prompt", button, action);
+            else if (!string.IsNullOrEmpty(action))
+                core = Loc.Get("enter_prompt_no_button", action);
+            else
+                core = "";
+
+            string spoken;
+            if (string.IsNullOrEmpty(core))
+                spoken = cleanLabel;
+            else if (string.IsNullOrEmpty(cleanLabel))
+                spoken = core;
+            else
+                spoken = core + " " + cleanLabel;
+
+            if (!string.IsNullOrEmpty(spoken))
+                ScreenReader.Say(Loc.Get("enter_prompt_echo", spoken));
+
+            DebugLogger.LogGameValue("FieldPrompt",
+                $"enter prompt shown (button='{button}' action='{action}' label='{cleanLabel}')");
         }
 
         #endregion
@@ -292,6 +422,40 @@ namespace SO2RAccess
 
             DebugLogger.LogGameValue("FieldPrompt",
                 $"isPlayer={isPlayer} anchor='{anchor}' raw=[{rawJoined}] display='{displayText}'");
+        }
+
+        /// <summary>
+        /// Logs every label-operation prompt under [GAME] FieldPrompt in debug mode, deduped.
+        /// Records the raw label/operation text and whether the current map is the world map, so
+        /// the exact world-map "enter" prompt content can be confirmed on the first test walk.
+        /// </summary>
+        private static void LogLabelPromptDebug(
+            UIFieldLabelOperationPresenter presenter,
+            string label,
+            string operation,
+            UnityEngine.Transform followTransform,
+            bool isPlayer)
+        {
+            if (!Main.DebugMode) return;
+
+            string anchor = "?";
+            try { if (followTransform != null) anchor = followTransform.gameObject.name; }
+            catch { /* destroyed/native edge — ignore for a diagnostic */ }
+
+            bool worldmap = false;
+            try { worldmap = FieldManager.Instance?.IsWorldmap() == true; }
+            catch { /* manager unavailable — diagnostic only */ }
+
+            string signature = $"{isPlayer}|{label}|{operation}";
+            float now = UnityEngine.Time.realtimeSinceStartup;
+            if (signature == _lastLabelSignature && (now - _lastLabelLogTime) < DedupWindow)
+                return;
+            _lastLabelSignature = signature;
+            _lastLabelLogTime = now;
+
+            DebugLogger.LogGameValue("FieldPrompt",
+                $"LABEL isPlayer={isPlayer} worldmap={worldmap} anchor='{anchor}' " +
+                $"label=[{label}] operation=[{operation}]");
         }
 
         /// <summary>

@@ -37,6 +37,286 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> ✅ **CONFIRMED WORKING (2026-07-05): World-map tight-terrain slow-follow fix (the 2026-06-30b
+> plan below).** Tested against the exact repro. Log 26-7-05 10:32–10:34:
+>  - TEST 1 (PRIMARY) **PASS** — Krosse Cave → Krosse City: `tight-terrain ENTER` fired at the
+>    cave mouth, player threaded out slowly at `tight=True speed=0.50`, `LEAVE` + `speed=1.00`
+>    once clear, and it COMPLETED: "Arrived at Krosse City. Press Cross to Enter." No
+>    `stuck after 5 recalcs`. The old wedge-and-give-up is gone.
+>  - TEST 2 (OPEN-TERRAIN REGRESSION) **PASS** — long open stretches all logged
+>    `tight=False speed=1.00` (full speed, straight line); `tight=True` appeared ONLY within
+>    2.5m of real rocks/walls, then cleared. No false slowdowns in the open.
+>  - The tight-terrain change is accepted and kept. (Chest/enemy world-map regression, TEST 3,
+>    not exercised in this log — low risk, re-check opportunistically.)
+>
+> 🔵 **DEFERRED to next session (user has a more robust solution in mind): geography-gated
+> world-map locations are still OFFERED as auto-walk targets and flail before giving up.**
+> Same log: auto-walking to **Mountain Palace** traveled ~180m then physically wedged at
+> ~(-272,54,-88) — which is the **Lasgus Mountains entrance**. Mountain Palace lies BEYOND the
+> mountains (enter Lasgus Mountains, cross, exit the far side), so it is geography-gated like
+> Arlia and "Cannot reach" is the CORRECT answer. But it cost ~20s of `tight=True` wedge + 5
+> recalcs first (the F9 grid bakes terrain-walkability only — it has no notion of story gates or
+> "this region is a dungeon you walk through," so A* happily routes over the continuous
+> mountain terrain toward the fixed Mountain-Palace marker). Not caused by the tight-terrain
+> fix — pre-existing. Options discussed (user deferred, has own plan): (1) scenario/unlock-gate
+> the nav LIST so gated locations aren't offered [need to confirm an unlock flag exists for
+> map-jump destinations]; (2) fail-fast on a no-net-approach `tight=True` wedge instead of 5
+> recalcs. USER WILL PROPOSE A MORE ROBUST APPROACH NEXT SESSION — do not implement yet.
+>
+> ============================================================================
+> ### ✅ (DONE 2026-07-05) NEXT SESSION TEST PLAN (prepared 2026-06-30) — results above
+> ============================================================================
+> Build is 0/0 and the DLL is already in the Mods folder. **Enable F12 debug mode first**
+> (so the diagnostic log is written). These changes are ALWAYS ON — there is no F4 toggle to
+> flip. The fix targets ONE thing: auto-walk getting physically wedged in tight rocky areas
+> on the WORLD MAP (the Krosse Cave mouth), even though the route exists.
+>
+> WHAT WAS DONE (one-line): world-map auto-walk now SLOWS DOWN to half speed and stops
+> corner-cutting when it is near obstacle walls, so the player threads out of tight rock gaps
+> instead of overshooting and clipping. Full detail in the 30b entry just below this plan.
+>
+> ----------------------------------------------------------------------------
+> TEST 1 — PRIMARY: walk back OUT of Krosse Cave to Krosse City (the exact repro)
+> ----------------------------------------------------------------------------
+> STEPS:
+>  1. Be on the EXPEL world map, walk to Krosse Cave and ENTER it (press X at the prompt).
+>  2. Inside, auto-walk to the exit ("Town gate to Overworld") and leave — you are now back on
+>     the world map standing at the rocky cave mouth.
+>  3. Open nav (hold L1 / NumPad 5), category Locations, select Krosse City, auto-walk
+>     (LStick up / NumPad 1).
+> EXPECT (success):
+>  - Screen reader: "Walking to Krosse City."
+>  - Log near the start: `NAV WM tight-terrain ENTER (walls within 2.5m=N) — slowing + no skip-ahead`.
+>  - Log shows `tight=True speed=0.50` while among the rocks; the player keeps MOVING (slowly)
+>    and works north out of the cave mouth.
+>  - Once clear of the rocks: `NAV WM tight-terrain LEAVE ... full speed` and `tight=False speed=1.00`.
+>  - The walk COMPLETES: "Arrived at Krosse City" with the "Press Cross to Enter" prompt.
+> MUST NOT GET (failure):
+>  - `NAV worldmap: stuck after 5 recalcs. Cancelling.` followed by "Cannot reach Krosse City."
+>  - The player pacing / frozen at the cave mouth for ~30s then giving up (the old behavior).
+>
+> ----------------------------------------------------------------------------
+> TEST 2 — OPEN-TERRAIN REGRESSION: a normal long walk must NOT be slowed
+> ----------------------------------------------------------------------------
+> STEPS: From open overworld (e.g. the Krosse plains, away from rocks), auto-walk to any
+>  distant location (e.g. Marze) across open ground.
+> EXPECT: `tight=False speed=1.00` for the whole open stretch; the player runs at FULL speed in
+>  a straight line as before; `tight ENTER` only ever appears when actually passing close to
+>  rocks/walls, then `LEAVE` again.
+> MUST NOT GET:
+>  - `tight=True` / `speed=0.50` while out in the OPEN with no walls nearby (a false positive —
+>    would mean the player crawls everywhere). If you hear/see the walk feel sluggish on open
+>    ground, that is this failure.
+>
+> ----------------------------------------------------------------------------
+> TEST 3 — REGRESSION: world-map chest + enemy still reached
+> ----------------------------------------------------------------------------
+> STEPS: On the world map, auto-walk to a Chest and to an Enemy as normal.
+> EXPECT: both still arrive and announce arrival exactly as before.
+> MUST NOT GET: a new failure to reach a chest/enemy that used to work.
+>
+> ----------------------------------------------------------------------------
+> CONTROL (not a bug) — Arlia is SUPPOSED to be unreachable
+> ----------------------------------------------------------------------------
+> Auto-walking to Arlia will still say "Cannot reach Arlia." This is EXPECTED — Arlia is
+> geography-gated (must pass through Salva first). Do NOT treat this as a regression. It is
+> only a problem if a location that has a CLEAR overland route (like Krosse City) says it.
+>
+> ----------------------------------------------------------------------------
+> IF IT FAILS — what to capture for me
+> ----------------------------------------------------------------------------
+>  - Send Latest.log. The key lines are the `NAV WM:` ones around the cave mouth — I need to see
+>    `tight=` and `speed=` values, any `tight-terrain ENTER/LEAVE`, the skip-ahead lines, and the
+>    `stuck`/`recalc` lines.
+>  - The CRITICAL question the log answers: when the player was wedged, did it say `tight=True`?
+>     • `tight=True` but still wedged = the player is perfectly on the thread but the gap is
+>       genuinely too narrow for the body → next step is the gentle wall-nudge we deliberately
+>       held back (already planned, not yet built).
+>     • `tight=False` while wedged among rocks = the wall probe is not detecting the rocks →
+>       I widen the probe radius / fix the layer mask.
+> ============================================================================
+
+> ✅ **CONFIRMED WORKING 2026-07-05 (was: PENDING USER TEST 2026-06-30b): World-map auto-walk
+> WEDGES in tight obstacle areas (Krosse Cave mouth) — precise + slow following fix.** See the
+> CONFIRMED entry at the top of this Phase section for test results.**
+> SYMPTOM (user): from Krosse Cave could not auto-walk back to Krosse City ("Cannot reach"),
+> a place just visited. (Arlia "Cannot reach" is EXPECTED — geography-gated, must pass Salva
+> first; NOT a bug, out of scope.)
+> DIAGNOSIS CORRECTED (log 26-6-30 19:49–19:50): the grid pathfinder is NOT broken and the
+> ring-endpoint fix (30b-prev below) WORKS — log shows `reachable ring point at (-94.0,-54.7)`
+> and a CLEAR 509-waypoint route to Krosse City, re-found 5+ times. The failure is in
+> MOVEMENT EXECUTION: exiting the cave drops the player into a tight rock field (Col_Obstacle
+> L22/L23, 0.50m body-width gaps; only route is `no route at 0.60m → 0.50m floor`). World-map
+> auto-walk steered straight at each waypoint at FULL speed with no slow-down, so it overshot
+> the 0.5m gap-centered waypoints and clipped rocks → wedge → 5 recalcs (same path) → give up.
+> FIX (build 0/0, deployed; user chose "precise + slow only", NO repulsion — repulsion failed
+> on corners before, and here the grid path is already correct so we just follow it faithfully):
+> all in NavigationHandler.Worldmap.cs —
+>  - `UpdateTightTerrain(playerPos)`: throttled (6-frame) Physics.OverlapSphere on L22|L23
+>    (`WmTightProbeMask`, radius 2.5m) → `_wmTightTerrain`. Logs ENTER/LEAVE transitions.
+>    (Waypoint spacing is uniformly ~0.5m everywhere, so the old gap-detector can't tell tight
+>    from open — a wall-proximity probe is the real signal.)
+>  - While tight: (A) `ApplyWorldmapMovement` scales the injected stick to `WmTightSpeedScale`
+>    (0.5) so the player tracks the gap-centered waypoints instead of overshooting; (B) skip-
+>    ahead stuck-recovery clamps its max jump to `WmTightSkipAheadMaxDist` (1.0m) so it can't
+>    hop metres ahead through a rock. Open terrain = unchanged (full speed, normal skip-ahead).
+>  - Diagnostics: `NAV WM:` line now logs `tight=` and `speed=`.
+> Reset `_wmTightTerrain`/counter on world-map auto-walk start (AutoWalk.cs).
+> TEST (F12 ON): from inside Krosse Cave, EXIT to overworld and auto-walk to Krosse City — expect
+> `NAV WM tight-terrain ENTER` at the cave mouth, the player to thread out slowly and COMPLETE
+> the walk (no `stuck after 5 recalcs. Cancelling.`). Watch `tight=True speed=0.50` near rocks,
+> `tight=False speed=1.00` in the open. Regression: open-terrain walks still full speed/straight;
+> world-map chest/enemy still arrive. If it STILL wedges while `tight=True` (perfectly on-thread),
+> report — next step is the demoted gentle wall-nudge. NOTE: Arlia is expected-unreachable.
+
+> ✅ **CONFIRMED WORKING (2026-06-30): World-map enter-ring point buried in wall → reachable-ring
+> snap.** Log 19:50 shows `reachable ring point at (-94.0,-54.7)` + a found 509-wp route — the
+> `PickReachableRingPoint` fix below now returns a walkable entrance and the grid routes to it.
+> (The remaining cave-mouth issue was a separate EXECUTION bug — see 30b above.)
+
+> ⏳ **PENDING USER TEST (2026-06-30): World-map enter-ring point buried in wall → pathfinder
+> "no path found" everywhere → straight-line grind / "Cannot reach" a place just visited.**
+> SYMPTOM (user, log 26-6-30 19:11–19:15): left Krosse City and got wedged against the model
+> (failsafes freed him); reached Krosse Cave; from the cave could NOT route back to Krosse City
+> (or Arlia) — "Cannot reach", despite having just walked from there.
+> DIAGNOSIS (data, not guess): EVERY fresh CAT_LOCATION walk logged `enter-trigger: routing to
+> ring point` immediately followed by `no path found` at BOTH 0.60m and the 0.50m floor. The grid
+> is FINE — stuck-recalc and post-battle RESUME (which aim at the location CENTRE) found 422–468-wp
+> routes over the SAME ground seconds later. The asymmetry = the bug: fresh walks aim at the
+> entrance RING (`ComputeEnterTriggerTarget` returned `ring.ClosestPoint(player)`), which hugs the
+> model wall and lands on a baked-OBSTACLE cell (Height==1). `SnapToTerrain` only escapes Height<2
+> by distance (ignores which side of the wall), so A* gets an endpoint it can't stand on → no path
+> → straight-line fallback (the grind), or "Cannot reach" when far. Centre cells are open → succeed.
+> FIX (build 0/0, deployed; user-directed approach):
+>  - `WorldmapPathfinder.IsWalkableWorld(Vector3)` — public; true iff the cell is Height>=2 (mirrors
+>    the A* fallback floor: real road/terrain, not ocean/obstacle).
+>  - `ComputeEnterTriggerTarget` now calls new `PickReachableRingPoint(ring, player, locationPos,
+>    out usedCenter)`: tries plain ClosestPoint, then samples the ring from 16 directions
+>    (project external ref pts onto the collider → covers every side/road angle), keeps the NEAREST
+>    candidate that IsWalkableWorld accepts. If none walkable → returns the location CENTRE
+>    (usedCenter=true) per user ("there must be a reachable ring square; if not, route to centre").
+>  - Arrival UNCHANGED: still gated solely on `EnterPromptMatchesTarget()` (this location's prompt),
+>    so the centre fallback still stops at the door, never enters/teleports.
+> Files: WorldmapPathfinder.cs, NavigationHandler.Worldmap.Pathfinding.cs.
+> TEST (F12 ON): (1) leave Krosse City, auto-walk straight back to it — expect a real grid route
+> (log `reachable ring point at (x,z), Nm from player`), NO `no path found`, NO wall grind, arrives
+> on the prompt. (2) From Krosse Cave, walk back to Krosse City AND to Arlia — both must now route
+> (the exact repro that said "Cannot reach"). (3) Watch for `routing to the location centre instead`
+> — should be RARE; if it fires for a normal town, the ring sampling missed and we tune Steps/reach.
+> (4) Regression: chests/enemies on the world map still reachable. KNOWN RESIDUAL: if a walkable
+> ring cell is found but it's a disconnected island, FindPath still fails (no centre retry at the
+> caller yet) — report if seen and I'll add a caller-level centre retry.
+
+> ⏳ **PENDING USER TEST (2026-06-28): World-map "Press X to enter" prompt + auto-walk arrival.**
+>
+> ===================================================================================
+> TESTS TO RUN NEXT SESSION (all build OK, DLL in Mods folder; enable F12 debug first):
+> ===================================================================================
+> [ ] T1. PROMPT READ — Walk (manually or auto) up to a TOWN until "Press X to enter" pops
+>         above the player. Screen reader should speak it once (e.g. "Press Cross to Enter.
+>         Krosse City"). Should NOT repeat every frame. (Confirmed once on 2026-06-28; re-verify.)
+> [ ] T2. PROMPT READ — DUNGEON. Same as T1 at a dungeon entrance. KEY UNKNOWN: confirm dungeons
+>         actually raise the "Press X to enter" prompt at all (only towns seen in logs so far).
+>         If a dungeon shows NO prompt, tell Claude — arrival logic depends on it.
+> [ ] T3. F4 TOGGLE — Open mod menu (F4), find "Enter prompt speech", toggle OFF → prompt no
+>         longer spoken; toggle ON → spoken again. Verify setting persists after game restart.
+> [ ] T4. ARRIVAL TIMING — Auto-walk to a TOWN. It must announce "arrived" EXACTLY when the
+>         enter prompt appears (player in the ring), NOT at a fixed distance. Must STOP and must
+>         NOT enter/teleport into the location. Player presses X themselves to enter.
+> [ ] T5. ARRIVAL TIMING — DUNGEON. Same as T4.
+> [ ] T6. NO TELEPORT / NO FALSE ARRIVAL — Auto-walk to a FAR location whose route PASSES CLOSE
+>         to another town (repro: walk to Mountain Palace passing near Krosse City). The passed
+>         town's prompt must NOT end the walk or teleport; auto-walk continues to the real target.
+> [ ] T7. ROUTES TO THE RING, NOT THROUGH THE MODEL — Auto-walk to a town/dungeon and confirm the
+>         player approaches the ENTRANCE ring and does NOT grind into the side of the model.
+>         In the log watch for: "NAV WM enter-trigger: routing to ring point (x,z)".
+> [ ] T8. AWKWARD-ANGLE APPROACH (user's open question) — Auto-walk to a location so the route
+>         approaches from an unusual side. Expectation: ring surrounds the model, so the player
+>         still reaches the ring and the prompt fires. If instead it ends up "unreachable" or
+>         stuck on the wrong side, report — Claude will add a "nearest REACHABLE ring cell" snap.
+> [ ] T9. UNREACHABLE HONESTY — If a location genuinely cannot be reached, it should say
+>         "unreachable" (not a false "arrived"). Sanity-check this still behaves.
+> [ ] T10. REGRESSION — Auto-walk to a CHEST and an ENEMY on the world map still works (the
+>         destination-hole removal in the grid pathfinder affects all targets, not just locations).
+> NOTE: if routing looks off after these changes, the grid may need regenerating — press F9 on
+>       the world map in debug mode to rebake worldmap_expel.grid / worldmap_nede.grid.
+> ===================================================================================
+>
+> GOAL: read the world-map location-entry prompt (shown above the player near a town/dungeon)
+> via screen reader, AND use it to fix auto-walk grinding into the city model forever without
+> arriving. Jump prompt uses UIFieldOperationPresenter.Set (List<string>); the labelled
+> "enter" guide is the SIBLING presenter UIFieldLabelOperationPresenter.Set(string label,
+> string operation, ...) [CallerCount 2, hookable]. NOTE: cpp2il dump types its `.label`
+> property as GameText, but the real Il2CppInterop assembly types `.label` as
+> UIFieldSymbolNamePresenter (no `.text`) — `.operation` IS GameText. So the hide-poll reads
+> only `.operation.text` + activeInHierarchy.
+> IMPLEMENTED (build OK):
+>  - FieldPromptHandler.cs: 2nd Harmony postfix on UIFieldLabelOperationPresenter.Set. Speaks
+>    once per appearance (toggle ModSettings.EnterPromptSpeechEnabled, default on); raises
+>    static FieldPromptHandler.EnterPromptShowing + EnterPromptLabel; hide-poll in Update().
+>    DEBUG (F12) logs every label prompt: "[GAME] FieldPrompt LABEL ... worldmap=? label=[..]
+>    operation=[..]" — first walk to a city CONFIRMS exact text so speech wording can be refined.
+>  - NavigationHandler.Worldmap.cs: WorldmapLocationArrivalRadius 10→18m; CAT_LOCATION arrival
+>    now fires on EnterPromptShowing OR within 18m (was 10m, never reached → stuck-recalc loop).
+>    Shared helper ArriveAtWorldmapLocation(reason) (DRY: main check + stuck fallback).
+>  - Loc.cs enter_prompt / enter_prompt_no_button / enter_prompt_echo (pass-through, echoes the
+>    game's already-localized text); mod_menu_label_enter_speech. ModMenuHandler F4 toggle.
+> CONFIRMED (15:47 log): prompt reads correctly — "[SR] Press Cross to Enter. Krosse City";
+> LABEL operation=[<sprite name=Cross>Enter] label=[Krosse City] anchor='cp_0001_01(Clone)'
+> worldmap=True. So the enter prompt IS UIFieldLabelOperationPresenter. Good.
+>
+> TELEPORT BUG (15:48:48 log) — FIXED. Walking to Mountain Palace (targetDist=210m), the enter
+> prompt that popped was for KROSSE CITY (player passed near it). EnterPromptShowing is GLOBAL,
+> so it tripped arrival for the distant Mountain Palace target → old ArriveAtWorldmapLocation
+> called TryEnterWorldmapLocation → nearest mapjump to the TARGET (MF_0013_02A) → ChangeFieldmap()
+> = teleport 200m across the map into the dungeon.
+> FIX (user: NEVER auto-enter, only announce + read prompt):
+>  1. ArriveAtWorldmapLocation now ONLY StopAutoWalk + announce "arrived" — no ChangeFieldmap.
+>  2. DELETED TryEnterWorldmapLocation entirely (+ _wmOriginalTarget field/assignment) so no
+>     teleport path can be reintroduced.
+>  3. New EnterPromptMatchesTarget() gates the prompt-arrival on EnterPromptLabel matching
+>     _autoWalkLabel (case-insensitive containment, tolerates " (Dungeon)" suffix) — a passed
+>     town's prompt no longer counts as arrival at a distant target. Used in both the main
+>     arrival check and the stuck fallback. 18m distance arrival unchanged.
+> Player now presses X themselves to enter; mod just reads the prompt + announces arrival.
+>
+> PREMATURE-ARRIVAL FIX (16:12 log) — the fixed 18m radius announced "arrived (within 18m)"
+> at targetDist=18.6 BEFORE the enter prompt fired (line 299), i.e. before the player was
+> actually in the enterable ring. Each location's enter-trigger ring has its OWN size, so a
+> fixed distance is wrong. The ring = FieldMapjumpCollision (: EventCollision, a navigable Unity
+> TRIGGER collider w/ OnTriggerEnter/Stay on the event layer) — DISTINCT from the model's
+> non-trigger wall collider on a wall layer. The "Press X to enter" prompt IS the runtime signal
+> that the player entered that ring. So arrival is now PROMPT-ONLY for CAT_LOCATION:
+> EnterPromptMatchesTarget() is the sole trigger (main check + stuck fallback); the fixed-distance
+> arrival and WorldmapLocationArrivalRadius const are DELETED. A genuine stuck short of the ring
+> now falls through to recalc → "unreachable" (honest) instead of a false arrival. Player keeps
+> walking toward centre; ring is outside the wall so they enter it (prompt fires) before ramming.
+> RE-TEST: auto-walk to (a) a town and (b) a DUNGEON; confirm it announces "arrived" exactly when
+> the "Press X to enter" prompt appears (not at a fixed 18m), stops without entering, and that
+> dungeons DO raise the prompt (user says each location has its own notification ring — verify).
+>
+> WALL-ROUTING + TARGET-THE-RING REDESIGN (user: "keep impassable terrain impassable; snap the
+> pathfinder to the event trigger ring, don't guess holes in the model"). Findings: the worldmap
+> pathfinder reads a PRE-BAKED grid (F9-generated). The grid generator DOES detect physical walls
+> — L22 (Wall) + L23 (CharacterWall) non-trigger colliders baked as obstacle; town interiors
+> flood-fill SEALED; small FieldMapjumpCollision TRIGGER colliders punch entrance holes. BUT two
+> things routed players through walls: (1) ComputeSafeApproachPoint aimed 20m OUTSIDE the ring (so
+> the player never reached it), and (2) WorldmapPathfinder.FindPath cleared a 10m passable hole
+> around the DESTINATION centre (leftover from deleted TryEnterWorldmapLocation/10m arrival),
+> punching straight through the model wall. FIXES (build OK):
+>  - WorldmapPathfinder.FindPath: END clearance hole REMOVED (start 3m clearance kept). Walls now
+>    fully impassable; SnapToTerrain pulls endpoint to nearest passable cell.
+>  - ComputeSafeApproachPoint DELETED → replaced by ComputeEnterTriggerTarget(locationPos,playerPos):
+>    finds the target location's nearest ground-level (Y<20m) FieldMapjumpCollision TRIGGER collider
+>    (the enter ring) and returns ring.ClosestPoint(player) = nearest navigable point ON the ring.
+>  - AutoWalk.cs: for worldmap CAT_LOCATION, walkTarget = ComputeEnterTriggerTarget(...) used for
+>    BOTH the path AND _autoWalkTarget (so initial path, per-frame recalc, resume, and straight-line
+>    fallback all aim at the ring, never the centre). ComputeSafeExitPoint (leave-town-on-start) kept.
+> RE-TEST: auto-walk to town + dungeon; confirm the player routes to the entrance ring (no grinding
+> into the model side), prompt fires, "arrived" announced, no entry. Watch log "NAV WM enter-trigger:
+> routing to ring point (...)". If a location's centre is sealed and the ring point snaps to the wrong
+> side, may need a reachable-cell snap; report if seen.
+
 > ⏳ **PENDING USER TEST (2026-06-27): Auto-walk carve-oscillation (livelock) fix.**
 > BUG: walking to a target walled in by NPCs (repro: Crosse Castle throne room MF_0007_01A,
 > a side-event ~2m behind a row of soldiers you must talk to) made the player PACE BACK AND

@@ -26,19 +26,47 @@ namespace SO2RAccess
         /// </summary>
         private const int WorldmapCalcHeightSamples = 10;
 
-        /// <summary>
-        /// Arrival radius for world map locations (cities, dungeons).
-        /// Used as fallback when stuck near a location — triggers
-        /// TryEnterWorldmapLocation() to force entry via ChangeFieldmap().
-        /// Set to 10 to cover the collision barrier near location entrances.
-        /// </summary>
-        private const float WorldmapLocationArrivalRadius = 10f;
-
         /// <summary>Max distance to show chests on the world map.</summary>
         private const float WorldmapChestMaxDistance = 200f;
 
         /// <summary>Max distance to show enemies on the world map.</summary>
         private const float WorldmapEnemyMaxDistance = 150f;
+
+        // --- Tight-terrain following (cave-mouth / rocky pinch threading) ---
+        // The grid pathfinder already routes correctly through body-width gaps; the
+        // problem was EXECUTION — full-speed waypoint following overshoots the
+        // gap-centered waypoints and clips the rocks, and stuck-recovery skip-ahead
+        // jumps several metres through a rock. When the player is near obstacle walls
+        // we slow down and stop skipping so the player tracks the grid's thread.
+
+        /// <summary>
+        /// Layers carrying world-map obstacle walls (Col_Obstacle): Obstacle (22) +
+        /// CharaWall (23) — the layers the stuck dumps and SpatialSensor both use.
+        /// (The pre-validate's WmObstacleLayerMask is layer 22 only; the rocks at the
+        /// Krosse Cave mouth sit on BOTH, so the tight probe checks both.)
+        /// </summary>
+        private const int WmTightProbeMask = (1 << 22) | (1 << 23);
+
+        /// <summary>
+        /// Radius (m) to probe for nearby obstacle walls. Within this the player is
+        /// threading tight terrain and switches to precise + slow following.
+        /// </summary>
+        private const float WmTightProbeRadius = 2.5f;
+
+        /// <summary>
+        /// Stick magnitude (fraction of full run) applied while tight, so the player
+        /// tracks the 0.5 m gap-centered waypoints instead of overshooting into rocks.
+        /// </summary>
+        private const float WmTightSpeedScale = 0.5f;
+
+        /// <summary>
+        /// Skip-ahead max jump while tight — small, so stuck-recovery can only hop to
+        /// an immediately-adjacent waypoint, never jump metres ahead through a rock.
+        /// </summary>
+        private const float WmTightSkipAheadMaxDist = 1.0f;
+
+        /// <summary>How often (frames) to re-probe for nearby walls. Cheap throttle.</summary>
+        private const int WmTightProbeIntervalFrames = 6;
 
         #endregion
 
@@ -67,6 +95,16 @@ namespace SO2RAccess
         /// <summary>Timer for diagnostic logging — logs once per second.</summary>
         private float _wmDiagTimer;
 
+        /// <summary>
+        /// True when the player is currently near world-map obstacle walls (threading a
+        /// cave mouth / rocky pinch). Drives precise + slow waypoint following. Refreshed
+        /// by <see cref="UpdateTightTerrain"/> every <see cref="WmTightProbeIntervalFrames"/>.
+        /// </summary>
+        private bool _wmTightTerrain;
+
+        /// <summary>Frame counter throttling the tight-terrain wall probe.</summary>
+        private int _wmTightProbeCounter;
+
         /// <summary>Waypoints from CalcHeight-based A* pathfinder.</summary>
         private Vector3[] _wmPathWaypoints;
 
@@ -85,12 +123,6 @@ namespace SO2RAccess
 
         /// <summary>Maximum recalculation attempts before giving up.</summary>
         private const int WmMaxRecalcAttempts = 5;
-
-        /// <summary>
-        /// Original auto-walk target before safe approach substitution.
-        /// Used by TryEnterWorldmapLocation to find the correct mapjump trigger.
-        /// </summary>
-        private Vector3 _wmOriginalTarget;
 
         #region Battle Resume State
 
@@ -170,26 +202,15 @@ namespace SO2RAccess
             // --- Arrival check at final target ---
             if (_autoWalkCategoryIndex == CAT_LOCATION)
             {
-                // Locations: stop at the location arrival radius and try
-                // to enter via map transition. The location's obstacle ring
-                // physically blocks getting closer, so don't try.
-                if (targetDist <= WorldmapLocationArrivalRadius)
+                // Locations: arrive ONLY when the game shows THIS location's "Press X to enter"
+                // prompt — i.e. the player has entered the location's enter-trigger ring (a
+                // navigable EventCollision distinct from the physical wall) and can actually
+                // enter. Each location's ring has its own size, so a fixed distance would stop
+                // too early/late; the prompt is the per-location truth. The prompt must match
+                // the target: a town merely passed en route must NOT count as arrival.
+                if (EnterPromptMatchesTarget())
                 {
-                    StopAutoWalk();
-                    if (TryEnterWorldmapLocation())
-                    {
-                        AnnounceArrival(Loc.Get("nav_autowalk_entering",
-                            _autoWalkLabel));
-                        DebugLogger.LogState(
-                            $"NAV auto-walk entering '{_autoWalkLabel}' via mapjump.");
-                    }
-                    else
-                    {
-                        AnnounceArrival(Loc.Get("nav_autowalk_arrived",
-                            _autoWalkLabel));
-                        DebugLogger.LogState(
-                            $"NAV auto-walk arrived at '{_autoWalkLabel}'.");
-                    }
+                    ArriveAtWorldmapLocation("enter prompt shown");
                     return;
                 }
             }
@@ -215,6 +236,10 @@ namespace SO2RAccess
             // --- Movement phase: follow CalcHeight A* waypoints ---
             _staticIsAutoWalking = true;
 
+            // Refresh tight-terrain state (near obstacle walls?) before stuck-recovery
+            // and movement use it. Throttled internally.
+            UpdateTightTerrain(playerPos);
+
             // Stuck detection: if no progress, try recalculating path.
             _wmStuckTimer += Time.deltaTime;
             if (_wmStuckTimer >= WorldmapStuckCheckInterval)
@@ -233,13 +258,18 @@ namespace SO2RAccess
                     {
                         int maxSkip = Math.Min(WmSkipAheadLookahead,
                             _wmPathWaypoints.Length - _wmPathIndex - 1);
+                        // In tight terrain, only hop to an immediately-adjacent waypoint —
+                        // a longer jump would aim the stick metres ahead, straight through
+                        // the rock the skipped waypoints were routing around.
+                        float skipMax = _wmTightTerrain
+                            ? WmTightSkipAheadMaxDist : WmSkipAheadMaxDist;
                         for (int skip = 1; skip <= maxSkip; skip++)
                         {
                             Vector3 futureWp = _wmPathWaypoints[_wmPathIndex + skip];
                             float skipDx = futureWp.x - playerPos.x;
                             float skipDz = futureWp.z - playerPos.z;
                             float skipDist = Mathf.Sqrt(skipDx * skipDx + skipDz * skipDz);
-                            if (skipDist < WmSkipAheadMaxDist)
+                            if (skipDist < skipMax)
                             {
                                 DebugLogger.LogState(
                                     $"NAV worldmap: skip-ahead from wp {_wmPathIndex} to " +
@@ -309,26 +339,15 @@ namespace SO2RAccess
                         }
                         catch { }
 
-                        // Close-range location entry fallback.
+                        // If we got stuck but THIS location's enter prompt is already up, the
+                        // player is in the enter-trigger ring — announce arrival rather than
+                        // recalculating. Distance alone never counts as arrival (the ring, not a
+                        // fixed radius, defines "close enough to enter"); a genuine stuck short of
+                        // the ring falls through to recalc/unreachable below.
                         if (_autoWalkCategoryIndex == CAT_LOCATION &&
-                            targetDist <= WorldmapLocationArrivalRadius)
+                            EnterPromptMatchesTarget())
                         {
-                            StopAutoWalk();
-                            if (TryEnterWorldmapLocation())
-                            {
-                                AnnounceArrival(Loc.Get("nav_autowalk_entering",
-                                    _autoWalkLabel));
-                                DebugLogger.LogState(
-                                    $"NAV auto-walk entering '{_autoWalkLabel}' via mapjump.");
-                            }
-                            else
-                            {
-                                AnnounceArrival(Loc.Get("nav_autowalk_arrived",
-                                    _autoWalkLabel));
-                                DebugLogger.LogState(
-                                    $"NAV auto-walk arrived at '{_autoWalkLabel}' " +
-                                    "but no mapjump found.");
-                            }
+                            ArriveAtWorldmapLocation("enter prompt shown (stuck)");
                             return;
                         }
 
@@ -443,21 +462,73 @@ namespace SO2RAccess
                 DebugLogger.LogState(
                     $"NAV WM: wp={_wmPathIndex}/{_wmPathWaypoints.Length} " +
                     $"wpDist={cwDist:F1} targetDist={targetDist:F1} " +
+                    $"tight={_wmTightTerrain} " +
+                    $"speed={(_wmTightTerrain ? WmTightSpeedScale : 1f):F2} " +
                     $"pos=({playerPos.x:F1},{playerPos.y:F1},{playerPos.z:F1})");
             }
         }
 
         /// <summary>
-        /// Applies movement on the world map via stick injection.
-        /// Directly follows waypoint direction at full speed. Safe approach
-        /// waypoints (Point 3) keep the player away from obstacle rings,
-        /// so complex local avoidance is not needed.
+        /// Applies movement on the world map via stick injection, following the grid
+        /// path's heading. Runs at full speed in open terrain; in tight terrain (near
+        /// obstacle walls) the stick magnitude is scaled down (<see cref="WmTightSpeedScale"/>)
+        /// so the player tracks the 0.5 m gap-centered waypoints precisely instead of
+        /// overshooting and clipping the rocks at a cave mouth / pinch.
         /// </summary>
         private void ApplyWorldmapMovement(FieldPlayer player, Vector3 moveDir,
             Vector3 playerPos)
         {
             _wmDirectMoveActive = false;
-            _staticAutoWalkStickDir = WorldDirToCameraStick(moveDir);
+            Vector2 stick = WorldDirToCameraStick(moveDir);
+            if (_wmTightTerrain)
+                stick *= WmTightSpeedScale;
+            _staticAutoWalkStickDir = stick;
+        }
+
+        /// <summary>
+        /// Refreshes <see cref="_wmTightTerrain"/>: true when a non-trigger obstacle wall
+        /// (Col_Obstacle on layers 22/23) is within <see cref="WmTightProbeRadius"/> of the
+        /// player. In tight terrain the follower slows down and stops skipping waypoints so
+        /// it tracks the grid's gap-centered thread precisely (e.g. threading a cave mouth)
+        /// instead of overshooting into rocks. Throttled to one probe every
+        /// <see cref="WmTightProbeIntervalFrames"/> frames; keeps the last value on a probe
+        /// failure. Logs each enter/leave transition for diagnostics.
+        /// </summary>
+        private void UpdateTightTerrain(Vector3 playerPos)
+        {
+            if (++_wmTightProbeCounter < WmTightProbeIntervalFrames)
+                return;
+            _wmTightProbeCounter = 0;
+
+            try
+            {
+                var hits = UnityEngine.Physics.OverlapSphere(
+                    playerPos, WmTightProbeRadius, WmTightProbeMask);
+                bool tight = false;
+                int wallCount = 0;
+                if (hits != null)
+                {
+                    for (int i = 0; i < hits.Length; i++)
+                    {
+                        var c = hits[i];
+                        if (c == null || c.isTrigger) continue;
+                        tight = true;
+                        wallCount++;
+                    }
+                }
+
+                if (tight != _wmTightTerrain)
+                    DebugLogger.LogState(
+                        $"NAV WM tight-terrain {(tight ? "ENTER" : "LEAVE")} " +
+                        $"(walls within {WmTightProbeRadius:F1}m={wallCount}) — " +
+                        $"{(tight ? "slowing + no skip-ahead" : "full speed")}.");
+
+                _wmTightTerrain = tight;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV WM tight-probe error: {ex.Message}");
+            }
         }
 
         #endregion
@@ -465,68 +536,39 @@ namespace SO2RAccess
         #region World Map Location Entry
 
         /// <summary>
-        /// Finds the nearest FieldMapjumpCollision to the auto-walk target and
-        /// triggers it to enter the location manually via ChangeFieldmap().
-        /// Retained as a potential fallback — not called from normal auto-walk
-        /// flow since stick injection lets the player walk into trigger colliders
-        /// naturally (OnTriggerEnter fires and handles the map change).
-        /// Returns true if a mapjump was found and triggered.
+        /// Ends world-map auto-walk at a location: stops movement and announces arrival.
+        /// Does NOT enter the location — the player decides whether to enter and presses the
+        /// game's own "X to enter" button themselves (the prompt is read on appearance). Shared
+        /// by the distance/prompt arrival check and the stuck-recovery fallback.
         /// </summary>
-        private bool TryEnterWorldmapLocation()
+        /// <param name="reason">Short diagnostic note on what triggered arrival.</param>
+        private void ArriveAtWorldmapLocation(string reason)
         {
-            try
-            {
-                var collisions = UnityEngine.Object
-                    .FindObjectsOfType<FieldMapjumpCollision>();
-                if (collisions == null || collisions.Length == 0)
-                {
-                    DebugLogger.LogState(
-                        "NAV worldmap enter: no FieldMapjumpCollision objects found.");
-                    return false;
-                }
+            StopAutoWalk();
+            AnnounceArrival(Loc.Get("nav_autowalk_arrived", _autoWalkLabel));
+            DebugLogger.LogState(
+                $"NAV auto-walk arrived at '{_autoWalkLabel}' ({reason}).");
+        }
 
-                FieldMapjumpCollision nearest = null;
-                float nearestDist = float.MaxValue;
+        /// <summary>
+        /// True only when the world-map "Press X to enter" prompt currently on screen belongs
+        /// to the location we are auto-walking to. The prompt signal is global, so this guards
+        /// against a town we merely pass (e.g. Krosse City) tripping arrival for a distant target
+        /// (e.g. Mountain Palace). Nav labels may add a suffix like " (Dungeon)", so the match is
+        /// containment in either direction, case-insensitive.
+        /// </summary>
+        private bool EnterPromptMatchesTarget()
+        {
+            if (!FieldPromptHandler.EnterPromptShowing) return false;
 
-                // Use _wmOriginalTarget (pre-safe-approach) to find the correct
-                // trigger, since _autoWalkTarget may have been substituted with a
-                // safe approach point further away from the trigger.
-                Vector3 triggerSearchPos = _wmOriginalTarget != Vector3.zero
-                    ? _wmOriginalTarget : _autoWalkTarget;
-
-                for (int i = 0; i < collisions.Length; i++)
-                {
-                    var c = collisions[i];
-                    if (c == null) continue;
-                    float dist = Vector3.Distance(
-                        c.transform.position, triggerSearchPos);
-                    if (dist < nearestDist)
-                    {
-                        nearestDist = dist;
-                        nearest = c;
-                    }
-                }
-
-                if (nearest == null)
-                {
-                    DebugLogger.LogState(
-                        "NAV worldmap enter: no valid FieldMapjumpCollision.");
-                    return false;
-                }
-
-                DebugLogger.LogState(
-                    $"NAV worldmap enter: triggering mapjump " +
-                    $"dist={nearestDist:F1} fieldmap={nearest.fieldmapID} " +
-                    $"pos=({nearest.transform.position.x:F1}," +
-                    $"{nearest.transform.position.z:F1})");
-
-                return nearest.ChangeFieldmap();
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"NAV worldmap enter error: {ex.Message}");
+            string promptLabel = FieldPromptHandler.EnterPromptLabel;
+            if (string.IsNullOrEmpty(promptLabel) || string.IsNullOrEmpty(_autoWalkLabel))
                 return false;
-            }
+
+            string a = _autoWalkLabel.Trim();
+            string b = promptLabel.Trim();
+            return a.IndexOf(b, StringComparison.OrdinalIgnoreCase) >= 0
+                || b.IndexOf(a, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         #endregion

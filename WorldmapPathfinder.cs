@@ -109,6 +109,35 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// True if the given world XZ lands on a walkable grid cell — real
+        /// terrain/road (<c>Height &gt;= 2</c>), not ocean/void (0) or a baked
+        /// obstacle/wall (1). Mirrors the A* fallback floor exactly, so a cell
+        /// this reports walkable is one the pathfinder can stand on. Returns
+        /// false if no grid is cached (caller should treat as "unknown").
+        /// Used to pick an entrance-ring point that is NOT buried in a wall.
+        /// </summary>
+        public static bool IsWalkableWorld(Vector3 world)
+        {
+            try
+            {
+                var fm = FieldManager.Instance;
+                if (fm == null || !fm.IsExistWorldGridData()) return false;
+                var grid = GetCachedGrid(fm.WorldmapID);
+                if (grid == null) return false;
+                grid.WorldToGrid(world.x, world.z, out int ax, out int az);
+                if (ax < 0 || ax >= grid.GridW || az < 0 || az >= grid.GridH)
+                    return false;
+                return grid.Height[ax, az] >= 2;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState(
+                    $"NAV WM IsWalkableWorld error: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Finds a path on the world map using the pre-computed height grid.
         /// Returns world-space waypoints or null if no path exists.
         /// </summary>
@@ -183,19 +212,19 @@ namespace SO2RAccess
                     }
                 }
 
-                // Clear a small area around the start so the player's
-                // immediate cell is passable. The grid already has real
-                // entrance paths baked in (from FieldMapjumpCollision
-                // triggers), so we don't need the old 15m blanket clearance
-                // that created phantom passable cells through obstacle rings.
-                // Start: 3m radius — just enough for the player's cell.
-                // Target: 10m radius — covers the arrival zone for
-                // TryEnterWorldmapLocation (arrival at 10m).
+                // Clear a small area around the START ONLY so the player's
+                // immediate cell is passable (the player may stand on a cell the
+                // grid marks tight/obstacle). We deliberately do NOT clear cells
+                // around the destination: the old 10m end-clearance punched a hole
+                // straight through a town/dungeon model's wall so the A* could reach
+                // the centre point — that is exactly the "routes through the wall"
+                // behaviour we want gone. Walls stay fully impassable; the caller
+                // now targets the navigable enter-trigger ring, and SnapToTerrain
+                // pulls the endpoint to the nearest passable cell if needed.
                 int startClearRadius = 6; // 3m at 0.5m cells
-                int endClearRadius = 20;  // 10m at 0.5m cells
-                int[] clearCentersX = { startAx, endAx };
-                int[] clearCentersZ = { startAz, endAz };
-                int[] clearRadii = { startClearRadius, endClearRadius };
+                int[] clearCentersX = { startAx };
+                int[] clearCentersZ = { startAz };
+                int[] clearRadii = { startClearRadius };
                 for (int c = 0; c < clearCentersX.Length; c++)
                 {
                     int cx = clearCentersX[c];

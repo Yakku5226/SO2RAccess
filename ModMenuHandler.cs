@@ -310,6 +310,13 @@ namespace SO2RAccess
                     GetValue = () => Loc.Get(ModSettings.JumpPromptSpeechEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.JumpPromptSpeechEnabled = !ModSettings.JumpPromptSpeechEnabled; }
                 },
+                // Enter prompt speech toggle (world-map "Press X to enter")
+                new ModMenuItem
+                {
+                    LabelKey = "mod_menu_label_enter_speech",
+                    GetValue = () => Loc.Get(ModSettings.EnterPromptSpeechEnabled ? "mod_menu_on" : "mod_menu_off"),
+                    Change = _ => { ModSettings.EnterPromptSpeechEnabled = !ModSettings.EnterPromptSpeechEnabled; }
+                },
                 // Walk assist (soft obstacle steering during auto-walk) toggle
                 new ModMenuItem
                 {

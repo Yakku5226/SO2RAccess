@@ -77,143 +77,184 @@ namespace SO2RAccess
         private static readonly int WmObstacleLayerMask = 1 << 22;
 
         /// <summary>
-        /// Computes a safe approach point outside a location's obstacle ring.
-        /// Finds the nearest FieldMapjumpCollision trigger, then places a point
-        /// 20m outward (away from the target) where there is ground and no L22
-        /// obstacles. Falls back to 8 directions, then trigger position itself.
+        /// Resolves the world-map auto-walk destination for a location: the nearest
+        /// navigable point on that location's enter-trigger RING — its
+        /// FieldMapjumpCollision trigger collider, the same volume that raises the
+        /// "Press X to enter" prompt. The ring is navigable; the location's model
+        /// wall is not. Targeting the ring (not the centre point, and not a guessed
+        /// hole through the model) lets the pathfinder keep the whole model impassable
+        /// and still deliver the player to exactly where they can enter.
+        /// Returns <paramref name="locationPos"/> unchanged if no trigger is found.
         /// </summary>
-        private Vector3 ComputeSafeApproachPoint(Vector3 targetPos)
+        private Vector3 ComputeEnterTriggerTarget(Vector3 locationPos, Vector3 playerPos)
         {
-            const float SafeDistance = 20f;
-
             try
             {
                 var collisions = UnityEngine.Object
                     .FindObjectsOfType<FieldMapjumpCollision>();
                 if (collisions == null || collisions.Length == 0)
                 {
-                    DebugLogger.LogState("NAV WM safe approach: no triggers found.");
-                    return targetPos;
+                    DebugLogger.LogState(
+                        "NAV WM enter-trigger: no FieldMapjumpCollision found.");
+                    return locationPos;
                 }
 
-                // Find the nearest trigger to the target.
+                // Nearest mapjump to the location, and its destination fieldmap.
                 FieldMapjumpCollision nearest = null;
                 float nearestDist = float.MaxValue;
-
-                // Also track a ground-level preferred trigger (small Y bounds).
-                FieldMapjumpCollision groundTrigger = null;
-                float groundTriggerDist = float.MaxValue;
                 FieldmapID nearestFieldmapID = default;
-
                 for (int i = 0; i < collisions.Length; i++)
                 {
                     var c = collisions[i];
                     if (c == null) continue;
-                    float dist = Vector3.Distance(c.transform.position, targetPos);
-                    if (dist < nearestDist)
+                    float d = Vector3.Distance(c.transform.position, locationPos);
+                    if (d < nearestDist)
                     {
-                        nearestDist = dist;
+                        nearestDist = d;
                         nearest = c;
                         nearestFieldmapID = c.fieldmapID;
                     }
                 }
+                if (nearest == null) return locationPos;
 
-                if (nearest == null) return targetPos;
-
-                // Among triggers for the same destination, prefer ground-level.
+                // Among triggers for that destination, pick the ground-level trigger
+                // collider (small Y extent = the road-entrance ring, not a town-wide
+                // detection volume). Fall back to any trigger collider on the nearest.
+                Collider ring = null;
+                float ringPick = float.MaxValue;
                 for (int i = 0; i < collisions.Length; i++)
                 {
                     var c = collisions[i];
                     if (c == null || c.fieldmapID != nearestFieldmapID) continue;
-
-                    var col = c.GetComponent<Collider>();
-                    if (col != null)
+                    var cols = c.GetComponents<Collider>();
+                    if (cols == null) continue;
+                    for (int k = 0; k < cols.Length; k++)
                     {
-                        float yExtent = col.bounds.size.y;
-                        if (yExtent < 20f)
-                        {
-                            float dist = Vector3.Distance(c.transform.position, targetPos);
-                            if (dist < groundTriggerDist)
-                            {
-                                groundTriggerDist = dist;
-                                groundTrigger = c;
-                            }
-                        }
+                        var col = cols[k];
+                        if (col == null || !col.isTrigger) continue;
+                        if (col.bounds.size.y > 20f) continue; // skip town-wide zones
+                        float d = Vector3.Distance(c.transform.position, locationPos);
+                        if (d < ringPick) { ringPick = d; ring = col; }
                     }
                 }
-
-                var chosenTrigger = groundTrigger ?? nearest;
-                Vector3 triggerCenter = chosenTrigger.transform.position;
-
-                // Direction outward: from trigger center pointing away from target.
-                Vector3 outward = triggerCenter - targetPos;
-                outward.y = 0f;
-                if (outward.sqrMagnitude < 0.01f)
-                    outward = Vector3.forward; // fallback if target == trigger
-                outward.Normalize();
-
-                // Try outward direction first, then 8 directions.
-                Vector3[] directions = new Vector3[9];
-                directions[0] = outward;
-                for (int d = 0; d < 8; d++)
+                if (ring == null)
                 {
-                    float angle = d * 45f * Mathf.Deg2Rad;
-                    directions[d + 1] = new Vector3(Mathf.Sin(angle), 0f, Mathf.Cos(angle));
+                    var cols = nearest.GetComponents<Collider>();
+                    if (cols != null)
+                        for (int k = 0; k < cols.Length; k++)
+                            if (cols[k] != null && cols[k].isTrigger)
+                            { ring = cols[k]; break; }
                 }
 
-                foreach (var dir in directions)
+                Vector3 dest;
+                if (ring != null)
                 {
-                    Vector3 candidate = triggerCenter + dir * SafeDistance;
-
-                    // Check ground exists.
-                    float h = GameUtility.CalcHeight(candidate, out bool hasGround, 50f);
-                    if (!hasGround) continue;
-                    candidate.y = h;
-
-                    // Check no L22 obstacles.
-                    try
-                    {
-                        var hits = UnityEngine.Physics.OverlapSphere(
-                            candidate, 1.0f, WmObstacleLayerMask);
-                        bool blocked = false;
-                        if (hits != null)
-                        {
-                            foreach (var col in hits)
-                            {
-                                if (col != null && !col.isTrigger)
-                                {
-                                    blocked = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if (blocked) continue;
-                    }
-                    catch { continue; }
-
-                    DebugLogger.LogState(
-                        $"NAV WM safe approach: found at ({candidate.x:F1},{candidate.z:F1}) " +
-                        $"{SafeDistance:F0}m from trigger ({triggerCenter.x:F1},{triggerCenter.z:F1})");
-                    return candidate;
+                    // The ring hugs the model wall, so the single closest point
+                    // often lands on a baked-obstacle cell the grid pathfinder
+                    // cannot stand on (→ "no path found" → straight-line grind).
+                    // Sample around the ring for a cell that is actually walkable
+                    // (the road in) and take the nearest such to the player.
+                    dest = PickReachableRingPoint(ring, playerPos, locationPos,
+                        out bool usedCenter);
+                    if (usedCenter)
+                        DebugLogger.LogState(
+                            "NAV WM enter-trigger: no walkable cell on the ring; " +
+                            "routing to the location centre instead (arrival still " +
+                            "waits for this location's enter prompt).");
+                }
+                else
+                {
+                    dest = nearest.transform.position;
                 }
 
-                // All directions blocked — use trigger position as fallback.
+                float h = GameUtility.CalcHeight(
+                    new Vector3(dest.x, 150f, dest.z), out bool ok, 300f);
+                if (ok) dest.y = h;
+
                 DebugLogger.LogState(
-                    "NAV WM safe approach: all directions blocked, using trigger position.");
-                return triggerCenter;
+                    $"NAV WM enter-trigger: routing to ring point " +
+                    $"({dest.x:F1},{dest.z:F1}) for location " +
+                    $"({locationPos.x:F1},{locationPos.z:F1}) fieldmap={nearestFieldmapID}");
+                return dest;
             }
             catch (Exception ex)
             {
-                DebugLogger.LogState($"NAV WM safe approach error: {ex.Message}");
-                return targetPos;
+                DebugLogger.LogState($"NAV WM enter-trigger error: {ex.Message}");
+                return locationPos;
             }
         }
 
         /// <summary>
-        /// Computes a safe exit point when the player is near a town.
-        /// Uses the same approach as ComputeSafeApproachPoint but picks the
-        /// direction AWAY from the nearest trigger (toward open terrain).
-        /// Also checks L23 CharaWalls in addition to L22 obstacles.
+        /// Returns a point on the entrance-ring trigger that sits on a WALKABLE
+        /// grid cell (the road into the location), preferring the one nearest the
+        /// player. Every enterable location must have at least one such cell, or
+        /// it could not be entered. Samples the ring perimeter from several
+        /// directions and projects each reference point onto the collider via
+        /// <see cref="Collider.ClosestPoint"/>, keeping the nearest candidate that
+        /// <see cref="WorldmapPathfinder.IsWalkableWorld"/> accepts. If none tests
+        /// walkable (ring fully buried in the model wall, or no grid cached), sets
+        /// <paramref name="usedCenter"/> and returns the location centre so the
+        /// caller can route there instead — the enter prompt still gates arrival.
+        /// </summary>
+        private Vector3 PickReachableRingPoint(Collider ring, Vector3 playerPos,
+            Vector3 locationPos, out bool usedCenter)
+        {
+            usedCenter = false;
+
+            Vector3 best = Vector3.zero;
+            float bestDistSq = float.MaxValue;
+
+            void Consider(Vector3 cand)
+            {
+                if (!WorldmapPathfinder.IsWalkableWorld(cand)) return;
+                float d = (cand - playerPos).sqrMagnitude;
+                if (d < bestDistSq) { bestDistSq = d; best = cand; }
+            }
+
+            // The plain closest point to the player is usually the right edge —
+            // try it first (skip the degenerate "player already inside" case).
+            try
+            {
+                Vector3 cp = ring.ClosestPoint(playerPos);
+                if ((cp - playerPos).sqrMagnitude > 0.0001f) Consider(cp);
+            }
+            catch { /* unsupported collider type — fall through to sampling */ }
+
+            // Sample the ring from points all around it. Projecting an external
+            // reference point onto the collider yields the surface point facing
+            // that direction, so we cover every side (the road may approach from
+            // any angle), not just the player-facing edge.
+            Bounds b = ring.bounds;
+            float reach = b.extents.x + b.extents.z + 4f;
+            const int Steps = 16;
+            for (int i = 0; i < Steps; i++)
+            {
+                float ang = (i / (float)Steps) * Mathf.PI * 2f;
+                Vector3 refPt = new Vector3(
+                    b.center.x + Mathf.Cos(ang) * reach,
+                    b.center.y,
+                    b.center.z + Mathf.Sin(ang) * reach);
+                try { Consider(ring.ClosestPoint(refPt)); }
+                catch { /* skip this sample */ }
+            }
+
+            if (bestDistSq < float.MaxValue)
+            {
+                DebugLogger.LogState(
+                    $"NAV WM enter-trigger: reachable ring point at " +
+                    $"({best.x:F1},{best.z:F1}), {Mathf.Sqrt(bestDistSq):F1}m from player.");
+                return best;
+            }
+
+            usedCenter = true;
+            return locationPos;
+        }
+
+        /// <summary>
+        /// Computes a safe exit point when the player is STARTING near a town:
+        /// a point ~25m away in the direction AWAY from the nearest trigger
+        /// (toward open terrain), so the A* leaves the town's wall ring cleanly
+        /// before routing to the target. Checks both L22 obstacles and L23 CharaWalls.
         /// </summary>
         private Vector3 ComputeSafeExitPoint(Vector3 playerPos)
         {
@@ -330,21 +371,9 @@ namespace SO2RAccess
             if (!keepBlockedPositions)
                 _wmBlockedPositions.Clear();
 
-            // For location targets, route to a safe approach point outside the
-            // obstacle ring instead of directly to the town entrance.
-            _wmOriginalTarget = targetPos;
-            if (_autoWalkCategoryIndex == CAT_LOCATION)
-            {
-                Vector3 safePoint = ComputeSafeApproachPoint(targetPos);
-                if (Vector3.Distance(safePoint, targetPos) > 1f)
-                {
-                    DebugLogger.LogState(
-                        $"NAV WM: routing to safe approach at " +
-                        $"({safePoint.x:F1},{safePoint.z:F1}) instead of location at " +
-                        $"({targetPos.x:F1},{targetPos.z:F1})");
-                    targetPos = safePoint;
-                }
-            }
+            // For locations, targetPos is already the enter-trigger ring point
+            // (resolved by ComputeEnterTriggerTarget when the walk started), so we
+            // route straight to it — the model stays fully impassable in the grid.
 
             // If starting near a town, compute a safe exit point first.
             // Route: player → safe exit → target. This prevents the A* from

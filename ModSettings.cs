@@ -103,6 +103,12 @@ namespace SO2RAccess
         public static bool JumpPromptSpeechEnabled { get; set; } = true;
 
         /// <summary>
+        /// Whether the world-map "Press X to enter" location prompt is spoken once via the
+        /// screen reader when it appears above the player near a town or dungeon entrance.
+        /// </summary>
+        public static bool EnterPromptSpeechEnabled { get; set; } = true;
+
+        /// <summary>
         /// Whether the soft spatial-awareness walk assist is enabled. When on, the
         /// auto-walk heading is gently nudged around nearby NPCs/clutter so the
         /// player gets stuck less often. The nudge is hard-capped in angle and
@@ -174,6 +180,7 @@ namespace SO2RAccess
                     JumpPromptSoundEnabled = data.JumpPromptSoundEnabled;
                     JumpPromptSoundVolume = Math.Clamp(data.JumpPromptSoundVolume, 0f, 1f);
                     JumpPromptSpeechEnabled = data.JumpPromptSpeechEnabled;
+                    EnterPromptSpeechEnabled = data.EnterPromptSpeechEnabled;
                     WalkAssistEnabled = data.WalkAssistEnabled;
                     EventNpcDisplay = Enum.IsDefined(typeof(EventNpcDisplayMode), data.EventNpcDisplay)
                         ? (EventNpcDisplayMode)data.EventNpcDisplay
@@ -216,6 +223,7 @@ namespace SO2RAccess
                     JumpPromptSoundEnabled = JumpPromptSoundEnabled,
                     JumpPromptSoundVolume = JumpPromptSoundVolume,
                     JumpPromptSpeechEnabled = JumpPromptSpeechEnabled,
+                    EnterPromptSpeechEnabled = EnterPromptSpeechEnabled,
                     WalkAssistEnabled = WalkAssistEnabled,
                     EventNpcDisplay = (int)EventNpcDisplay,
                     NpcAwarePathfindingEnabled = NpcAwarePathfindingEnabled
@@ -254,6 +262,7 @@ namespace SO2RAccess
             public bool JumpPromptSoundEnabled { get; set; } = true;
             public float JumpPromptSoundVolume { get; set; } = 0.8f;
             public bool JumpPromptSpeechEnabled { get; set; } = true;
+            public bool EnterPromptSpeechEnabled { get; set; } = true;
             public bool WalkAssistEnabled { get; set; } = true;
             public int EventNpcDisplay { get; set; } = (int)EventNpcDisplayMode.Both;
             public bool NpcAwarePathfindingEnabled { get; set; } = true;
