@@ -642,7 +642,8 @@ namespace SO2RAccess
                 Directory.GetCurrentDirectory(), "UserData", "SO2RAccess");
             string filePath = Path.Combine(dir, $"worldmap_{mapName}.grid");
 
-            if (!File.Exists(filePath))
+            if (!File.Exists(filePath) &&
+                !TryExtractEmbeddedGrid(mapName, dir, filePath))
             {
                 DebugLogger.LogState($"[GridGen] No cached grid at: {filePath}");
                 return null;
@@ -740,6 +741,47 @@ namespace SO2RAccess
                 DebugLogger.LogState($"[GridGen] Load error: {ex.Message}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Extracts a gzip-compressed grid file embedded in the mod DLL to
+        /// the UserData folder, so end users never need to generate the grid
+        /// themselves (F9 remains available for developers to rebake). A grid
+        /// already present in UserData is never overwritten — a locally
+        /// regenerated grid always wins over the shipped one.
+        /// </summary>
+        private static bool TryExtractEmbeddedGrid(string mapName, string dir,
+            string filePath)
+        {
+            try
+            {
+                var asm = System.Reflection.Assembly.GetExecutingAssembly();
+                string suffix = $"grids.worldmap_{mapName}.grid.gz";
+                foreach (var name in asm.GetManifestResourceNames())
+                {
+                    if (!name.EndsWith(suffix,
+                        StringComparison.OrdinalIgnoreCase)) continue;
+                    using var res = asm.GetManifestResourceStream(name);
+                    if (res == null) return false;
+                    Directory.CreateDirectory(dir);
+                    using var gz = new System.IO.Compression.GZipStream(
+                        res, System.IO.Compression.CompressionMode.Decompress);
+                    using var outFs = new FileStream(filePath, FileMode.Create);
+                    gz.CopyTo(outFs);
+                    MelonLoader.MelonLogger.Msg(
+                        $"[GridGen] Extracted embedded {mapName} grid " +
+                        $"to {filePath}");
+                    return true;
+                }
+                DebugLogger.LogState(
+                    $"[GridGen] No embedded grid resource for {mapName}.");
+            }
+            catch (Exception ex)
+            {
+                MelonLoader.MelonLogger.Warning(
+                    $"[GridGen] Embedded grid extraction failed: {ex.Message}");
+            }
+            return false;
         }
 
         /// <summary>
@@ -1003,6 +1045,16 @@ namespace SO2RAccess
             /// tighter cells cost more. Null if loaded from older format.
             /// </summary>
             public Dictionary<long, float> ClearanceValues;
+
+            /// <summary>
+            /// Connected-region label per cell (index = ax * GridH + az),
+            /// computed once at load by WorldmapPathfinder.BuildRegions.
+            /// 0 = unlabeled (ocean/obstacle/overflow — treat as unknown).
+            /// Cells share a label if and only if the 0.50m-floor A* can
+            /// route between them, so label equality is an instant
+            /// "any route exists?" test. Null if region build failed.
+            /// </summary>
+            public ushort[] Regions;
 
             /// <summary>Convert world position to grid indices.</summary>
             public void WorldToGrid(float worldX, float worldZ,

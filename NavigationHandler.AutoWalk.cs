@@ -126,11 +126,12 @@ namespace SO2RAccess
 
             if (!pathFound)
             {
-                ScreenReader.Say(Loc.Get(
-                    _lastPathBlockedByExit
-                        ? "nav_autowalk_route_exits"
-                        : "nav_autowalk_unreachable",
-                    item.Label));
+                string failKey = _lastPathBlockedByExit
+                    ? "nav_autowalk_route_exits"
+                    : (_isWorldmap && WorldmapPathfinder.LastNoPathWasDisconnected)
+                        ? "nav_autowalk_no_land_route"
+                        : "nav_autowalk_unreachable";
+                ScreenReader.Say(Loc.Get(failKey, item.Label));
                 return;
             }
 

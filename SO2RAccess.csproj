@@ -23,6 +23,15 @@
     <EmbeddedResource Include="traversals\*.json" />
   </ItemGroup>
 
+  <!-- World map walkability grids (gzip-compressed), compiled into the DLL
+       for release and auto-extracted to UserData\SO2RAccess on first run.
+       To refresh after an F9 rebake: gzip UserData\SO2RAccess\worldmap_*.grid
+       into the project's grids\ folder and rebuild. A grid already present
+       in UserData is never overwritten by the embedded copy. -->
+  <ItemGroup>
+    <EmbeddedResource Include="grids\*.grid.gz" />
+  </ItemGroup>
+
   <!-- MelonLoader (net6 runtime) -->
   <ItemGroup>
     <Reference Include="MelonLoader">

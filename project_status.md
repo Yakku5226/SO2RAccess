@@ -37,6 +37,111 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> 📌 **NEXT SESSION PLAN (agreed 2026-07-05): the bunny phase.** (1) Test the 2b fix below
+> (Salva from Krosse) + re-run P1–P6 as convenient. (2) Then start bunny-aware per-mode
+> reachability: investigate ride-state detection + LayerMaskBunnyWall contents, F9 grid
+> regeneration with per-mode blocked bits (ALSO fixes the flood-fill d<4 latent bug and the
+> Lasgus/Mountain-Palace false-connection), per-mode region maps, annotate-first list rollout.
+> After any F9 regen: gzip the new grid into grids\ and rebuild so the embedded copy matches.
+
+> ⏳ **PENDING USER TEST (2026-07-05 session 2b): "Unreachable Salva from Krosse" — FIXED via
+> region-aware entrance picking.** User tested the perf pass: SPEED CONFIRMED (paths 0–436ms,
+> rejects 0ms in log), but Salva reported unreachable from Krosse City — a real bug, diagnosed
+> OFFLINE from the actual grid file (scratchpad GridAnalysis.cs, no game needed):
+> - The grid is FINE: Krosse plains, Krosse ring, and Salva's NORTH mapjump entrance
+>   (-162.9,-307.1) are all in the same connected region (mainland, 1.58M cells). Salva IS
+>   grid-reachable. The corridor is not sealed.
+> - ROOT CAUSE: Salva is a BOUNDARY town (Krosse plains on the north, Arlia valley on the
+>   south — its story role is the pass between them). PickReachableRingPoint chose a walkable
+>   entrance point on the VALLEY side (region 213 in-game) because it checked only walkability,
+>   never connectivity, and sampled only one trigger. FindPath then honestly (and correctly,
+>   for that wrong point) said "different regions". This was the KNOWN RESIDUAL from 2026-06-30.
+> - Old code would have failed here too (full-sweep no-path → straight-line grind → cancel);
+>   the new region check just exposed it fast and honestly.
+> FIX (build 0/0, deployed): ComputeEnterTriggerTarget now collects ALL ground-level entrance
+> triggers for the destination fieldmap (boundary towns have several); PickReachableRingPoint
+> samples each trigger's CENTER + player-closest point + 16 perimeter points and picks in tiers:
+> (1) walkable AND same region as player (via new WorldmapPathfinder.GetRegionId), nearest wins;
+> (2) walkable only (old behavior, pathfinder rejects honestly if wrong); (3) location centre.
+> Logs which tier fired. NOTE: "Cannot reach Arlia from Krosse" remains CORRECT — Arlia's
+> entrances are all valley-side; the real route passes THROUGH Salva town (multi-leg routing
+> through pass-through towns = possible future feature; the no-land-route message already hints it).
+> TEST: from Krosse plains auto-walk to Salva → expect log "connected ring point at (~-163,-307)"
+> (the NORTH entrance), a real route, full walk, arrival on Salva's enter prompt. Arlia should
+> still refuse with the no-land-route message. Re-run P1–P6 below as convenient.
+> LATENT BUG NOTED (fix at next F9 regen, not now): WorldmapGridGenerator flood-fill loop
+> iterates d<4 (cardinal only) though its comment + arrays are 8-dir — diagonal-only threads
+> can be wrongly sealed. Harmless for this bug; fold into the bunny-phase regeneration.
+
+> ⏳ **PENDING USER TEST (2026-07-05 session 2): WORLD MAP PERFORMANCE + HONESTY PASS.**
+> User confirmed a 2–3s freeze on EVERY world-map auto-walk start. Full review of the world map
+> nav method done this session (user-requested). Implemented (build 0/0, DLL deployed):
+> 1. **WorldmapPathfinder.cs internals rewritten (public API unchanged):**
+>    - Persistent generation-stamped A* buffers (gCost/state/parentDir, ~260MB allocated once,
+>      shared by both maps) replace ~300MB of fresh arrays + a 37M-cell init loop PER CALL —
+>      this was the main freeze cause (auto-walk start runs FindPath 2–4+ times).
+>    - Grid mutated in place with an undo journal (finally-restored) instead of a 75MB clone/call.
+>    - **Connected-region map** built ONCE at grid load (BFS, same neighbor rule as the
+>      authoritative 0.50m-floor A* pass, ~1–2s one-time, logged "NAV WM regions: N ... in Xms").
+>      FindPath fast-rejects when start and target are in different regions → unreachable answers
+>      in microseconds instead of a full-landmass double sweep. Fail-open (region 0 = unknown);
+>      stamps only remove connectivity, so the reject can NEVER hide a reachable target.
+>    - Tier-1 (0.60m comfort) pass expansion-capped at 1.5M cells — it's a preference, not the
+>      authority; tier-2 floor pass stays uncapped. Fixes the long sweep at cave mouths where
+>      "no route at 0.60m" previously searched the whole continent before falling back.
+>    - Waypoint Y now read from baked grid heights (was: one CalcHeight raycast per waypoint —
+>      hundreds per path for a Y the stick follower never uses).
+>    - All path logs now include Stopwatch ms + cells searched (verify-with-data).
+> 2. **Straight-line fallback GATED** (Worldmap.Pathfinding.cs): no grid path + target farther
+>    than 15m → WorldmapCalculateAndStorePath returns false (honest "unreachable") instead of
+>    marching the player into walls (the old grind). ≤15m keeps the fallback (grid-snap edge
+>    cases). Battle-resume call site (NavigationHandler.cs) now handles false: announces
+>    unreachable, abandons resume, does NOT start walking.
+> 3. **New message** `nav_autowalk_no_land_route` (Loc.cs): when the region map proves
+>    disconnection, says "No walkable route to X from here. It may lie beyond mountains or
+>    water, or require passing through another location." (AutoWalk.cs picks it via
+>    WorldmapPathfinder.LastNoPathWasDisconnected.)
+> 4. **Grid now SHIPS WITH THE MOD:** grids\worldmap_expel.grid.gz (9.3MB gzip of the 80MB grid)
+>    embedded in the DLL (csproj EmbeddedResource, DLL now ~10MB); auto-extracted to
+>    UserData\SO2RAccess on first load if missing. A locally F9-regenerated grid is NEVER
+>    overwritten. Nede: generate with F9 when the story gets there, gzip into grids\, rebuild.
+> RAM note: ~410MB added while on the world map (grid 75 + regions 75 + buffers 260). If the
+> user reports memory pressure, quantize later — do not pre-optimize.
+>
+> TESTS NEXT SESSION (F12 debug ON):
+> [ ] P1. SPEED — auto-walk from open plains to a normal town (e.g. Krosse City). Player should
+>        start moving almost immediately (well under 1s, after the one-time region build).
+>        FIRST walk of the session logs "NAV WM regions: N connected regions labeled in Xms"
+>        (one-time ~1–2s is OK). Log should show "found path with N waypoints in Xms" — expect
+>        low tens of ms, not seconds. Compare against the old constant 2–3s freeze.
+> [ ] P2. INSTANT HONEST UNREACHABLE — auto-walk to Arlia from the Krosse region. Expect the NEW
+>        message ("No walkable route to Arlia...") near-instantly, NO walking, no 20s flail.
+>        Log: "different connected regions ... Rejected in Xms".
+> [ ] P3. CAVE-MOUTH REGRESSION — Krosse Cave mouth → Krosse City still completes (tight-terrain
+>        follow unchanged). Log may show "preferred pass hit expansion cap" — that is the new
+>        fast give-up of the comfort pass, not an error.
+> [ ] P4. CHEST + ENEMY REGRESSION — world-map chest and enemy walks still arrive.
+> [ ] P5. BATTLE RESUME — get interrupted by a battle mid-walk; resume should still work.
+> [ ] P6. SHIPPING (optional) — rename UserData\SO2RAccess\worldmap_expel.grid to .bak, restart,
+>        auto-walk on the world map: log "[GridGen] Extracted embedded expel grid"; walk works.
+>        (Restore/delete the .bak afterwards — the extracted file replaces it.)
+> KNOWN NOT FIXED (expected): Mountain Palace may still flail — the grid genuinely believes the
+> Lasgus mountain terrain is connected (false-reachable, the safe direction). Real fix lands with
+> the bunny/per-mode grid phase (see below).
+>
+> 🗺️ **AGREED DIRECTION (2026-07-05, user's plan, NOT yet implemented): bunny-aware dynamic
+> reachability.** User wants the nav list to reflect TRUE current reachability: on foot vs riding
+> the giant bunny (which crosses most land obstacles). Game provides per-mode truth:
+> GameRenderManager.LayerMaskWall / LayerMaskBunnyWall / LayerMaskPsynardWall (static masks) and
+> FieldPlayer.GetLayerMaskWall() is virtual (returns current form's mask). Plan sketch:
+> (1) investigate ride-state detection + what layers each mask holds; (2) extend grid format with
+> per-mode blocked bits (foot/bunny) using the game's own masks — also expected to fix the Lasgus
+> false-connection for foot mode; (3) per-mode region maps → list items annotated, then filtered,
+> by CURRENT mode; (4) VALIDATION FIRST: rollout is annotate-("unreachable" suffix)-and-log
+> before any hiding, per the never-exclude-reachable rule. Chest ocean line-check
+> (WorldmapIsReachableViaCalcHeight) to be replaced by region check in the same phase — the
+> line-check can hide reachable chests (false negative) and is now the weakest link.
+
 > ✅ **CONFIRMED WORKING (2026-07-05): World-map tight-terrain slow-follow fix (the 2026-06-30b
 > plan below).** Tested against the exact repro. Log 26-7-05 10:32–10:34:
 >  - TEST 1 (PRIMARY) **PASS** — Krosse Cave → Krosse City: `tight-terrain ENTER` fired at the

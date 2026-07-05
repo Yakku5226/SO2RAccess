@@ -559,21 +559,36 @@ namespace SO2RAccess
                         if (player != null)
                         {
                             Vector3 playerPos = player.transform.position;
-                            WorldmapCalculateAndStorePath(playerPos, _autoWalkTarget,
+                            bool resumePathFound = WorldmapCalculateAndStorePath(
+                                playerPos, _autoWalkTarget,
                                 keepBlockedPositions: true);
 
-                            _isAutoWalking = true;
-                            _staticIsAutoWalking = true;
-                            _wmStuckTimer = 0f;
-                            _wmLastStuckCheckPos = playerPos;
-                            _wmDiagTimer = 0f;
-                            // Don't reset _wmRecalcCount or _wmBlockedPositions
-                            // so we keep memory of previously stuck areas.
-                            ScreenReader.Say(
-                                Loc.Get("nav_autowalk_resuming", _autoWalkLabel));
-                            DebugLogger.LogState(
-                                $"NAV auto-walk resumed. target={_autoWalkLabel} " +
-                                $"waypoints={_wmPathWaypoints?.Length ?? 0}");
+                            if (resumePathFound)
+                            {
+                                _isAutoWalking = true;
+                                _staticIsAutoWalking = true;
+                                _wmStuckTimer = 0f;
+                                _wmLastStuckCheckPos = playerPos;
+                                _wmDiagTimer = 0f;
+                                // Don't reset _wmRecalcCount or _wmBlockedPositions
+                                // so we keep memory of previously stuck areas.
+                                ScreenReader.Say(
+                                    Loc.Get("nav_autowalk_resuming", _autoWalkLabel));
+                                DebugLogger.LogState(
+                                    $"NAV auto-walk resumed. target={_autoWalkLabel} " +
+                                    $"waypoints={_wmPathWaypoints?.Length ?? 0}");
+                            }
+                            else
+                            {
+                                // Post-battle position has no route to the target
+                                // (e.g. pushed into a sealed pocket). Announce
+                                // instead of walking blind.
+                                ScreenReader.Say(Loc.Get(
+                                    "nav_autowalk_unreachable", _autoWalkLabel));
+                                DebugLogger.LogState(
+                                    $"NAV resume: no path to '{_autoWalkLabel}' " +
+                                    "after battle — resume abandoned.");
+                            }
                         }
                         else
                         {

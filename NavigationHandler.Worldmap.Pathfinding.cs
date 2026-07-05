@@ -77,6 +77,15 @@ namespace SO2RAccess
         private static readonly int WmObstacleLayerMask = 1 << 22;
 
         /// <summary>
+        /// Maximum distance (meters) at which a straight-line fallback is
+        /// still used when the grid pathfinder finds no path. Close-range
+        /// failures are usually grid-snap artifacts; beyond this, "no path"
+        /// means the route genuinely doesn't exist and auto-walk must report
+        /// unreachable instead of grinding the player into obstacles.
+        /// </summary>
+        private const float WmStraightLineFallbackMaxDist = 15f;
+
+        /// <summary>
         /// Resolves the world-map auto-walk destination for a location: the nearest
         /// navigable point on that location's enter-trigger RING — its
         /// FieldMapjumpCollision trigger collider, the same volume that raises the
@@ -117,11 +126,13 @@ namespace SO2RAccess
                 }
                 if (nearest == null) return locationPos;
 
-                // Among triggers for that destination, pick the ground-level trigger
-                // collider (small Y extent = the road-entrance ring, not a town-wide
-                // detection volume). Fall back to any trigger collider on the nearest.
-                Collider ring = null;
-                float ringPick = float.MaxValue;
+                // Collect ALL ground-level entrance trigger colliders for that
+                // destination (small Y extent = road entrances, not town-wide
+                // detection volumes). Boundary towns like Salva have SEVERAL
+                // entrances facing different regions (Krosse side vs Arlia
+                // valley side) — sampling only one can target the wrong side
+                // of the town entirely. Fall back to any trigger on the nearest.
+                var rings = new List<Collider>();
                 for (int i = 0; i < collisions.Length; i++)
                 {
                     var c = collisions[i];
@@ -133,34 +144,35 @@ namespace SO2RAccess
                         var col = cols[k];
                         if (col == null || !col.isTrigger) continue;
                         if (col.bounds.size.y > 20f) continue; // skip town-wide zones
-                        float d = Vector3.Distance(c.transform.position, locationPos);
-                        if (d < ringPick) { ringPick = d; ring = col; }
+                        rings.Add(col);
                     }
                 }
-                if (ring == null)
+                if (rings.Count == 0)
                 {
                     var cols = nearest.GetComponents<Collider>();
                     if (cols != null)
                         for (int k = 0; k < cols.Length; k++)
                             if (cols[k] != null && cols[k].isTrigger)
-                            { ring = cols[k]; break; }
+                            { rings.Add(cols[k]); break; }
                 }
 
                 Vector3 dest;
-                if (ring != null)
+                if (rings.Count > 0)
                 {
-                    // The ring hugs the model wall, so the single closest point
-                    // often lands on a baked-obstacle cell the grid pathfinder
-                    // cannot stand on (→ "no path found" → straight-line grind).
-                    // Sample around the ring for a cell that is actually walkable
-                    // (the road in) and take the nearest such to the player.
-                    dest = PickReachableRingPoint(ring, playerPos, locationPos,
+                    // The triggers hug the model wall, so raw points often land
+                    // on baked-obstacle cells (→ "no path") or on a walkable
+                    // cell CONNECTED TO THE WRONG REGION (Salva's valley-side
+                    // sliver — the "unreachable Salva from Krosse" bug).
+                    // Sample all entrances for a walkable cell, preferring one
+                    // in the SAME connected region as the player.
+                    dest = PickReachableRingPoint(rings, playerPos, locationPos,
                         out bool usedCenter);
                     if (usedCenter)
                         DebugLogger.LogState(
-                            "NAV WM enter-trigger: no walkable cell on the ring; " +
-                            "routing to the location centre instead (arrival still " +
-                            "waits for this location's enter prompt).");
+                            "NAV WM enter-trigger: no walkable cell on any " +
+                            "entrance trigger; routing to the location centre " +
+                            "instead (arrival still waits for this location's " +
+                            "enter prompt).");
                 }
                 else
                 {
@@ -185,65 +197,101 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Returns a point on the entrance-ring trigger that sits on a WALKABLE
-        /// grid cell (the road into the location), preferring the one nearest the
-        /// player. Every enterable location must have at least one such cell, or
-        /// it could not be entered. Samples the ring perimeter from several
-        /// directions and projects each reference point onto the collider via
-        /// <see cref="Collider.ClosestPoint"/>, keeping the nearest candidate that
-        /// <see cref="WorldmapPathfinder.IsWalkableWorld"/> accepts. If none tests
-        /// walkable (ring fully buried in the model wall, or no grid cached), sets
+        /// Returns a point on one of the location's entrance triggers that sits
+        /// on a WALKABLE grid cell (the road into the location). Candidates in
+        /// the SAME connected region as the player win over merely-walkable
+        /// ones: boundary towns (Salva) have walkable cells at BOTH entrances,
+        /// and a cell on the far side's region is a guaranteed "no route" —
+        /// that was the "unreachable Salva from Krosse" bug. Within a tier the
+        /// nearest candidate to the player wins. Samples each trigger's center,
+        /// its closest point to the player, and its perimeter from 16
+        /// directions (projecting external reference points onto the collider
+        /// covers every approach side). If nothing tests walkable (triggers
+        /// fully buried in the model wall, or no grid cached), sets
         /// <paramref name="usedCenter"/> and returns the location centre so the
         /// caller can route there instead — the enter prompt still gates arrival.
         /// </summary>
-        private Vector3 PickReachableRingPoint(Collider ring, Vector3 playerPos,
-            Vector3 locationPos, out bool usedCenter)
+        private Vector3 PickReachableRingPoint(List<Collider> rings,
+            Vector3 playerPos, Vector3 locationPos, out bool usedCenter)
         {
             usedCenter = false;
 
-            Vector3 best = Vector3.zero;
-            float bestDistSq = float.MaxValue;
+            int playerRegion = WorldmapPathfinder.GetRegionId(playerPos);
+
+            // Tier 1: walkable AND in the player's connected region.
+            Vector3 bestConn = Vector3.zero;
+            float bestConnSq = float.MaxValue;
+            // Tier 2: walkable (region unknown or different) — old behavior.
+            Vector3 bestWalk = Vector3.zero;
+            float bestWalkSq = float.MaxValue;
 
             void Consider(Vector3 cand)
             {
                 if (!WorldmapPathfinder.IsWalkableWorld(cand)) return;
                 float d = (cand - playerPos).sqrMagnitude;
-                if (d < bestDistSq) { bestDistSq = d; best = cand; }
+                if (d < bestWalkSq) { bestWalkSq = d; bestWalk = cand; }
+                if (playerRegion != 0 &&
+                    WorldmapPathfinder.GetRegionId(cand) == playerRegion &&
+                    d < bestConnSq)
+                {
+                    bestConnSq = d;
+                    bestConn = cand;
+                }
             }
 
-            // The plain closest point to the player is usually the right edge —
-            // try it first (skip the degenerate "player already inside" case).
-            try
+            foreach (var ring in rings)
             {
-                Vector3 cp = ring.ClosestPoint(playerPos);
-                if ((cp - playerPos).sqrMagnitude > 0.0001f) Consider(cp);
-            }
-            catch { /* unsupported collider type — fall through to sampling */ }
+                if (ring == null) continue;
+                Bounds b = ring.bounds;
 
-            // Sample the ring from points all around it. Projecting an external
-            // reference point onto the collider yields the surface point facing
-            // that direction, so we cover every side (the road may approach from
-            // any angle), not just the player-facing edge.
-            Bounds b = ring.bounds;
-            float reach = b.extents.x + b.extents.z + 4f;
-            const int Steps = 16;
-            for (int i = 0; i < Steps; i++)
-            {
-                float ang = (i / (float)Steps) * Mathf.PI * 2f;
-                Vector3 refPt = new Vector3(
-                    b.center.x + Mathf.Cos(ang) * reach,
-                    b.center.y,
-                    b.center.z + Mathf.Sin(ang) * reach);
-                try { Consider(ring.ClosestPoint(refPt)); }
-                catch { /* skip this sample */ }
+                // Trigger center — the middle of the entrance road, and of the
+                // passable cells the grid generator punched for this trigger.
+                Consider(new Vector3(b.center.x, b.center.y, b.center.z));
+
+                // Plain closest point to the player (skip the degenerate
+                // "player already inside" case).
+                try
+                {
+                    Vector3 cp = ring.ClosestPoint(playerPos);
+                    if ((cp - playerPos).sqrMagnitude > 0.0001f) Consider(cp);
+                }
+                catch { /* unsupported collider type — sampling below */ }
+
+                // Perimeter samples from all around this trigger.
+                float reach = b.extents.x + b.extents.z + 4f;
+                const int Steps = 16;
+                for (int i = 0; i < Steps; i++)
+                {
+                    float ang = (i / (float)Steps) * Mathf.PI * 2f;
+                    Vector3 refPt = new Vector3(
+                        b.center.x + Mathf.Cos(ang) * reach,
+                        b.center.y,
+                        b.center.z + Mathf.Sin(ang) * reach);
+                    try { Consider(ring.ClosestPoint(refPt)); }
+                    catch { /* skip this sample */ }
+                }
             }
 
-            if (bestDistSq < float.MaxValue)
+            if (bestConnSq < float.MaxValue)
             {
                 DebugLogger.LogState(
-                    $"NAV WM enter-trigger: reachable ring point at " +
-                    $"({best.x:F1},{best.z:F1}), {Mathf.Sqrt(bestDistSq):F1}m from player.");
-                return best;
+                    $"NAV WM enter-trigger: connected ring point at " +
+                    $"({bestConn.x:F1},{bestConn.z:F1}), " +
+                    $"{Mathf.Sqrt(bestConnSq):F1}m from player " +
+                    $"(player region {playerRegion}, {rings.Count} triggers).");
+                return bestConn;
+            }
+
+            if (bestWalkSq < float.MaxValue)
+            {
+                DebugLogger.LogState(
+                    $"NAV WM enter-trigger: no candidate in player region " +
+                    $"{playerRegion}; using nearest walkable ring point at " +
+                    $"({bestWalk.x:F1},{bestWalk.z:F1}), " +
+                    $"{Mathf.Sqrt(bestWalkSq):F1}m from player " +
+                    $"({rings.Count} triggers). If no route exists the " +
+                    $"pathfinder will reject it honestly.");
+                return bestWalk;
             }
 
             usedCenter = true;
@@ -540,11 +588,28 @@ namespace SO2RAccess
             }
             else
             {
-                // Fallback: straight line (pathfinder may fail for very close targets
-                // or if terrain data is unavailable).
+                // No grid path. For VERY CLOSE targets this can be a grid-snap
+                // artifact (start/end in the same spot, or a cell-alignment
+                // quirk), so a short straight-line hop is safe. For anything
+                // farther, walking a blind player straight at an unknown
+                // obstacle course was the old "grind into a wall for 10+
+                // seconds, then give up" behavior — fail fast and honestly
+                // instead. The caller announces unreachable.
+                float fbDx = targetPos.x - playerPos.x;
+                float fbDz = targetPos.z - playerPos.z;
+                float fbDist = Mathf.Sqrt(fbDx * fbDx + fbDz * fbDz);
+                if (fbDist > WmStraightLineFallbackMaxDist)
+                {
+                    DebugLogger.LogState(
+                        $"NAV worldmap: no grid path and target is " +
+                        $"{fbDist:F0}m away — refusing straight-line " +
+                        $"fallback, reporting unreachable.");
+                    return false;
+                }
+
                 DebugLogger.LogState(
-                    "NAV worldmap: CalcHeight pathfinder returned no path. " +
-                    "Using straight-line fallback.");
+                    "NAV worldmap: no grid path but target is close " +
+                    $"({fbDist:F1}m). Using straight-line fallback.");
                 _wmPathWaypoints = new Vector3[] { targetPos };
                 _wmPathIndex = 0;
             }
