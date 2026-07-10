@@ -6,19 +6,24 @@ using UnityEngine;
 namespace SO2RAccess
 {
     /// <summary>
-    /// A* pathfinder for the world map using a pre-computed height grid
-    /// at 0.5m resolution. Rejects moves between cells where the height
-    /// difference is too steep (rock faces, cliffs). Trees (Col_Obstacle)
-    /// are passthrough on the world map — only terrain geometry blocks.
+    /// A* pathfinder for the world map using a pre-computed grid at 0.5m
+    /// resolution, aware of the player's travel mode: FOOT is blocked by all
+    /// the game's wall layers, the BUNNY ignores region walls (CharaWall)
+    /// and object walls but still needs ground, and the PSYNARD flies (no
+    /// grid search — callers short-circuit it as "everything reachable").
+    /// Rejects moves between cells where the height difference is too steep.
+    /// Trees (Col_Obstacle triggers) are passthrough — only solid geometry
+    /// blocks.
     ///
     /// Performance design (2026-07-05): search buffers are allocated ONCE
-    /// and reused across searches via a generation counter, the grid is
-    /// mutated in place with an undo journal instead of being cloned per
-    /// call, and a precomputed connected-region map answers "is there any
-    /// route at all?" instantly — so unreachable targets fail in
-    /// microseconds instead of after a full-map search.
+    /// and reused across searches via a generation counter, the grid's
+    /// FLAGS lane is mutated in place with an undo journal (the height lane
+    /// is read-only after load), and precomputed per-mode connected-region
+    /// maps answer "is there any route at all?" instantly — so unreachable
+    /// targets fail in microseconds instead of after a full-map search.
+    /// The region/connectivity code lives in WorldmapPathfinder.Regions.cs.
     /// </summary>
-    public static class WorldmapPathfinder
+    public static partial class WorldmapPathfinder
     {
         /// <summary>Cost for cardinal movement (1 cell = 0.5m).</summary>
         private const float CardinalCost = 1.0f;
@@ -29,11 +34,13 @@ namespace SO2RAccess
         /// <summary>
         /// Max height difference in centimeters between adjacent cells.
         /// At 0.5m cell spacing, this controls max climbable slope.
-        /// Set high (500cm) because the world map uses CharaWalls (layer 23)
-        /// for movement barriers, not terrain slope. The player can walk
-        /// up steep world map terrain — only CharaWalls physically block.
-        /// The slope penalty (SlopePenaltyStartCm) still steers the A*
-        /// toward flat roads without hard-blocking steep paths.
+        /// Set high (500cm) because the world map uses wall colliders for
+        /// movement barriers, not terrain slope — the player can walk up
+        /// steep world map terrain. The Phase A ride trace confirmed the
+        /// bunny's steepest observed climbs also fit under this rule, so
+        /// the SAME climb rule serves both modes; colliders, not slope,
+        /// are what differs between them. The slope penalty
+        /// (SlopePenaltyStartCm) still steers the A* toward flat roads.
         /// </summary>
         private const int MaxClimbCm = 500;
 
@@ -51,8 +58,8 @@ namespace SO2RAccess
 
         /// <summary>
         /// Clearance threshold below which cells receive a continuous
-        /// penalty. Cells with clearance at or above this value get no
-        /// penalty. Based on: comfortable passage = 2x player radius.
+        /// penalty (foot only). Cells with clearance at or above this value
+        /// get no penalty. Based on: comfortable passage = 2x player radius.
         /// </summary>
         private const float ComfortableClearance = 1.5f;
 
@@ -62,21 +69,22 @@ namespace SO2RAccess
         /// linearly: tighter cells get higher penalties. Kept low
         /// (3.0) so A* prefers direct routes through gaps — the
         /// real-time wall avoidance in NavigationHandler handles
-        /// steering through tight passages safely.
+        /// steering through tight passages safely. Foot only: the
+        /// clearance tables describe gaps in walls the bunny ignores.
         /// </summary>
         private const float MaxClearancePenalty = 3.0f;
 
         /// <summary>
-        /// Preferred minimum clearance (meters) for the first pathfinding
-        /// pass. The grid bakes a hard 0.50m floor at generation time, which
-        /// equals the player's capsule radius — gaps that tight wedge the
-        /// player (they cannot fit even when aimed dead-center). We first
-        /// search for a route where every cell has at least this much
-        /// clearance (a real safety margin). Only if NO such route exists do
-        /// we fall back to the 0.50m-floor route. This steers the player onto
-        /// wider roads when one exists, WITHOUT ever making a destination less
-        /// reachable than before: the fallback pass is identical to the
-        /// original behavior.
+        /// Preferred minimum clearance (meters) for the first FOOT
+        /// pathfinding pass. The grid bakes a hard 0.50m floor at generation
+        /// time, which equals the player's capsule radius — gaps that tight
+        /// wedge the player (they cannot fit even when aimed dead-center).
+        /// We first search for a route where every cell has at least this
+        /// much clearance (a real safety margin). Only if NO such route
+        /// exists do we fall back to the 0.50m-floor route. This steers the
+        /// player onto wider roads when one exists, WITHOUT ever making a
+        /// destination less reachable than before: the fallback pass is
+        /// identical to the original behavior.
         /// </summary>
         private const float PreferredMinClearance = 0.60f;
 
@@ -102,13 +110,26 @@ namespace SO2RAccess
         /// <summary>
         /// True when the most recent FindPath returned null because the start
         /// and target are in different connected regions of the grid — i.e.
-        /// there is NO walkable overland route at all (as opposed to a
-        /// transient failure). Callers can announce a more helpful message.
+        /// there is NO overland route at all for the searched travel mode
+        /// (as opposed to a transient failure). Callers can announce a more
+        /// helpful message.
         /// </summary>
-        public static bool LastNoPathWasDisconnected { get; private set; }
+        public static bool LastNoPathWasDisconnected { get; internal set; }
 
-        private static WorldmapGridGenerator.CachedGrid _cachedExpel;
-        private static WorldmapGridGenerator.CachedGrid _cachedNede;
+        /// <summary>
+        /// True when the last successful FOOT FindPath had to fall back to
+        /// the 0.50m clearance floor because no comfort-tier
+        /// (<see cref="PreferredMinClearance"/>) route existed. Floor routes
+        /// thread body-exact gaps the game's physics may refuse to walk —
+        /// diagnostics use this to flag physically risky routes.
+        /// </summary>
+        public static bool LastPathUsedFloorTier { get; private set; }
+
+        private static WorldmapGridFormat.CachedGrid _cachedExpel;
+        private static WorldmapGridFormat.CachedGrid _cachedNede;
+
+        /// <summary>One-time log flag for the legacy-grid bunny fallback.</summary>
+        private static bool _loggedLegacyBunnyFallback;
 
         // --- Persistent A* buffers, reused across searches -----------------
         // Sized to gridW*gridH on first use (both world maps share the same
@@ -126,16 +147,16 @@ namespace SO2RAccess
         private static readonly List<(float f, int x, int z)> _heap
             = new List<(float f, int x, int z)>();
 
-        private static WorldmapGridGenerator.CachedGrid GetCachedGrid(
+        private static WorldmapGridFormat.CachedGrid GetCachedGrid(
             WorldmapID wmID)
         {
             if (wmID == WorldmapID.EXPEL)
             {
                 if (_cachedExpel == null)
                 {
-                    _cachedExpel = WorldmapGridGenerator.LoadGrid(
+                    _cachedExpel = WorldmapGridFormat.LoadGrid(
                         WorldmapID.EXPEL);
-                    if (_cachedExpel != null) BuildRegions(_cachedExpel);
+                    if (_cachedExpel != null) BuildFootRegions(_cachedExpel);
                 }
                 return _cachedExpel;
             }
@@ -143,9 +164,9 @@ namespace SO2RAccess
             {
                 if (_cachedNede == null)
                 {
-                    _cachedNede = WorldmapGridGenerator.LoadGrid(
+                    _cachedNede = WorldmapGridFormat.LoadGrid(
                         WorldmapID.NEDE);
-                    if (_cachedNede != null) BuildRegions(_cachedNede);
+                    if (_cachedNede != null) BuildFootRegions(_cachedNede);
                 }
                 return _cachedNede;
             }
@@ -156,17 +177,56 @@ namespace SO2RAccess
         {
             _cachedExpel = null;
             _cachedNede = null;
+            _loggedLegacyBunnyFallback = false;
         }
 
         /// <summary>
-        /// True if the given world XZ lands on a walkable grid cell — real
-        /// terrain/road (<c>Height &gt;= 2</c>), not ocean/void (0) or a baked
-        /// obstacle/wall (1). Mirrors the A* fallback floor exactly, so a cell
+        /// The grid's blocked-flag bit for a travel mode's search. Bunny on
+        /// a legacy grid falls back to the FOOT bit — any foot route also
+        /// works mounted, so this is safe (never a false unreachable), just
+        /// conservative. Psynard has no grid lane; if a psynard search is
+        /// requested anyway it also uses the foot predicate (callers are
+        /// expected to short-circuit psynard as "everything reachable").
+        /// </summary>
+        private static byte ModeSearchBit(WorldmapGridFormat.CachedGrid grid,
+            WorldmapTravelMode mode)
+        {
+            if (mode == WorldmapTravelMode.Bunny)
+            {
+                if (grid.BunnyDataAvailable)
+                    return WorldmapGridFormat.CachedGrid.FlagBunnyBlocked;
+                if (!_loggedLegacyBunnyFallback)
+                {
+                    _loggedLegacyBunnyFallback = true;
+                    DebugLogger.LogState(
+                        "NAV WM pathfinder: legacy grid has no bunny lane — " +
+                        "bunny searches use the FOOT predicate (safe: any " +
+                        "foot route works mounted). Regenerate with F9 for " +
+                        "true bunny routing.");
+                }
+                return WorldmapGridFormat.CachedGrid.FlagFootBlocked;
+            }
+            if (mode == WorldmapTravelMode.Psynard)
+            {
+                DebugLogger.LogState(
+                    "NAV WM pathfinder: psynard search requested — using " +
+                    "the foot predicate (flying auto-walk is out of scope; " +
+                    "psynard reachability is always true at the callers).");
+                return WorldmapGridFormat.CachedGrid.FlagFootBlocked;
+            }
+            return WorldmapGridFormat.CachedGrid.FlagFootBlocked;
+        }
+
+        /// <summary>
+        /// True if the given world XZ lands on a grid cell that is passable
+        /// for the given travel mode — real ground, not blocked by that
+        /// mode's baked walls. Mirrors the A* floor pass exactly, so a cell
         /// this reports walkable is one the pathfinder can stand on. Returns
         /// false if no grid is cached (caller should treat as "unknown").
         /// Used to pick an entrance-ring point that is NOT buried in a wall.
         /// </summary>
-        public static bool IsWalkableWorld(Vector3 world)
+        public static bool IsWalkableWorld(Vector3 world,
+            WorldmapTravelMode mode = WorldmapTravelMode.Foot)
         {
             try
             {
@@ -175,9 +235,7 @@ namespace SO2RAccess
                 var grid = GetCachedGrid(fm.WorldmapID);
                 if (grid == null) return false;
                 grid.WorldToGrid(world.x, world.z, out int ax, out int az);
-                if (ax < 0 || ax >= grid.GridW || az < 0 || az >= grid.GridH)
-                    return false;
-                return grid.Height[ax, az] >= 2;
+                return grid.IsPassable(ax, az, ModeSearchBit(grid, mode));
             }
             catch (Exception ex)
             {
@@ -188,41 +246,51 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Connected-region id of the grid cell at a world position, or 0 when
-        /// unknown (no grid/regions cached, out of bounds, or a non-walkable
-        /// cell). Two positions with the same non-zero id are connected for
-        /// the on-foot A* — used to pick an entrance point on the PLAYER'S
-        /// side of a boundary town (e.g. Salva, which has a Krosse-side and
-        /// an Arlia-valley-side entrance).
+        /// Diagnostic: raw grid cell value + flags at a world position.
+        /// Raw height: 0 = no ground, 1 = legacy baked obstacle,
+        /// 2+ = ground with encoded height. Flags: per-mode blocked bits
+        /// (always 0 on a legacy grid). Returns false when no grid is
+        /// cached or the position is out of bounds.
         /// </summary>
-        public static int GetRegionId(Vector3 world)
+        public static bool TryGetCellInfo(Vector3 world, out ushort raw,
+            out byte cellFlags, out bool isV2)
         {
+            raw = 0;
+            cellFlags = 0;
+            isV2 = false;
             try
             {
                 var fm = FieldManager.Instance;
-                if (fm == null || !fm.IsExistWorldGridData()) return 0;
+                if (fm == null || !fm.IsExistWorldGridData()) return false;
                 var grid = GetCachedGrid(fm.WorldmapID);
-                if (grid == null || grid.Regions == null) return 0;
+                if (grid == null) return false;
                 grid.WorldToGrid(world.x, world.z, out int ax, out int az);
                 if (ax < 0 || ax >= grid.GridW || az < 0 || az >= grid.GridH)
-                    return 0;
-                return grid.Regions[ax * grid.GridH + az];
+                    return false;
+                raw = grid.Height[ax, az];
+                cellFlags = grid.Flags[(long)ax * grid.GridH + az];
+                isV2 = grid.IsV2;
+                return true;
             }
             catch (Exception ex)
             {
-                DebugLogger.LogState($"NAV WM GetRegionId error: {ex.Message}");
-                return 0;
+                DebugLogger.LogState(
+                    $"NAV WM TryGetCellInfo error: {ex.Message}");
+                return false;
             }
         }
 
         /// <summary>
-        /// Finds a path on the world map using the pre-computed height grid.
-        /// Returns world-space waypoints or null if no path exists.
+        /// Finds a path on the world map using the pre-computed grid, with
+        /// the passability rule of the given travel mode. Returns
+        /// world-space waypoints or null if no path exists.
         /// </summary>
         public static Vector3[] FindPath(Vector3 start, Vector3 end,
+            WorldmapTravelMode mode = WorldmapTravelMode.Foot,
             List<Vector3> blockedPositions = null)
         {
             LastNoPathWasDisconnected = false;
+            LastPathUsedFloorTier = false;
 
             var fm = FieldManager.Instance;
             if (fm == null || !fm.IsExistWorldGridData())
@@ -248,17 +316,33 @@ namespace SO2RAccess
             int gridW = grid.GridW;
             int gridH = grid.GridH;
             var height = grid.Height;
+            var flags = grid.Flags;
+            byte modeBit = ModeSearchBit(grid, mode);
+            bool foot = modeBit ==
+                WorldmapGridFormat.CachedGrid.FlagFootBlocked;
 
-            // Undo journal: the grid is mutated in place (blocked stamps +
-            // start clearing) and restored in the finally block. This
-            // replaces the old full-grid clone (75MB + 37M-cell init per
-            // call), which was the main cause of the multi-second freeze
-            // at auto-walk start.
-            var journal = new List<(int x, int z, ushort old)>();
-            void SetCell(int x, int z, ushort v)
+            // Undo journals: the grid is mutated in place (blocked stamps +
+            // start clearing) and restored in the finally block. Mutations
+            // go to the FLAGS lane; the height lane is only touched for the
+            // legacy format, whose baked obstacles live in the height lane.
+            // This replaces the old full-grid clone (75MB + 37M-cell init
+            // per call), which was the main cause of the multi-second
+            // freeze at auto-walk start.
+            var flagJournal = new List<(long idx, byte old)>();
+            var heightJournal = new List<(int x, int z, ushort old)>();
+            // Cells covered by a stuck-position stamp. The start clearing
+            // must NEVER un-block these: in the old code stamps set cells
+            // to ocean, which the clearing (height==1 only) left alone —
+            // stamps always won. With the flags lane both operations touch
+            // the same bits, so the clearing skips stamped cells explicitly.
+            HashSet<long> stampedIdx = null;
+
+            void StampBlocked(int x, int z)
             {
-                journal.Add((x, z, height[x, z]));
-                height[x, z] = v;
+                long idx = (long)x * gridH + z;
+                flagJournal.Add((idx, flags[idx]));
+                flags[idx] |=
+                    WorldmapGridFormat.CachedGrid.FlagAnyModeBlocked;
             }
 
             try
@@ -275,9 +359,12 @@ namespace SO2RAccess
                 endAz = Mathf.Clamp(endAz, 0, gridH - 1);
                 int origStartAx = startAx, origStartAz = startAz;
 
-                // Apply stuck-position blocks (set to ocean/0).
-                if (blockedPositions != null)
+                // Apply stuck-position blocks (both mode bits — a physical
+                // obstruction the player wedged on blocks the current walk
+                // regardless of mode; the journal restores it after).
+                if (blockedPositions != null && blockedPositions.Count > 0)
                 {
+                    stampedIdx = new HashSet<long>();
                     for (int b = 0; b < blockedPositions.Count; b++)
                     {
                         Vector3 bp = blockedPositions[b];
@@ -292,14 +379,16 @@ namespace SO2RAccess
                             {
                                 int nx = bax + dx;
                                 int nz = baz + dz;
-                                if (nx >= 0 && nx < gridW &&
-                                    nz >= 0 && nz < gridH &&
-                                    dx * dx + dz * dz <=
-                                    BlockedRadiusCells * BlockedRadiusCells &&
-                                    height[nx, nz] != 0)
-                                {
-                                    SetCell(nx, nz, 0);
-                                }
+                                if (nx < 0 || nx >= gridW ||
+                                    nz < 0 || nz >= gridH ||
+                                    dx * dx + dz * dz >
+                                    BlockedRadiusCells * BlockedRadiusCells)
+                                    continue;
+                                // Every covered cell is exempt from start
+                                // clearing, including legacy obstacle cells.
+                                stampedIdx.Add((long)nx * gridH + nz);
+                                if (height[nx, nz] >= 2)
+                                    StampBlocked(nx, nz);
                             }
                         }
                     }
@@ -312,7 +401,7 @@ namespace SO2RAccess
                 // straight through a town/dungeon model's wall so the A* could reach
                 // the centre point — that is exactly the "routes through the wall"
                 // behaviour we want gone. Walls stay fully impassable; the caller
-                // now targets the navigable enter-trigger ring, and SnapToTerrain
+                // targets the navigable enter-trigger ring, and SnapToPassable
                 // pulls the endpoint to the nearest passable cell if needed.
                 {
                     int cx = startAx;
@@ -330,86 +419,135 @@ namespace SO2RAccess
                                 continue;
                             int nx = cx + dx;
                             int nz = cz + dz;
-                            if (nx >= 0 && nx < gridW && nz >= 0 && nz < gridH
-                                && height[nx, nz] == 1)
+                            if (nx < 0 || nx >= gridW ||
+                                nz < 0 || nz >= gridH) continue;
+                            // Stuck-position stamps win over the clearing —
+                            // otherwise a recalc starting near the wedge
+                            // spot would route straight back into it.
+                            if (stampedIdx != null &&
+                                stampedIdx.Contains((long)nx * gridH + nz))
+                                continue;
+
+                            if (height[nx, nz] == 1)
                             {
-                                SetCell(nx, nz, centerH);
+                                // Legacy baked obstacle: passability lives in
+                                // the height lane, so the clear must too.
+                                heightJournal.Add((nx, nz, height[nx, nz]));
+                                height[nx, nz] = centerH;
+                            }
+                            else if (height[nx, nz] >= 2)
+                            {
+                                long idx = (long)nx * gridH + nz;
+                                if ((flags[idx] & WorldmapGridFormat
+                                    .CachedGrid.FlagAnyModeBlocked) != 0)
+                                {
+                                    flagJournal.Add((idx, flags[idx]));
+                                    flags[idx] &= unchecked((byte)
+                                        ~WorldmapGridFormat.CachedGrid
+                                            .FlagAnyModeBlocked);
+                                }
                             }
                         }
                     }
                 }
 
-                // Snap start/end to nearest terrain cell.
-                if (height[startAx, startAz] < 2)
-                    SnapToTerrain(ref startAx, ref startAz,
-                        height, gridW, gridH);
-                if (height[endAx, endAz] < 2)
-                    SnapToTerrain(ref endAx, ref endAz,
-                        height, gridW, gridH);
+                // Snap start/end to the nearest cell passable for this mode.
+                if (!grid.IsPassable(startAx, startAz, modeBit))
+                    SnapToPassable(ref startAx, ref startAz, grid, modeBit);
+                if (!grid.IsPassable(endAx, endAz, modeBit))
+                    SnapToPassable(ref endAx, ref endAz, grid, modeBit);
 
-                if (height[startAx, startAz] < 2 ||
-                    height[endAx, endAz] < 2)
+                if (!grid.IsPassable(startAx, startAz, modeBit) ||
+                    !grid.IsPassable(endAx, endAz, modeBit))
                 {
                     DebugLogger.LogState(
-                        $"NAV WM pathfinder: start or end not on terrain. " +
-                        $"grid={gridW}x{gridH} start=({startAx},{startAz}) " +
-                        $"end=({endAx},{endAz})");
+                        $"NAV WM pathfinder: start or end not on passable " +
+                        $"terrain ({mode}). grid={gridW}x{gridH} " +
+                        $"start=({startAx},{startAz}) end=({endAx},{endAz})");
                     return null;
                 }
 
-                // --- Connected-region fast reject ---
+                // --- Connected-region fast reject (per travel mode) ---
                 // If the target's region differs from every region touching
                 // the start (including the cleared 3m disc, whose cells can
                 // bridge the player out of a baked-obstacle pocket), then NO
                 // route exists and a full search would just sweep the whole
                 // landmass before saying so. Region 0 = unknown → never
-                // reject (fail open); blocked stamps only REMOVE connectivity,
-                // so this check can never reject a genuinely reachable pair.
-                if (grid.Regions != null)
+                // reject (fail open); a missing region map for the mode
+                // skips the reject entirely; blocked stamps only REMOVE
+                // connectivity, so this check can never reject a genuinely
+                // reachable pair.
+                var regions = GetRegionsForSearch(grid, mode);
+                if (regions != null)
                 {
-                    ushort endRegion = grid.Regions[endAx * gridH + endAz];
+                    ushort endRegion = regions[(long)endAx * gridH + endAz];
                     if (endRegion != 0 &&
-                        !StartTouchesRegion(grid, origStartAx, origStartAz,
+                        !StartTouchesRegion(grid, regions,
+                            origStartAx, origStartAz,
                             startAx, startAz, endRegion))
                     {
                         LastNoPathWasDisconnected = true;
                         DebugLogger.LogState(
                             $"NAV WM pathfinder: start and target are in " +
-                            $"different connected regions (target region " +
-                            $"{endRegion}) — no overland route exists. " +
-                            $"Rejected in {sw.ElapsedMilliseconds}ms.");
+                            $"different connected regions for {mode} " +
+                            $"(target region {endRegion}) — no overland " +
+                            $"route exists. Rejected in " +
+                            $"{sw.ElapsedMilliseconds}ms.");
                         return null;
                     }
                 }
 
-                // Tiered A* search: first try a route where every cell has a
-                // real clearance margin (PreferredMinClearance) so the player
-                // is never threaded through a body-width gap. Only if no such
-                // route exists do we fall back to the grid's baked 0.50m floor
-                // (the original behavior). This prefers wide roads when one
-                // exists but never removes a reachable destination. The first
-                // pass is expansion-capped: it is a comfort preference, not
-                // the authority on reachability.
-                var path = AStarSearch(startAx, startAz, endAx, endAz,
-                    grid, PreferredMinClearance, PreferredPassMaxExpansions,
-                    out int expansions1);
+                // Tiered A* search (FOOT only): first try a route where every
+                // cell has a real clearance margin (PreferredMinClearance) so
+                // the player is never threaded through a body-width gap. Only
+                // if no such route exists do we fall back to the grid's baked
+                // 0.50m floor (the original behavior). This prefers wide
+                // roads when one exists but never removes a reachable
+                // destination. The first pass is expansion-capped: it is a
+                // comfort preference, not the authority on reachability.
+                // The BUNNY skips the tier: the clearance tables describe
+                // gaps in CharaWalls, which the bunny ignores entirely.
+                List<Vector2Int> path = null;
+                int expansions1 = 0, expansions2 = 0;
 
-                int expansions2 = 0;
+                if (foot)
+                {
+                    path = AStarSearch(startAx, startAz, endAx, endAz,
+                        grid, modeBit, PreferredMinClearance, true,
+                        PreferredPassMaxExpansions, out expansions1);
+                    if (path == null)
+                    {
+                        // Log WHY: a comfort failure is either a pinched
+                        // route or an endpoint whose own cell is too narrow
+                        // to ever close — these need different fixes, so the
+                        // endpoint data goes in the log (D1 investigation,
+                        // 2026-07-10).
+                        float startClr = grid.GetClearance(startAx, startAz);
+                        float endClr = grid.GetClearance(endAx, endAz);
+                        DebugLogger.LogState(
+                            $"NAV WM pathfinder: no route at " +
+                            $"{PreferredMinClearance:F2}m clearance " +
+                            $"({expansions1} cells searched) — falling back " +
+                            $"to the 0.50m floor. start cell " +
+                            $"({startAx},{startAz}) clearance=" +
+                            $"{FormatClearance(startClr)}, goal cell " +
+                            $"({endAx},{endAz}) clearance=" +
+                            $"{FormatClearance(endClr)}.");
+                    }
+                }
+
                 if (path == null)
                 {
-                    DebugLogger.LogState(
-                        $"NAV WM pathfinder: no route at " +
-                        $"{PreferredMinClearance:F2}m clearance " +
-                        $"({expansions1} cells searched) — falling back " +
-                        $"to the 0.50m floor.");
                     path = AStarSearch(startAx, startAz, endAx, endAz,
-                        grid, 0f, 0, out expansions2);
+                        grid, modeBit, 0f, foot, 0, out expansions2);
+                    if (foot && path != null)
+                        LastPathUsedFloorTier = true;
                 }
 
                 if (path == null)
                 {
                     DebugLogger.LogState(
-                        $"NAV WM pathfinder: no path found. " +
+                        $"NAV WM pathfinder: no path found ({mode}). " +
                         $"grid={gridW}x{gridH} " +
                         $"start=({startAx},{startAz}) " +
                         $"end=({endAx},{endAz}) " +
@@ -422,13 +560,16 @@ namespace SO2RAccess
                 // Convert path to world-space waypoints. Ground Y comes from
                 // the grid's baked heights (the old per-waypoint CalcHeight
                 // raycast added hundreds of physics casts per path for a Y
-                // value the stick-injection follower never uses). Uses
+                // value the stick-injection follower never uses). Foot uses
                 // clearance-adjusted positions for cells near CharaWalls so
-                // the player walks through the exact center of narrow gaps.
+                // the player walks through the exact center of narrow gaps;
+                // the bunny ignores those walls, so it takes plain centers.
                 var waypoints = new List<Vector3>(path.Count);
                 foreach (var cell in path)
                 {
-                    Vector3 wp = grid.GridToWorldWithClearance(cell.x, cell.y);
+                    Vector3 wp = foot
+                        ? grid.GridToWorldWithClearance(cell.x, cell.y)
+                        : grid.GridToWorld(cell.x, cell.y);
                     ushort hv = height[cell.x, cell.y];
                     wp.y = hv >= 2 ? (hv / 100f) - 100f : start.y;
                     waypoints.Add(wp);
@@ -445,7 +586,7 @@ namespace SO2RAccess
                     waypoints.Add(end);
 
                 DebugLogger.LogState(
-                    $"NAV WM pathfinder: found path with " +
+                    $"NAV WM pathfinder: found {mode} path with " +
                     $"{waypoints.Count} waypoints in {sw.ElapsedMilliseconds}ms " +
                     $"(searched {expansions1 + expansions2} cells, " +
                     $"maxClimb={MaxClimbCm}cm).");
@@ -461,8 +602,11 @@ namespace SO2RAccess
             finally
             {
                 // Restore all in-place grid mutations (reverse order).
-                for (int i = journal.Count - 1; i >= 0; i--)
-                    height[journal[i].x, journal[i].z] = journal[i].old;
+                for (int i = flagJournal.Count - 1; i >= 0; i--)
+                    flags[flagJournal[i].idx] = flagJournal[i].old;
+                for (int i = heightJournal.Count - 1; i >= 0; i--)
+                    height[heightJournal[i].x, heightJournal[i].z]
+                        = heightJournal[i].old;
 
                 // Don't let a pathological search pin hundreds of MB of
                 // heap capacity forever.
@@ -473,126 +617,6 @@ namespace SO2RAccess
                 }
             }
         }
-
-        #region Connected Regions
-
-        /// <summary>
-        /// Labels every walkable cell with a connected-region number using
-        /// the exact same neighbor rule as the authoritative A* pass
-        /// (8-directional, both cells walkable, height step ≤ MaxClimbCm).
-        /// Two cells share a region if and only if the 0.50m-floor A* could
-        /// route between them, so region equality is a sound instant
-        /// "any route at all?" test. Runs once per grid load (~1-2s);
-        /// region 0 means unlabeled (ocean, obstacle, or label overflow)
-        /// and is always treated as "unknown — do not reject".
-        /// </summary>
-        private static void BuildRegions(WorldmapGridGenerator.CachedGrid grid)
-        {
-            try
-            {
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                int gridW = grid.GridW;
-                int gridH = grid.GridH;
-                var height = grid.Height;
-                var regions = new ushort[(long)gridW * gridH];
-                var queue = new Queue<int>();
-                ushort nextLabel = 0;
-                bool overflow = false;
-
-                for (int ax = 0; ax < gridW && !overflow; ax++)
-                {
-                    for (int az = 0; az < gridH; az++)
-                    {
-                        if (height[ax, az] < 2) continue;
-                        int rootIdx = ax * gridH + az;
-                        if (regions[rootIdx] != 0) continue;
-
-                        if (nextLabel == ushort.MaxValue)
-                        {
-                            overflow = true;
-                            break;
-                        }
-                        nextLabel++;
-
-                        regions[rootIdx] = nextLabel;
-                        queue.Enqueue(rootIdx);
-                        while (queue.Count > 0)
-                        {
-                            int idx = queue.Dequeue();
-                            int cx = idx / gridH;
-                            int cz = idx % gridH;
-                            ushort ch = height[cx, cz];
-
-                            for (int d = 0; d < 8; d++)
-                            {
-                                int nx = cx + Directions[d, 0];
-                                int nz = cz + Directions[d, 1];
-                                if (nx < 0 || nx >= gridW ||
-                                    nz < 0 || nz >= gridH) continue;
-                                int nIdx = nx * gridH + nz;
-                                if (regions[nIdx] != 0) continue;
-                                ushort nh = height[nx, nz];
-                                if (nh < 2) continue;
-                                if (Math.Abs(ch - nh) > MaxClimbCm) continue;
-                                regions[nIdx] = nextLabel;
-                                queue.Enqueue(nIdx);
-                            }
-                        }
-                    }
-                }
-
-                grid.Regions = regions;
-                DebugLogger.LogState(
-                    $"NAV WM regions: {nextLabel} connected regions labeled " +
-                    $"in {sw.ElapsedMilliseconds}ms" +
-                    (overflow ? " (label overflow — remainder unlabeled)" : "") +
-                    ".");
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"NAV WM regions error: {ex.Message}");
-                grid.Regions = null; // fail open — no fast reject
-            }
-        }
-
-        /// <summary>
-        /// True if the snapped start cell, or ANY base-grid cell within the
-        /// start-clearing disc (+1 cell rim), belongs to
-        /// <paramref name="targetRegion"/>. The start clearing converts
-        /// obstacle cells inside the disc to passable, which can bridge the
-        /// player onto any region the disc touches — so all of them count
-        /// as reachable start regions.
-        /// </summary>
-        private static bool StartTouchesRegion(
-            WorldmapGridGenerator.CachedGrid grid,
-            int origAx, int origAz, int snapAx, int snapAz,
-            ushort targetRegion)
-        {
-            int gridH = grid.GridH;
-            var regions = grid.Regions;
-
-            ushort sr = regions[snapAx * gridH + snapAz];
-            if (sr == 0) return true; // unknown — fail open
-            if (sr == targetRegion) return true;
-
-            int rim = StartClearRadiusCells + 1;
-            for (int dx = -rim; dx <= rim; dx++)
-            {
-                for (int dz = -rim; dz <= rim; dz++)
-                {
-                    if (dx * dx + dz * dz > rim * rim) continue;
-                    int nx = origAx + dx;
-                    int nz = origAz + dz;
-                    if (nx < 0 || nx >= grid.GridW ||
-                        nz < 0 || nz >= grid.GridH) continue;
-                    if (regions[nx * gridH + nz] == targetRegion)
-                        return true;
-                }
-            }
-            return false;
-        }
-
-        #endregion
 
         #region A* with Binary Heap
 
@@ -622,23 +646,29 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// A* search with slope checking and wall proximity penalty.
-        /// Reads the (temporarily mutated) grid heights directly and uses
-        /// the persistent generation-stamped buffers — no per-call
-        /// allocation or full-grid initialization. Cells near walls (with
-        /// clearance offsets) get a higher movement cost so the A* prefers
-        /// wide corridors.
+        /// A* search with slope checking and (foot only) wall proximity
+        /// penalty. Reads the (temporarily mutated) grid lanes directly and
+        /// uses the persistent generation-stamped buffers — no per-call
+        /// allocation or full-grid initialization.
         /// </summary>
+        /// <param name="modeBit">Flags-lane blocked bit that makes a cell
+        /// impassable for this search.</param>
+        /// <param name="minClearance">Hard clearance floor (0 = disabled).
+        /// Used only by the foot preferred pass.</param>
+        /// <param name="clearancePenalty">Apply the continuous clearance
+        /// penalty (foot only — clearance data describes CharaWall gaps).</param>
         /// <param name="maxExpansions">Abort after this many cell expansions
         /// (0 = unlimited). Used only by the preferred-clearance pass.</param>
         private static List<Vector2Int> AStarSearch(
             int sx, int sz, int ex, int ez,
-            WorldmapGridGenerator.CachedGrid grid,
-            float minClearance, int maxExpansions, out int expansions)
+            WorldmapGridFormat.CachedGrid grid, byte modeBit,
+            float minClearance, bool clearancePenalty,
+            int maxExpansions, out int expansions)
         {
             int gridW = grid.GridW;
             int gridH = grid.GridH;
             var height = grid.Height;
+            var flags = grid.Flags;
 
             ushort gen = BeginSearch(gridW * gridH);
             int open = gen * 2;
@@ -685,7 +715,9 @@ namespace SO2RAccess
                     if (_state[nIdx] == closedV) continue;
 
                     ushort neighborH = height[nx, nz];
-                    if (neighborH < 2) continue; // Ocean (0) or obstacle (1).
+                    // No ground / legacy obstacle, or blocked for this mode.
+                    if (neighborH < 2) continue;
+                    if ((flags[nIdx] & modeBit) != 0) continue;
 
                     // Slope check.
                     int heightDiff = Math.Abs(currentH - neighborH);
@@ -697,23 +729,29 @@ namespace SO2RAccess
                     if (heightDiff > SlopePenaltyStartCm)
                         moveCost += heightDiff * 0.02f;
 
-                    // Continuous clearance penalty: prefer wide corridors.
-                    // Penalty scales linearly from MaxClearancePenalty at
-                    // minimum clearance (0.55m) down to 0 at ComfortableClearance.
-                    float clr = grid.GetClearance(nx, nz);
-
-                    // Hard clearance floor (first pass only). Cells too
-                    // narrow for the player to fit through are skipped
-                    // entirely. minClearance == 0 in the fallback pass
-                    // disables this, preserving original reachability.
-                    if (minClearance > 0f && clr < minClearance) continue;
-
-                    if (clr < ComfortableClearance)
+                    if (clearancePenalty)
                     {
-                        float ratio = (ComfortableClearance - clr) /
-                            (ComfortableClearance - 0.55f);
-                        if (ratio > 1f) ratio = 1f;
-                        moveCost += ratio * MaxClearancePenalty;
+                        float clr = grid.GetClearance(nx, nz);
+
+                        // Hard clearance floor (preferred pass only). Cells
+                        // too narrow for the player to fit through are
+                        // skipped entirely. minClearance == 0 in the
+                        // fallback pass disables this, preserving original
+                        // reachability.
+                        if (minClearance > 0f && clr < minClearance)
+                            continue;
+
+                        // Continuous clearance penalty: prefer wide
+                        // corridors. Scales linearly from
+                        // MaxClearancePenalty at minimum clearance down to
+                        // 0 at ComfortableClearance.
+                        if (clr < ComfortableClearance)
+                        {
+                            float ratio = (ComfortableClearance - clr) /
+                                (ComfortableClearance - 0.55f);
+                            if (ratio > 1f) ratio = 1f;
+                            moveCost += ratio * MaxClearancePenalty;
+                        }
                     }
 
                     float newG = currentG + moveCost;
@@ -732,6 +770,11 @@ namespace SO2RAccess
 
             return null;
         }
+
+        /// <summary>Formats a clearance value for logs ("wide" for cells
+        /// without an explicit table entry).</summary>
+        private static string FormatClearance(float clearance)
+            => clearance == float.MaxValue ? "wide" : $"{clearance:F2}m";
 
         private static void HeapPush(List<(float f, int x, int z)> heap,
             (float f, int x, int z) item)
@@ -810,9 +853,10 @@ namespace SO2RAccess
             return path;
         }
 
-        /// <summary>Finds nearest terrain cell (height > 0).</summary>
-        private static void SnapToTerrain(ref int gx, ref int gz,
-            ushort[,] height, int gridW, int gridH)
+        /// <summary>Finds the nearest cell passable for the mode, searching
+        /// outward in growing rings (up to 50m).</summary>
+        private static void SnapToPassable(ref int gx, ref int gz,
+            WorldmapGridFormat.CachedGrid grid, byte modeBit)
         {
             for (int r = 1; r <= 100; r++)
             {
@@ -824,8 +868,7 @@ namespace SO2RAccess
                             continue;
                         int nx = gx + dx;
                         int nz = gz + dz;
-                        if (nx >= 0 && nx < gridW && nz >= 0 && nz < gridH
-                            && height[nx, nz] >= 2)
+                        if (grid.IsPassable(nx, nz, modeBit))
                         {
                             gx = nx;
                             gz = nz;

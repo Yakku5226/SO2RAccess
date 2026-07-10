@@ -555,12 +555,20 @@ namespace SO2RAccess
                         if (_autoWalkTransform != null)
                             _autoWalkTarget = _autoWalkTransform.position;
 
+                        // Resume goal: locations re-plan to the stored ring
+                        // point (the entrance), NOT the town-centre symbol —
+                        // a centre-aimed resume always collapses to a
+                        // wall-hugging floor route (2026-07-10 diagnosis).
+                        Vector3 resumeGoal =
+                            _autoWalkCategoryIndex == CAT_LOCATION
+                                ? _wmPathGoal : _autoWalkTarget;
+
                         var player = fm.GetControlPlayer();
                         if (player != null)
                         {
                             Vector3 playerPos = player.transform.position;
                             bool resumePathFound = WorldmapCalculateAndStorePath(
-                                playerPos, _autoWalkTarget,
+                                playerPos, resumeGoal,
                                 keepBlockedPositions: true);
 
                             if (resumePathFound)

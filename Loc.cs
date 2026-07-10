@@ -211,6 +211,10 @@ namespace SO2RAccess
 
             // Navigation — world map locations
             Add("nav_location_dungeon",  "{0} (Dungeon)");
+            // Per-travel-mode honesty suffixes. Only PROVEN disconnections
+            // are annotated; unknown always reads plain (= reachable).
+            Add("nav_wm_unreachable_foot",  "{0}, unreachable on foot");
+            Add("nav_wm_unreachable_bunny", "{0}, unreachable by bunny");
 
             // World map fast travel menu
             Add("worldmap_open",         "Fast travel.");

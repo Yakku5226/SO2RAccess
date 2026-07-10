@@ -6,50 +6,15 @@ using UnityEngine;
 namespace SO2RAccess
 {
     // Partial class fragment of NavigationHandler: world-map PATHFINDING —
-    // CalcHeight-based safe-approach/exit point computation, ocean-barrier
-    // reachability checks, the AI pathfinder accessor, and the A* path builder
-    // (WorldmapCalculateAndStorePath). The per-frame walk loop that consumes
-    // these paths lives in NavigationHandler.Worldmap.cs.
+    // safe-approach/exit point computation and the A* path builder
+    // (WorldmapCalculateAndStorePath), all aware of the current travel mode
+    // (foot/bunny/psynard). The per-frame walk loop that consumes these
+    // paths lives in NavigationHandler.Worldmap.cs; the reachability
+    // verdicts for the nav list live in
+    // NavigationHandler.Worldmap.Reachability.cs.
     public partial class NavigationHandler
     {
         #region World Map Pathfinding
-
-        /// <summary>
-        /// Checks whether a target is reachable on the world map by sampling
-        /// CalcHeight at evenly spaced points along the line from player to target.
-        /// If any sample has no ground (success=false), there is ocean between
-        /// the player and target — the target is unreachable.
-        /// Returns true as a fallback if CalcHeight throws.
-        /// </summary>
-        private bool WorldmapIsReachableViaCalcHeight(Vector3 playerPos, Vector3 targetPos)
-        {
-            try
-            {
-                for (int s = 1; s <= WorldmapCalcHeightSamples; s++)
-                {
-                    float t = s / (float)WorldmapCalcHeightSamples;
-                    Vector3 samplePos = new Vector3(
-                        playerPos.x + (targetPos.x - playerPos.x) * t,
-                        playerPos.y + (targetPos.y - playerPos.y) * t,
-                        playerPos.z + (targetPos.z - playerPos.z) * t);
-
-                    GameUtility.CalcHeight(samplePos, out bool success);
-                    if (!success)
-                    {
-                        DebugLogger.LogState(
-                            $"NAV worldmap: ocean barrier at sample {s}/{WorldmapCalcHeightSamples} " +
-                            $"toward ({targetPos.x:F1},{targetPos.z:F1})");
-                        return false;
-                    }
-                }
-                return true;
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"NAV WorldmapCalcHeight: {ex.Message}");
-                return true; // fallback — don't filter
-            }
-        }
 
         /// <summary>
         /// Number of waypoints to pre-validate against real L22 obstacles
@@ -164,9 +129,10 @@ namespace SO2RAccess
                     // cell CONNECTED TO THE WRONG REGION (Salva's valley-side
                     // sliver — the "unreachable Salva from Krosse" bug).
                     // Sample all entrances for a walkable cell, preferring one
-                    // in the SAME connected region as the player.
+                    // in the SAME connected region as the player — walkability
+                    // and regions both judged for the CURRENT travel mode.
                     dest = PickReachableRingPoint(rings, playerPos, locationPos,
-                        out bool usedCenter);
+                        WorldmapTravel.CurrentMode(), out bool usedCenter);
                     if (usedCenter)
                         DebugLogger.LogState(
                             "NAV WM enter-trigger: no walkable cell on any " +
@@ -198,96 +164,74 @@ namespace SO2RAccess
 
         /// <summary>
         /// Returns a point on one of the location's entrance triggers that sits
-        /// on a WALKABLE grid cell (the road into the location). Candidates in
-        /// the SAME connected region as the player win over merely-walkable
-        /// ones: boundary towns (Salva) have walkable cells at BOTH entrances,
-        /// and a cell on the far side's region is a guaranteed "no route" —
-        /// that was the "unreachable Salva from Krosse" bug. Within a tier the
-        /// nearest candidate to the player wins. Samples each trigger's center,
-        /// its closest point to the player, and its perimeter from 16
-        /// directions (projecting external reference points onto the collider
-        /// covers every approach side). If nothing tests walkable (triggers
-        /// fully buried in the model wall, or no grid cached), sets
-        /// <paramref name="usedCenter"/> and returns the location centre so the
-        /// caller can route there instead — the enter prompt still gates arrival.
+        /// on a grid cell WALKABLE for the given travel mode (the road into
+        /// the location). Candidates in the SAME connected region as the
+        /// player win over merely-walkable ones: boundary towns (Salva) have
+        /// walkable cells at BOTH entrances, and a cell on the far side's
+        /// region is a guaranteed "no route" — that was the "unreachable
+        /// Salva from Krosse" bug. Within a tier the nearest candidate to the
+        /// player wins. Candidate points come from the shared
+        /// <see cref="ForEachRingCandidate"/> sampler (also used by the
+        /// nav-list reachability check, so the two never disagree). If
+        /// nothing tests walkable (triggers fully buried in the model wall,
+        /// or no grid cached), sets <paramref name="usedCenter"/> and returns
+        /// the location centre so the caller can route there instead — the
+        /// enter prompt still gates arrival.
         /// </summary>
         private Vector3 PickReachableRingPoint(List<Collider> rings,
-            Vector3 playerPos, Vector3 locationPos, out bool usedCenter)
+            Vector3 playerPos, Vector3 locationPos, WorldmapTravelMode mode,
+            out bool usedCenter)
         {
             usedCenter = false;
 
-            int playerRegion = WorldmapPathfinder.GetRegionId(playerPos);
+            // Player side = the START REGION SET (same disc bridging as
+            // FindPath), not just the exact cell — a player in a rocky
+            // pocket still gets tier-1 candidates on the mainland.
+            var playerRegions = new List<int>();
+            WorldmapPathfinder.GetStartRegionIds(playerPos, mode, playerRegions);
 
-            // Tier 1: walkable AND in the player's connected region.
+            // Tier 1: walkable AND in one of the player's start regions.
             Vector3 bestConn = Vector3.zero;
             float bestConnSq = float.MaxValue;
             // Tier 2: walkable (region unknown or different) — old behavior.
             Vector3 bestWalk = Vector3.zero;
             float bestWalkSq = float.MaxValue;
 
-            void Consider(Vector3 cand)
+            ForEachRingCandidate(rings, playerPos, cand =>
             {
-                if (!WorldmapPathfinder.IsWalkableWorld(cand)) return;
+                if (!WorldmapPathfinder.IsWalkableWorld(cand, mode))
+                    return false;
                 float d = (cand - playerPos).sqrMagnitude;
                 if (d < bestWalkSq) { bestWalkSq = d; bestWalk = cand; }
-                if (playerRegion != 0 &&
-                    WorldmapPathfinder.GetRegionId(cand) == playerRegion &&
+                if (playerRegions.Count > 0 &&
+                    playerRegions.Contains(
+                        WorldmapPathfinder.GetRegionId(cand, mode)) &&
                     d < bestConnSq)
                 {
                     bestConnSq = d;
                     bestConn = cand;
                 }
-            }
+                return false; // never stop early — we want the NEAREST
+            });
 
-            foreach (var ring in rings)
-            {
-                if (ring == null) continue;
-                Bounds b = ring.bounds;
-
-                // Trigger center — the middle of the entrance road, and of the
-                // passable cells the grid generator punched for this trigger.
-                Consider(new Vector3(b.center.x, b.center.y, b.center.z));
-
-                // Plain closest point to the player (skip the degenerate
-                // "player already inside" case).
-                try
-                {
-                    Vector3 cp = ring.ClosestPoint(playerPos);
-                    if ((cp - playerPos).sqrMagnitude > 0.0001f) Consider(cp);
-                }
-                catch { /* unsupported collider type — sampling below */ }
-
-                // Perimeter samples from all around this trigger.
-                float reach = b.extents.x + b.extents.z + 4f;
-                const int Steps = 16;
-                for (int i = 0; i < Steps; i++)
-                {
-                    float ang = (i / (float)Steps) * Mathf.PI * 2f;
-                    Vector3 refPt = new Vector3(
-                        b.center.x + Mathf.Cos(ang) * reach,
-                        b.center.y,
-                        b.center.z + Mathf.Sin(ang) * reach);
-                    try { Consider(ring.ClosestPoint(refPt)); }
-                    catch { /* skip this sample */ }
-                }
-            }
-
+            string playerSet = string.Join(",", playerRegions);
             if (bestConnSq < float.MaxValue)
             {
                 DebugLogger.LogState(
                     $"NAV WM enter-trigger: connected ring point at " +
                     $"({bestConn.x:F1},{bestConn.z:F1}), " +
                     $"{Mathf.Sqrt(bestConnSq):F1}m from player " +
-                    $"(player region {playerRegion}, {rings.Count} triggers).");
+                    $"({mode}, player start regions [{playerSet}], " +
+                    $"{rings.Count} triggers).");
                 return bestConn;
             }
 
             if (bestWalkSq < float.MaxValue)
             {
                 DebugLogger.LogState(
-                    $"NAV WM enter-trigger: no candidate in player region " +
-                    $"{playerRegion}; using nearest walkable ring point at " +
-                    $"({bestWalk.x:F1},{bestWalk.z:F1}), " +
+                    $"NAV WM enter-trigger: no candidate in player start " +
+                    $"regions [{playerSet}] ({mode}); using nearest walkable " +
+                    $"ring point at ({bestWalk.x:F1},{bestWalk.z:F1}), " +
                     $"{Mathf.Sqrt(bestWalkSq):F1}m from player " +
                     $"({rings.Count} triggers). If no route exists the " +
                     $"pathfinder will reject it honestly.");
@@ -358,14 +302,27 @@ namespace SO2RAccess
                         Mathf.Sin(angle), 0f, Mathf.Cos(angle));
                 }
 
+                // A candidate must be FLAT OPEN TERRAIN THE PLAYER CAN WALK
+                // TO. The old checks (has ground + no walls within 2m) also
+                // passed elevated rock plateaus: a top 6m above the player is
+                // open, but the leg to it threads body-width gaps up the
+                // rocks and physically wedges (D1 Salva failure, 2026-07-10).
+                int playerRegion = WorldmapPathfinder.GetRegionId(playerPos);
+                int rejHeight = 0, rejWalls = 0, rejGrid = 0, rejGround = 0;
+
                 foreach (var dir in directions)
                 {
                     Vector3 candidate = playerPos + dir * SafeDistance;
 
                     float h = GameUtility.CalcHeight(
                         candidate, out bool hasGround, 50f);
-                    if (!hasGround) continue;
+                    if (!hasGround) { rejGround++; continue; }
                     candidate.y = h;
+
+                    // Same level as the player — an exit point is supposed to
+                    // be the open field next to town, never a ledge above or
+                    // a pit below.
+                    if (Mathf.Abs(h - playerPos.y) > 2f) { rejHeight++; continue; }
 
                     // Check no L22 OR L23 obstacles — we want wide open terrain.
                     try
@@ -384,18 +341,31 @@ namespace SO2RAccess
                                 }
                             }
                         }
-                        if (blocked) continue;
+                        if (blocked) { rejWalls++; continue; }
                     }
-                    catch { continue; }
+                    catch { rejWalls++; continue; }
+
+                    // Grid sanity (fail open: unknown regions never reject):
+                    // the cell must be walkable and in the player's region.
+                    if (!WorldmapPathfinder.IsWalkableWorld(candidate))
+                    { rejGrid++; continue; }
+                    int candRegion = WorldmapPathfinder.GetRegionId(candidate);
+                    if (playerRegion != 0 && candRegion != 0 &&
+                        candRegion != playerRegion)
+                    { rejGrid++; continue; }
 
                     DebugLogger.LogState(
                         $"NAV WM safe exit: found at ({candidate.x:F1}," +
-                        $"{candidate.z:F1}) {SafeDistance:F0}m from player");
+                        $"{candidate.z:F1}) {SafeDistance:F0}m from player " +
+                        $"(y={h:F1}, rejected before it: {rejGround} no-ground, " +
+                        $"{rejHeight} height, {rejWalls} walls, {rejGrid} grid)");
                     return candidate;
                 }
 
                 DebugLogger.LogState(
-                    "NAV WM safe exit: all directions blocked.");
+                    "NAV WM safe exit: no valid exit point " +
+                    $"({rejGround} no-ground, {rejHeight} height, " +
+                    $"{rejWalls} walls, {rejGrid} grid) — going direct.");
                 return playerPos;
             }
             catch (Exception ex)
@@ -412,12 +382,26 @@ namespace SO2RAccess
         /// When targeting a location, routes to a safe approach point.
         /// Falls back to a single-waypoint straight line if pathfinding fails.
         /// </summary>
+        /// <summary>The exact goal the current world-map path was computed
+        /// for (the entrance RING POINT for locations, not the town-centre
+        /// symbol). Stuck-recalcs and battle resumes MUST re-plan to this —
+        /// re-planning to the centre sends every re-route INTO the town
+        /// walls (proven by goal-cell logs, 2026-07-10).</summary>
+        private Vector3 _wmPathGoal;
+
         private bool WorldmapCalculateAndStorePath(Vector3 playerPos, Vector3 targetPos,
             bool keepBlockedPositions = false)
         {
+            _wmPathGoal = targetPos;
             _wmRecalcCount = 0;
             if (!keepBlockedPositions)
                 _wmBlockedPositions.Clear();
+
+            // The travel mode is queried at every path computation (walk
+            // start, battle resume, mid-walk recalcs) so mounting or
+            // dismounting between calls automatically re-plans on the right
+            // per-mode grid lane.
+            var mode = WorldmapTravel.CurrentMode();
 
             // For locations, targetPos is already the enter-trigger ring point
             // (resolved by ComputeEnterTriggerTarget when the walk started), so we
@@ -439,10 +423,26 @@ namespace SO2RAccess
                     $"NAV WM safe exit: routing via ({safeExit.x:F1}," +
                     $"{safeExit.z:F1}) before heading to target");
                 exitPath = WorldmapPathfinder.FindPath(
-                    playerPos, safeExit, _wmBlockedPositions);
+                    playerPos, safeExit, mode, _wmBlockedPositions);
                 if (exitPath != null && exitPath.Length > 0)
                 {
-                    aStarStart = safeExit;
+                    // A floor-tier exit leg threads body-width gaps; sweep it
+                    // and drop the safe exit rather than wedge on the way to
+                    // it (the exit is an optimization, never required).
+                    if (WorldmapPathfinder.LastPathUsedFloorTier &&
+                        CountRouteWedges(exitPath, safeExit, 0f,
+                            markBlocked: false) > 0)
+                    {
+                        DebugLogger.LogState(
+                            "NAV WM safe exit: floor-tier exit leg is " +
+                            "physically blocked (body sweep) — going direct.");
+                        exitPath = null;
+                        usingSafeExit = false;
+                    }
+                    else
+                    {
+                        aStarStart = safeExit;
+                    }
                 }
                 else
                 {
@@ -454,12 +454,15 @@ namespace SO2RAccess
             }
 
             Vector3[] bestPath = null;
+            bool bestPathFloorTier = false;
             int bestFirstBlockedIdx = -1;
 
             for (int round = 0; round < WmPreValidateMaxRounds; round++)
             {
                 var path = WorldmapPathfinder.FindPath(aStarStart, targetPos,
+                    mode,
                     _wmBlockedPositions.Count > 0 ? _wmBlockedPositions : null);
+                bool pathFloorTier = WorldmapPathfinder.LastPathUsedFloorTier;
 
                 if (path == null || path.Length == 0)
                 {
@@ -506,6 +509,7 @@ namespace SO2RAccess
                 {
                     // Clean path — no L22 obstacles in first N waypoints.
                     bestPath = path;
+                    bestPathFloorTier = pathFloorTier;
                     bestFirstBlockedIdx = -1;
                     DebugLogger.LogState(
                         $"NAV WM pre-validate round {round}: CLEAR. " +
@@ -517,6 +521,7 @@ namespace SO2RAccess
                 if (bestPath == null || firstBlockedIdx > bestFirstBlockedIdx)
                 {
                     bestPath = path;
+                    bestPathFloorTier = pathFloorTier;
                     bestFirstBlockedIdx = firstBlockedIdx;
                 }
 
@@ -546,6 +551,49 @@ namespace SO2RAccess
                         }
                     }
                     catch { }
+                }
+            }
+
+            // FLOOR-TIER PHYSICS VALIDATION (foot only): a route that only
+            // exists at the 0.50m clearance floor threads gaps the size of
+            // the player's body — the route audit proved such routes
+            // physically wedge (walls 0.51m from the body centre; Arlia
+            // route: 27 impassable segments). Sweep the body capsule along
+            // the planned route BEFORE walking: impassable segments become
+            // blocked zones and the route is re-planned around them; when no
+            // physically passable route survives, refuse honestly instead of
+            // wedging through 5 stuck-recalcs. Segments within 10m of the
+            // goal are exempt (arrival is prompt/proximity-gated there).
+            if (bestPath != null && mode == WorldmapTravelMode.Foot &&
+                bestPathFloorTier)
+            {
+                for (int round = 0; round < 2 && bestPath != null; round++)
+                {
+                    int wedges = CountRouteWedges(
+                        bestPath, targetPos, 10f, markBlocked: true);
+                    if (wedges == 0) break;
+
+                    DebugLogger.LogState(
+                        $"NAV WM floor-route sweep round {round}: {wedges} " +
+                        "physically impassable segments — re-planning " +
+                        "around them.");
+                    bestPath = WorldmapPathfinder.FindPath(aStarStart,
+                        targetPos, mode,
+                        _wmBlockedPositions.Count > 0 ? _wmBlockedPositions : null);
+                    bestPathFloorTier = WorldmapPathfinder.LastPathUsedFloorTier;
+                    if (bestPath != null && !bestPathFloorTier)
+                        break; // comfort route found once wedges were blocked
+                }
+
+                if (bestPath != null && bestPathFloorTier &&
+                    CountRouteWedges(bestPath, targetPos, 10f,
+                        markBlocked: false) > 0)
+                {
+                    DebugLogger.LogState(
+                        "NAV WM floor-route sweep: no physically passable " +
+                        "route after re-planning — refusing honestly.");
+                    WorldmapPathfinder.LastNoPathWasDisconnected = true;
+                    bestPath = null;
                 }
             }
 
@@ -620,6 +668,52 @@ namespace SO2RAccess
             _pathRecalcTimer = 0f;
 
             return true;
+        }
+
+        /// <summary>
+        /// Body-capsule sweep over a planned route (see
+        /// <see cref="SweepSegmentBlocked"/>). Returns the number of
+        /// physically impassable segments, skipping those within
+        /// <paramref name="goalExemptDist"/> of the goal. When
+        /// <paramref name="markBlocked"/> is set, each impassable segment's
+        /// start is added to the walk's blocked zones so a re-plan avoids
+        /// it. First few wedges are logged with their blocker.
+        /// </summary>
+        private int CountRouteWedges(Vector3[] path, Vector3 goal,
+            float goalExemptDist, bool markBlocked)
+        {
+            var fm = FieldManager.Instance;
+            var player = fm != null ? fm.GetControlPlayer() : null;
+            if (player == null) return 0; // fail open — never block on a missing player
+            int mask = ResolveBodySweepMask(player, out _);
+
+            int wedges = 0;
+            float exemptSq = goalExemptDist * goalExemptDist;
+            for (int i = 0; i < path.Length - 1; i++)
+            {
+                float gdx = path[i].x - goal.x;
+                float gdz = path[i].z - goal.z;
+                if (gdx * gdx + gdz * gdz <= exemptSq) continue;
+
+                try
+                {
+                    if (!SweepSegmentBlocked(path[i], path[i + 1], mask,
+                            out Collider blocker, out _, out _))
+                        continue;
+
+                    wedges++;
+                    if (markBlocked) _wmBlockedPositions.Add(path[i]);
+                    if (wedges <= 4)
+                    {
+                        DebugLogger.LogState(
+                            $"NAV WM route sweep: impassable at wp[{i}] " +
+                            $"({path[i].x:F1},{path[i].z:F1}) — " +
+                            $"'{blocker.name}' L{blocker.gameObject.layer}");
+                    }
+                }
+                catch { /* segment sweep error — treat as passable (fail open) */ }
+            }
+            return wedges;
         }
 
         #endregion

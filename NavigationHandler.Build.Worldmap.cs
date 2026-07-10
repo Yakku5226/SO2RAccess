@@ -51,6 +51,20 @@ namespace SO2RAccess
             try { runtimeSymbols = UnityEngine.Object.FindObjectsOfType<WorldmapSymbol>(); }
             catch { }
 
+            // Per-travel-mode reachability inputs, resolved ONCE per list
+            // build: current mode, the player's start-region SET in that
+            // mode (every region the pathfinder's start-clearing disc can
+            // bridge onto — not just the exact cell), and the
+            // entrance-trigger cache (one scene scan). Verdicts only
+            // ANNOTATE items ("unreachable on foot / by bunny") — nothing
+            // is hidden, and the walk attempt with its honest refusal
+            // messages is never blocked.
+            var travelMode = WorldmapTravel.CurrentMode();
+            var playerRegions = new List<int>();
+            WorldmapPathfinder.GetStartRegionIds(
+                playerPos, travelMode, playerRegions);
+            RefreshWmMapjumpCache();
+
             var items = new List<NavItem>();
 
             for (int i = 0; i < symbols.Count; i++)
@@ -122,6 +136,25 @@ namespace SO2RAccess
                         }
                         catch { }
                     }
+
+                    // Honest per-mode reachability annotation. Only a PROVEN
+                    // disconnection annotates; every unknown stays plain
+                    // (treated as reachable). Every verdict is logged with
+                    // its reason so false annotations are diagnosable.
+                    var verdict = ResolveLocationReachability(
+                        pos, playerPos, playerRegions, travelMode,
+                        out string reachReason);
+                    if (verdict == WmReachability.Unreachable)
+                    {
+                        label = Loc.Get(
+                            travelMode == WorldmapTravelMode.Bunny
+                                ? "nav_wm_unreachable_bunny"
+                                : "nav_wm_unreachable_foot",
+                            label);
+                    }
+                    MelonLoader.MelonLogger.Msg(
+                        $"[WMReach] {name}: {verdict} ({travelMode}) — " +
+                        $"{reachReason}");
 
                     items.Add(new NavItem
                     {

@@ -790,9 +790,11 @@ namespace SO2RAccess
 
         private bool IsReachable(Vector3 playerPos, Vector3 targetPos)
         {
-            // World map: use CalcHeight path sampling to detect ocean barriers.
+            // World map: connected-region compare for the current travel
+            // mode (replaces the old straight-line CalcHeight ocean check,
+            // which false-hid chests behind lake fingers).
             if (_isWorldmap)
-                return WorldmapIsReachableViaCalcHeight(playerPos, targetPos);
+                return WorldmapModeRegionReachable(playerPos, targetPos);
 
             // Reliable, in priority order: a complete NavMesh path (towns and
             // connected areas), then a recorded traversal route (dungeons the

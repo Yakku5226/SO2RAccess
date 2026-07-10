@@ -93,7 +93,7 @@ namespace SO2RAccess
         /// and classify what borders it.
         /// </summary>
         private static void FloodFillAnalysis(
-            WorldmapGridGenerator.CachedGrid grid,
+            WorldmapGridFormat.CachedGrid grid,
             Vector3 playerPos, Vector3? target,
             StringBuilder summary)
         {
@@ -108,10 +108,10 @@ namespace SO2RAccess
             sb.AppendLine($"Start: grid=({startAx},{startAz}) " +
                 $"world=({playerPos.x:F1},{playerPos.z:F1})");
 
-            if (grid.Height[startAx, startAz] < 2)
+            if (FootCell(grid, startAx, startAz) < 2)
             {
                 sb.AppendLine("WARNING: Player cell is NOT walkable in grid! " +
-                    $"Value={grid.Height[startAx, startAz]}");
+                    $"Value={FootCell(grid, startAx, startAz)}");
             }
 
             // BFS flood fill.
@@ -142,7 +142,7 @@ namespace SO2RAccess
                 if (cz < minRz) minRz = cz;
                 if (cz > maxRz) maxRz = cz;
 
-                ushort currentH = grid.Height[cx, cz];
+                ushort currentH = FootCell(grid, cx, cz);
 
                 for (int d = 0; d < 8; d++)
                 {
@@ -158,7 +158,7 @@ namespace SO2RAccess
 
                     if (visited[nx, nz]) continue;
 
-                    ushort nh = grid.Height[nx, nz];
+                    ushort nh = FootCell(grid, nx, nz);
 
                     if (nh == 0)
                     {
@@ -272,7 +272,7 @@ namespace SO2RAccess
 
         /// <summary>Brief line scan between two grid cells, logging each cell's status.</summary>
         private static void ScanLineBrief(StringBuilder sb,
-            WorldmapGridGenerator.CachedGrid grid,
+            WorldmapGridFormat.CachedGrid grid,
             int sx, int sz, int ex, int ez)
         {
             int dx = Math.Abs(ex - sx);
@@ -288,7 +288,7 @@ namespace SO2RAccess
             {
                 ushort h = (cx >= 0 && cx < grid.GridW &&
                     cz >= 0 && cz < grid.GridH)
-                    ? grid.Height[cx, cz] : (ushort)0;
+                    ? FootCell(grid, cx, cz) : (ushort)0;
 
                 string status;
                 if (h == 0) status = "ocean";
@@ -319,7 +319,7 @@ namespace SO2RAccess
         /// for each cell along a straight line.
         /// </summary>
         private static void TerrainProfile(
-            WorldmapGridGenerator.CachedGrid grid,
+            WorldmapGridFormat.CachedGrid grid,
             Vector3 playerPos, Vector3 targetPos)
         {
             var sb = new StringBuilder();
@@ -356,7 +356,7 @@ namespace SO2RAccess
             {
                 bool inBounds = cx >= 0 && cx < grid.GridW &&
                     cz >= 0 && cz < grid.GridH;
-                ushort cachedH = inBounds ? grid.Height[cx, cz] : (ushort)0;
+                ushort cachedH = inBounds ? FootCell(grid, cx, cz) : (ushort)0;
 
                 // Fresh CalcHeight.
                 Vector3 cellWorld = grid.GridToWorld(cx, cz);
@@ -589,7 +589,7 @@ namespace SO2RAccess
         /// queries at the player's location.
         /// </summary>
         private static void GridAccuracyCheck(
-            WorldmapGridGenerator.CachedGrid grid, Vector3 playerPos)
+            WorldmapGridFormat.CachedGrid grid, Vector3 playerPos)
         {
             var sb = new StringBuilder();
             sb.AppendLine("\n=== 4. GRID ACCURACY CHECK (20x20 around player) ===");
@@ -610,7 +610,7 @@ namespace SO2RAccess
                         az < 0 || az >= grid.GridH)
                         continue;
 
-                    ushort cached = grid.Height[ax, az];
+                    ushort cached = FootCell(grid, ax, az);
                     Vector3 cellWorld = grid.GridToWorld(ax, az);
 
                     // Fresh CalcHeight.
@@ -1236,7 +1236,7 @@ namespace SO2RAccess
                 {
                     bool inBounds = cx >= 0 && cx < grid.GridW &&
                         cz >= 0 && cz < grid.GridH;
-                    ushort cached = inBounds ? grid.Height[cx, cz] : (ushort)0;
+                    ushort cached = inBounds ? FootCell(grid, cx, cz) : (ushort)0;
                     Vector3 cellWorld = grid.GridToWorld(cx, cz);
 
                     bool isBlocked = false;
@@ -1434,10 +1434,28 @@ namespace SO2RAccess
         }
 
         /// <summary>Loads the cached grid for the current world map.</summary>
-        private static WorldmapGridGenerator.CachedGrid LoadGrid(
+        private static WorldmapGridFormat.CachedGrid LoadGrid(
             FieldManager fm)
         {
-            return WorldmapGridGenerator.LoadGrid(fm.WorldmapID);
+            return WorldmapGridFormat.LoadGrid(fm.WorldmapID);
+        }
+
+        /// <summary>
+        /// Effective cell value for FOOT analysis, format-independent: on a
+        /// v2 (WMGI) grid, foot-blocked cells carry a real height plus a
+        /// flags bit — this maps them back to the legacy obstacle value (1)
+        /// so all the classification code in this file (which predates the
+        /// flags lane) keeps reporting walls as walls instead of walking
+        /// its analyses straight through them.
+        /// </summary>
+        private static ushort FootCell(WorldmapGridFormat.CachedGrid grid,
+            int ax, int az)
+        {
+            ushort h = grid.Height[ax, az];
+            if (h >= 2 && (grid.Flags[(long)ax * grid.GridH + az] &
+                WorldmapGridFormat.CachedGrid.FlagFootBlocked) != 0)
+                return 1;
+            return h;
         }
     }
 }

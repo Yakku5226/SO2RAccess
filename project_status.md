@@ -37,15 +37,589 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
-> 📌 **NEXT SESSION PLAN (agreed 2026-07-05): the bunny phase.** (1) Test the 2b fix below
-> (Salva from Krosse) + re-run P1–P6 as convenient. (2) Then start bunny-aware per-mode
-> reachability: investigate ride-state detection + LayerMaskBunnyWall contents, F9 grid
-> regeneration with per-mode blocked bits (ALSO fixes the flood-fill d<4 latent bug and the
-> Lasgus/Mountain-Palace false-connection), per-mode region maps, annotate-first list rollout.
-> After any F9 regen: gzip the new grid into grids\ and rebuild so the embedded copy matches.
+> 📌 **BUNNY PHASE IN PROGRESS (plan approved 2026-07-05 session 3, full plan file:
+> C:\Users\Jaco\.claude\plans\jazzy-marinating-acorn.md).** Per-travel-mode reachability
+> (foot / bunny / psynard). User HAS the bunny and can ride now. Cadence: Build 1 = Phase A
+> investigation (below, deployed) → analyze log → Build 2 = Phases B+C+D (grid v2 "WMGI" with
+> per-mode blocked-bit flags lane + pure height lane, flood-fill d<4→8 fix, WMGG/WMGH magic
+> drift cleanup, bake with the game's LIVE LayerMaskWall/LayerMaskBunnyWall, per-mode region
+> maps [bunny lazy-built], FindPath(mode), annotate-first list "unreachable on foot/by bunny"
+> + [WMReach] reason logs, chest/enemy line-check → region check, psynard = everything
+> reachable) → user F9 regen + tests → re-gzip grid into grids\ + rebuild → Build 3 = Phase E
+> hide-toggle ONLY after zero false-unreachables validated. Key game facts: bunny =
+> FieldBunny : FieldPlayer (control player swaps), psynard = FieldPsynard : Field3DObject
+> (separate object), detect via FieldManager.IsFieldFlag(FieldBitFlag.Bunny=2/Psynard=1);
+> no ship travel form exists in the game.
+>
+> 🔴 **D1 RETRY FAILED AGAIN (2026-07-10 log 11:17–11:21) → TRUE ROOT CAUSE FOUND AND
+> FIXED: ComputeSafeExitPoint picked a rock-plateau top. Build 0/0 deployed. TEST F1
+> below is the current pending test.**
+> - E-SCRIPT RESULTS: E1 census ran near Krosse (not the wedge spot): only 3 small
+>   mismatches (−0.7..−0.9m) — grid essentially honest there. E2 rebake ran; the
+>   pool-prefab fallback rescued ZERO pools ("no colliders on layoutItem or pool prefab"
+>   for every previously skipped pool) → the missing-rocks hypothesis is REFUTED (those
+>   pools are genuinely visual-only; the ResolveBakeSource fallback stays as cheap
+>   insurance). E3 failed identically to D1.
+> - MY EARLIER "missing rocks" READING WAS A DIRECTION ERROR: the stuck-terrain "3m ahead"
+>   probe (NavigationHandler.Worldmap.cs ~:327) points at the TARGET (Salva), not along
+>   the path — it measured a rock beside the route. Offline checks (scratchpad wedgeprobe):
+>   grid vs live heights agree; the NEW grid is honest. C2's audit conclusions STAND
+>   (incl. the open Arlia-ridge D2 question).
+> - REAL CHAIN (from log 11:20:13–15 + offline clearance BFS): player stood 21m from
+>   Krosse City's trigger → ComputeSafeExitPoint engaged and returned (-134.9,-20.1) — a
+>   point 25m away on TOP of the rock plateau (Y≈35 vs player Y≈28) because its checks
+>   were only "has ground + no L22/L23 within 2m" (plateau tops pass both). The exit leg
+>   to it failed the 0.60m comfort pass (plateau only floor-reachable via body-width
+>   gaps up the rocks: legacy grid called the belt noGround so this pick used to fail
+>   harmlessly into "going direct") and the player wedged at wp31 between two
+>   Col_Obstacle walls 0.51m from center. All recalcs then re-planned from inside the
+>   rock pocket → floor-tier belt routes → 5 wedges → give-up. MEANWHILE the MAIN leg
+>   (exit→ring) found a 600-wp 0.60m COMFORT ROAD ROUTE in 60ms — the road to Salva is
+>   fine; offline BFS with the real baked clearance table confirms plains→ring connects
+>   at 0.60m (strict goal-cell closure, 318k cells).
+> - FIX (deployed): ComputeSafeExitPoint candidates now additionally require
+>   (a) |candidateY − playerY| ≤ 2m (exit = flat field next to town, never a ledge/pit),
+>   (b) WorldmapPathfinder.IsWalkableWorld, (c) same GetRegionId as the player (fail-open
+>   when either region is 0). Rejection counts logged per reason (log-failure-reasons
+>   rule); all-rejected → existing "going direct" fallback (can never reduce
+>   reachability).
+> 🟡 F1 PARTIAL (2026-07-10 log 11:40–11:41): safe-exit fix WORKED (plateau rejected via
+> "2 height", exit at player level, walk started on a 551-wp comfort road route and ran
+> clean for 30s) — but a mid-walk re-plan at (-122.5,-133) (battle resume suspected)
+> failed the 0.60m comfort pass (1.25M cells) where the walk-start plan had SUCCEEDED
+> toward the same ring point, took a floor route into rocks, and wedged at (-135.9,-163.7)
+> (Col_Obstacle 0.51m from center — squeeze signature, terrain flat). Contradiction
+> (comfort route exists from A but not from B, same goal, same grid) is unexplained —
+> user called for large-scale diagnostics instead of further spot fixes. CORRECT.
+>
+> ✅ **ROUTE AUDIT RAN 3× (2026-07-10 log 11:54–11:57) — FULL DIAGNOSIS + FIX SET
+> DEPLOYED (build 0/0). Supersedes script G.**
+> AUDIT FINDINGS (audit 3, from (-97,-156) near the Arlia wedge; audits 1–2 were lost to
+> an auditor bug, fixed below):
+> - Harley (1258wp) and Kurik (1433wp): comfort roads, ZERO wedges — long plains routes
+>   are perfect. Ocean towns: honest refusals. The grid+pathfinder core is healthy.
+> - Salva / Krosse Cave / Marze / Lasgus: comfort roads with 1–2 wedge segments each,
+>   all AT THE DESTINATION GATE (e.g. Salva wp369/380 at (-166.5,-303.5), Col_Obstacle
+>   0.02m) — end-of-route pinches inside the arrival/prompt zone, tolerable.
+> - Arlia: FLOOR-tier route (comfort pass exhausted 1.25M cells; goal cell clearance
+>   0.94m = fine, the ROUTE doesn't exist at 0.60m) with 27 impassable segments through
+>   the rock belt at (-100,-160..-176) — exactly where the user wedged. Floor-tier
+>   routes thread body-width gaps and are physically unwalkable. THIS answers D2
+>   partially: no comfortable overland route Krosse→Arlia exists; the honest answer is
+>   the refusal message ("may require passing through another location" — Salva pass).
+> - Mountain Palace: comfort route with 188 "wedges" + mismatches up to 30.8m — believed
+>   AUDIT ARTIFACT (probe from +25m lands on overhangs above passes; probe fixed to
+>   short-ray from wp.y+2). Re-audit will tell.
+> - 💥 SMOKING GUN (new clearance logging): mid-walk STUCK-RECALCS and BATTLE RESUMES
+>   re-planned to goal cell (3522,2564) = (-159,-318) = Salva's TOWN-CENTRE symbol —
+>   INSIDE the walls — while fresh walks aim at the ring point (-161.9,-302.8). A
+>   centre-aimed re-plan can never pass the comfort tier → every post-stuck/post-battle
+>   route collapsed to wall-hugging floor quality. Explains ALL "worked at start, died
+>   after battle/stuck" behavior across three days.
+> FIXES (deployed, build 0/0):
+> 1. _wmPathGoal: WorldmapCalculateAndStorePath stores its true goal; stuck-recalcs
+>    (NavigationHandler.Worldmap.cs) and battle resumes (NavigationHandler.cs) re-plan
+>    CAT_LOCATION walks to the stored RING POINT, never the centre symbol.
+> 2. Floor-tier pre-walk physics validation (WorldmapCalculateAndStorePath): FOOT routes
+>    that fell back to the 0.50m floor are body-capsule-swept before walking (goal-10m
+>    exempt); impassable segments become blocked zones + up to 2 re-plans; if still
+>    impassable → honest refusal via the no-land-route message (LastNoPathWasDisconnected
+>    now internal-settable). Floor-tier SAFE-EXIT legs with wedges are dropped (direct).
+> 3. Auditor fixes: null-collider overlap hits no longer abort a route (guarded +
+>    per-segment try/catch, counted as "unresolvable overlap hits"); ground probe is a
+>    short ray from wp.y+2 (overhang-safe) — audits 1–2 failure mode gone.
+> TEST SCRIPT H RESULTS (2026-07-10 log 12:13–12:14, user: "performance much better"):
+> [✅] H1. Krosse plains → Salva ARRIVED (~50s): comfort road, ONE brief stick at the
+>        known gate pinch (-166.4,-303.4) then immediate "Arrived at Salva" (enter-prompt
+>        branch). NOT EXERCISED: battle resume during the walk (no battle spawned) —
+>        verify opportunistically; if a post-battle walk ever collapses again, check the
+>        resume goal-cell in the "no route at 0.60m" line (must be ≈ring, not centre).
+> [✅] H2. Krosse plains → Arlia: floor-route sweep found 2 impassable segments →
+>        re-planned → 4 more → re-planned → still impassable → HONEST REFUSAL in 3.4s
+>        with the no-land-route message. Exactly as designed; refusal is correct (real
+>        route to Arlia goes through Salva).
+> [ ] H3. F7 re-audit (auditor bug fixes + Mountain Palace overhang check) — not yet run,
+>        do opportunistically.
+> KNOWN COSMETIC GAP (discuss later, do not "fix" blindly): Arlia reads as a PLAIN name
+> in the list (region-connected) but the walk refuses honestly (physically impassable) —
+> list annotation and walk verdict can disagree for floor-tier-only targets. Options
+> later: sweep-based annotation (costly per list-open) or a "route may be blocked"
+> phrasing.
+>
+> ✅ **D3–D5 PASSED (2026-07-10 log 12:20–12:22) — PER-MODE REACHABILITY VALIDATED.**
+> - D3 foot list: all ocean towns "unreachable on foot"; continent towns plain. Arlia/
+>   Mountain Palace plain = the known cosmetic gap above.
+> - D4 bunny: mounted list kept ocean towns "unreachable by bunny" (bunny regions built
+>   in 576ms); the (-370,-179) chest walk ARRIVED mounted (the old foot-impossible
+>   target!); mounted Lacuer City attempt → honest "unreachable by bunny" refusal
+>   message; mounted Krosse City walk arrived. Battle resume ALSO exercised with a
+>   foot→bunny mode switch mid-walk (user mounted after the battle) — re-planned on the
+>   bunny lane cleanly.
+> - D5: no false "unreachable" observed.
+> - EXTRA (user's own test, NOT in script): Mountain Palace ON FOOT — comfort-tier
+>   overland route up Lasgus, physically wedged twice at rock passages (first at
+>   (-261,-92.5), exactly the audit-3 flagged spot), then battle → user mounted →
+>   abandoned. CONFIRMS the old known issue: MP's overland route is fiction-free but
+>   physically unwalkable in places, and the game intends entry via the Lasgus
+>   Mountains dungeon. NOT caught today because the pre-walk sweep only runs on
+>   FLOOR-tier routes.
+> NEXT SESSION CANDIDATES (in order):
+> 1. Extend the pre-walk body sweep to COMFORT-tier routes too (would honestly handle
+>    Mountain Palace overland; must not false-refuse: keep goal-exempt zone, re-plan
+>    rounds, and verify Salva/Marze/Krosse Cave still pass — their only wedges are
+>    inside the arrival zone). Discuss first.
+> 2. Arlia/MP list wording for "region-connected but physically blocked" targets.
+> 3. H3 leftover: one F7 re-audit to confirm auditor fixes (opportunistic).
+> 4. Then back to the regular queue (item creation material screen etc.).
+>
+> 🗂️ (superseded by the entry above — instrument built, results in) **ROUTE AUDITOR
+> (2026-07-10, build 0/0) — the definitive instrument.
+> F7 on the world map (F12 debug ON), no walking needed:**
+> - Replays the EXACT auto-walk planning pipeline for EVERY nav-list location from the
+>   current position (ring point → safe exit → exit/main legs via the real FindPath) and
+>   logs per leg whether it used the comfort tier or the 0.50m FLOOR tier (new
+>   WorldmapPathfinder.LastPathUsedFloorTier).
+> - PHYSICS-VALIDATES each planned route: sweeps the player's body capsule (r=0.45m,
+>   step allowance 0.45m, live ground-truthed per segment) along every waypoint segment
+>   against the live wall mask + L24 rock bodies; logs every segment the body cannot pass
+>   ("[RouteAudit] ... WEDGE ... hit <collider> L<layer>") plus grid-vs-live height
+>   mismatches >1m per route. Summary line + spoken totals (clean / wedgy / no-route).
+> - Pathfinder tier-1 failures now log start+goal cell clearance ("no route at 0.60m ...
+>   start cell (...) clearance=..., goal cell (...) clearance=...") — this answers the
+>   A-vs-B contradiction next time it fires.
+> TEST SCRIPT G (F12 ON, world map, from the Krosse plains repro spot):
+> [ ] G1. Press F7. Hear "Route audit started..." then (up to ~1 min freeze) "Route audit
+>        complete. N routes clean, M with wedge points...". Send Latest.log — the
+>        [RouteAudit] table is the whole diagnosis: which routes are physically walkable,
+>        which legs run at FLOOR tier, where every wedge segment sits, and endpoint
+>        clearances for every comfort-pass failure.
+> [ ] G2. OPTIONAL but valuable: after a battle on the road to Salva (the resume-repro),
+>        press F7 AGAIN from wherever the battle ended — captures the planning state that
+>        produced today's mid-walk floor route.
+> [ ] F3 (unchanged, after the audit verdict): D2 (Arlia), D3 (list honesty), D4 (bunny +
+>        chest), D5 (stop rule).
+>
+> 🗂️ (superseded — resolution above) **D1 FAILED (2026-07-10, log 10:49–10:51) — root
+> cause was NOT missing rocks (that hypothesis tested and refuted same day); kept for
+> the investigation record. Fix + census diagnostic deployed (build 0/0).**
+> - SYMPTOM: Krosse plains → Salva on foot wedged 5× in the rock belt at
+>   (-171..-183, -236..-255), then "Cannot reach Salva". Reachability verdicts and initial
+>   608-wp route were fine; battle interrupt + resume fine; failure was pure movement wedging.
+> - OFFLINE WEDGE ANALYSIS (scratchpad wedgeprobe, reads the F9 WMGI grid + today's log):
+>   grid steps ahead of EVERY wedge point are gentle (max +0.26m/cell), but the game's live
+>   CalcHeight 3m ahead is 1.3–2.1m HIGHER than the grid at all 5 wedges. Player position Y
+>   always matches the grid; the rock in front of him does NOT exist in the grid. So NOT a
+>   climb-cap problem (the earlier hypothesis) — the bake is missing rocks here.
+> - ROOT CAUSE (design gap confirmed in code + game data): the bake instantiates
+>   unit.layoutItem, but the game's culler instantiates PoolInfo.poolObject (linked to units
+>   by NAME, not reference — CullingUnit has only unitBounds/layoutItem/position/rotation/
+>   scale/layer). The bake's collider check ran on layoutItem ONLY: 45+ pools were skipped as
+>   "no colliders — visual-only" (bake log 26-7-7_20-16-7, e.g. whole ma_1521_*_LOD and
+>   ma_6411_* families). Any such pool whose poolObject DOES carry the collision baked as
+>   missing rocks map-wide.
+> - CONSEQUENCE FOR C2: the "Krosse↔Arlia↔Lasgus one foot region / gentle ridge east of
+>   Salva" audit finding is now SUSPECT (could be missing-rock fiction). Re-audit after the
+>   E2 rebake; do not interpret D2 until then.
+> - BUILD (2026-07-10, 0/0, deployed):
+>   1. F10 now also runs WorldmapGridDiagnostics.LogHeightTruthCensus ([WMCensus] lines):
+>      16-direction ring at 2/4/6m comparing live CalcHeight vs grid height (logs any
+>      mismatch >0.5m) + the nearest 25 L24 colliders within 20m with tag/topY/ancestor
+>      chains — names the prefab that owns any missing rock.
+>   2. WorldmapChunkLoader: new ResolveBakeSource — when a layoutItem has no colliders, fall
+>      back to the same-named pool prefab (poolByName built from cullingData.poolInfoList)
+>      and bake with THAT if it has colliders; logs "baking with the pool prefab (was
+>      missing from earlier bakes)" once per rescued pool; ready-line now logs poolPrefabs=N;
+>      genuinely collider-free pools still skipped (logged with "layoutItem or pool prefab").
+> TEST SCRIPT E (F12 ON, world map):
+> [ ] E1. CENSUS — stand in/near the wedge rocks between Krosse and Salva's north entrance
+>        (last known player pos (-183.3,-255.2) is perfect) and press F10. Log gets
+>        [WMCensus]: expect MISMATCH lines with diff around +1 to +2 and rock prefab names
+>        in the census. This confirms the diagnosis with live data BEFORE rebaking.
+> [ ] E2. REBAKE — press F9 (same chunk-loading bake as C1, ~2 min, screen freezes). The
+>        log MUST show "baking with the pool prefab" lines — that's the fix engaging. If
+>        E1 showed mismatches but E2 shows NO such lines: STOP, send Latest.log (hypothesis
+>        wrong — different cause).
+> [ ] E3. D1 RETRY — after the bake completes, auto-walk Krosse plains → Salva on foot.
+>        Must arrive at the north entrance.
+> [ ] E4. If E3 passes: tell Claude FIRST (offline re-audit of the new grid, incl. the
+>        Arlia-ridge question), then continue D2–D5 from the script below.
+>
+> ⏳ **PENDING USER TEST (2026-07-07c): CHUNK-LOADING BAKE — deployed, build 0/0.
+> F9 now streams the map itself while baking (user approved the design).** New
+> WorldmapChunkLoader.cs + WorldmapGridGenerator.cs restructured: the per-cell probe
+> body is unchanged but extracted into a local ProbeCell(ax,az); the bake iterates
+> 64m TILES — per tile: instantiate every CullingData unit overlapping the tile
+> (bounds+2m margin), Physics.SyncTransforms, probe the tile's cells, DestroyImmediate
+> the clones (try/finally at both tile and bake level — no clone leaks even on
+> exception). Chunk clones are side-effect-free: instantiated under an INACTIVE
+> staging root (Awake deferred), ALL MonoBehaviours (CullingSettings/DistanceLOD/...)
+> destroyed while asleep, then reparented to an active root with every child
+> activated (disabled LOD children carry real colliders; double LOD surfaces are
+> near-coincident — fine at 0.5m cells). Collider-free visual pools are skipped
+> (checked once per prefab, logged). Unit root gets unit.layer; collider children
+> keep prefab layers (the real ones). ABORT rule (honesty): culling data unreadable →
+> spoken abort, same as the mask-read rule — never bake far-field fiction. Start
+> speech now says chunk loading + several minutes + game freeze. Progress logs every
+> 200 tiles incl. chunk-load count + elapsed; final "[GridGen] Chunk stats:" line
+> (unitsIndexed/instantiations/skippedNoColliders/activationFixes).
+> KNOWN LIMITATION (accepted): ClearEntranceTriggers runs after chunk disposal — its
+> CalcHeight probes see resident-only terrain; entrances sit on resident base-road
+> geometry (legacy grid always got them right), revisit only if the audit flags one.
+> TEST SCRIPT (F12 ON, world map, anywhere):
+> [ ] C1. Press F9. Expect the NEW start speech ("...loading distant terrain chunks...
+>        several minutes... game will freeze"). Wait it out (est. 3–15 min, screen
+>        frozen is NORMAL). Expect the "Grid saved..." speech with per-mode counts.
+>        Log must show "[GridGen] Chunk loader ready: ~32633/32633 units indexed" +
+>        tile progress lines + Chunk stats line. If it aborts with a spoken error,
+>        STOP and send the log.
+> ✅ C1 PASSED (2026-07-07, log 20:17–20:18): bake ran in ~119s total (17546 chunk
+>        loads over 2340 tiles, 32633/32633 units indexed, 4253 activation fixes, no
+>        instantiate failures). Saved WMGI 118MB. ~18 pools logged collider-free
+>        (visual-only) and were skipped — expected.
+> 🟡 C2 AUDIT RESULT (offline, scratchpad gridaudit): **HEIGHTS ARE HONEST — but the
+>        foot region result overturns an assumption, needs ONE in-game experiment.**
+>        - Truth anchors PASS: belt samples A/C/D + B6 spot match legacy exactly where
+>          legacy was locally correct (23.2/32.3/54.3/51m); failed chest (-370,-179)
+>          now has ground 10.3m footBlocked but BUNNY-PASSABLE (was noGround);
+>          global diff direction exactly as predicted for honesty (1.02M cells HIGHER
+>          vs 0.12M lower — legacy pierced unloaded rocks; +350k real ground cells).
+>        - Counts sane: footBlocked=412k (incl 112k sealed), bunnyBlocked=160k,
+>          bunnyWalkable > footWalkable. Salva buried ring point blocked+sealed same
+>          as legacy (ring picker tiers handle it).
+>        - SURPRISE: Krosse↔Arlia↔Lasgus remain ONE foot region even at a 50cm/cell
+>          climb cap (sweep 500→50cm never separates them; legacy only separated them
+>          via its FICTIONAL obstacle belts). BFS path trace shows a specific GENTLE
+>          ridge route east of Salva: (-42,-400) y5 → x≈-36..-45 climbing to y≈39 →
+>          (-93,-82) Krosse plains, ~322m, max step ≤50cm — real geometry, no wall
+>          colliders there (walls were fully resident during bake, proven by trace).
+>          EITHER the ridge is genuinely walkable in-game (old "Arlia unreachable" was
+>          an artifact of legacy fiction!) OR the game blocks steep slopes without
+>          walls (then per-mode climb caps are the fix). Only a real walk decides.
+> TEST SCRIPT NEXT SESSION (F12 ON; the new grid loads AUTOMATICALLY — F9 already
+> saved it to UserData; first world-map path builds foot regions ~1-2s, first mounted
+> query builds bunny regions):
+> [ ] D1. FOOT REGRESSION — auto-walk Krosse plains → Salva. Must still route and
+>        arrive (north entrance).
+> [ ] D2. THE ARLIA EXPERIMENT (decides the climb-rule question) — on FOOT, from
+>        Krosse plains, auto-walk to Arlia. The pathfinder WILL now offer a ~322m+
+>        route over the hills east of Salva. Outcomes: (a) you physically ARRIVE in
+>        Arlia → geography assumption was wrong, grid+game agree, no fix needed;
+>        (b) auto-walk wedges/gives up on a slope around x≈-40 (east of Salva) →
+>        the game DOES block slopes for foot → send log, Claude adds per-mode climb
+>        caps (data: the wedge Y/position tells the real foot slope limit).
+>        Either outcome is a WIN — it's the deciding measurement.
+> [ ] D3. LIST HONESTY — nav list on foot: Arlia/Mountain Palace will likely show
+>        PLAIN names now (annotations gone) — expected pending D2's verdict; ocean
+>        towns must still read "unreachable on foot".
+> [ ] D4. BUNNY — mount, reopen list (one-time region build pause OK), ocean towns
+>        keep "unreachable by bunny"; a mounted walk to a foot-blocked spot (the
+>        (-370,-179) chest!) should route and arrive.
+> [ ] D5. Anything reading "unreachable" that you can genuinely reach = STOP, send
+>        log ([WMReach] lines are the diagnosis).
+>
+> ✅ **STREAMING CONTROLLER FOUND (2026-07-07, F6 trace log 19:51–19:53, user rode
+> Krosse→south coast): it is the game's `CullingManager` (SingletonMonoBehaviour,
+> Il2CppGame) — a pooled prefab-instancing culler, NOT scene loading.** Trace facts:
+> 41000 baseline watched colliders; L15/L17/L21/L22/L23 counts CONSTANT the whole ride
+> (walls do NOT stream — consistent with B7: the far-field wall flips came from wrong
+> HEIGHTS, not missing walls); ONLY L24 Height detail churns (1440→1930, IN=707 OUT=219,
+> ACT/DEACT=0 → colliders are created/destroyed, i.e. pool instantiate/repool). Streamed
+> parents are `ma_XXXX_XXXa(Clone)` prefab clones in scene 'DontDestroyOnLoad' under
+> hierarchy `System(SystemManager) → CullingManager(CullingManager) → New Game Object →
+> <clone>(CullingSettings)`; some via `DistanceLOD`. IN distances 4–1187m → culling is
+> frustum+distance (FrustumTestJob with frustumPlaneArray/boundsArray/cameraFarClip +
+> static HeightThreshold/DistanceThresholdSqr; landingTestJob exists for psynard landing;
+> SetLandingState(bool)). Decompiled API (interop stubs, no bodies): CullingManager fields
+> `cullingData` (CullingData ScriptableObject: `unitList` = EVERY unit's bounds/position/
+> rotation/scale/layer + `poolInfoList` = poolObject prefab, cullingDistanceType, pool
+> count), `cullingObjPoolDict`, `drawUnitList`, distances arrays; static
+> GetCullingDistance(CullingDistanceType{Near,Middle,Far,Farthest}).
+> **BAKE FIX DIRECTION (to discuss with user before building): don't fight the culler —
+> at F9 time iterate `cullingData.unitList` ourselves: for each unit, briefly instantiate
+> its collision prefab at position/rotation/scale (or move one pooled clone), probe the
+> grid cells inside its bounds, then remove it. Full-map honest heights, bounded memory,
+> no dependency on camera/frustum. Pool-size limits make "inflate culling distances"
+> unreliable (pools sized for the working set).**
+>
+> ✅ **CULLING DATA DUMP DONE (2026-07-07b, log 20:03) — BAKE-FIX DESIGN VALIDATED.**
+> Facts: culling distances Near=100m / Middle=330m / Far=535m / Farthest=775m — the
+> Near tier IS the ~100–150m bake-fidelity radius from B7 (ground detail pools like
+> ma_6411_* are Near-tier); Far/Farthest explain trace INs at 700–1100m. 129 pools
+> (prefab name + tier + poolSize 1–32 — pool caps confirm "inflate distances" is a
+> dead end). unitList = 32,633 units covering X=[-1092,1125] Z=[-689,826] (whole
+> populated Expel map), layoutItem null for 0 units, and layoutItem prefab names match
+> pool names 1:1 (e.g. 'ma_6706_452a', 'ma_1403_011c_LOD') → unit→prefab mapping is
+> direct via unit.layoutItem. Unit.layer is mostly L0 (28041) + L24 (4592) — the root
+> layer is NOT the collider layer; collider children (Mesh_Col/Col_Height) carry their
+> own prefab layers, so the bake must NOT filter units by unit.layer.
+> NEXT: present the unit-iterating bake rewrite plan to the user (discuss-first rule)
+> — per unit: Instantiate(layoutItem) at position/rotation/scale, Physics.SyncTransforms,
+> re-probe grid cells inside unit bounds (+margin), destroy; then normal resident-terrain
+> pass covers everything else. LOD prefabs: ensure highest-detail child (Mesh_L0) active.
+> Expect a longer F9 (maybe 5–15 min) — one-time cost, honest map-wide.
+>
+> 🗂️ (superseded — results above) **STREAMING INVESTIGATION BUILD (F6) — deployed,
+> build 0/0.** New WorldmapStreamingDiagnostics.cs + F6 hotkey in DebugHotkeys.cs (debug
+> only, world map only). Purpose: identify the game's collision streaming mechanism so a
+> future F9 bake can force-load everything (item A of the approved plan). What F6 does:
+> press ONCE = baseline census of ALL colliders on the live wall+height masks (union of
+> LayerMaskWall/Bunny/Psynard/WallHeight read live, fallback to L15/17/21/22/23/24/26 if
+> unreadable — logged), including INACTIVE ones (FindObjectsOfType(includeInactive)),
+> grouped by parent GameObject with XZ extents + ancestor-component dumps of the 8 biggest
+> groups; then a full re-sweep every 2.5s diffs the scene: [WMStream] IN (new collider,
+> with parent/scene/player-distance), OUT (destroyed/unloaded), ACT/DEACT (active or
+> enabled flips) — first event per parent also dumps its ancestor chain (the streaming
+> controller should appear there, or as an additive scene name). Press F6 AGAIN = summary:
+> event counts, stream-IN distance range (= the real streaming radius), parents/scenes
+> involved, and a VERDICT line (created/destroyed vs merely toggled — decides whether
+> force-load must drive the loader or can just activate objects). Trace self-stops when
+> leaving the world map or after 5 sweep errors. Event log capped 40 lines/sweep
+> (overflow counted), ancestor dumps capped 30 parents, census line only when the
+> collider count changes.
+> TEST SCRIPT (F12 debug ON, on the world map):
+> [ ] S1. Press F6 → hear "Streaming trace started. Ride around, then press F6 again to
+>        stop." Log gets [WMStream] TRACE START + baseline groups + ancestor chains.
+> [ ] S2. Ride the bunny a LONG stretch (300m+, e.g. Krosse plains → past Salva, or along
+>        the coast). Every ~2.5s the trace diffs; expect IN/OUT (or ACT/DEACT) events as
+>        rock detail loads/unloads around you.
+> [ ] S3. Press F6 again → "Streaming trace stopped." Log gets event totals, the distance
+>        band, and the VERDICT line.
+> [ ] S4. Send Latest.log. Analysis gate: the VERDICT + ancestor dumps decide the
+>        force-load approach (drive the loader vs activate objects vs progressive bake).
+> NOTE: do NOT press F9 until the streaming fix lands — any bake made now is only
+> trustworthy ~125m around the bake spot (proven 2026-07-06).
+>
+> ✅ **RECOVERY CHECK PASSED (2026-07-07, log 19:40): after the retired-grid deletion, the
+> embedded legacy grid re-extracted on launch** ("[GridGen] Extracted embedded expel grid"
+> + WMGH legacy load + bunny fail-open hint all present); user auto-walked to Krosse Cave
+> and arrived normally (known-good foot behavior confirmed). User intended an F9 regen this
+> session but no bake ran (no [GridGen] bake lines in the log) — deliberately NOT redone,
+> see the NOTE above.
+>
+> 🔴 **B7 AUDIT GATE FAILED (2026-07-06) — ROOT CAUSE FOUND AND PROVEN: the world map
+> STREAMS detail ground collision (rock Mesh_Col/Col_Height, layer 24) only within
+> ~100–150m of the player. A single-spot F9 bake is only correct near where the player
+> stands.** Test results (log 18:49–18:57): B1–B5 PASS on the legacy grid (foot annotations
+> correct, Krosse→Salva walk OK, Arlia honest refusal in 0ms, chests/enemies kept, bunny
+> fail-open with regenerate hint). B6 bake ran clean (live masks foot=0x04E28000
+> bunny=0x00620000, ~100s, saved WMGI 117MB). B9 partially exercised: bunny regions built
+> lazily (517ms), Arlia correctly lost its suffix mounted, ocean towns kept "unreachable by
+> bunny", mounted walks arrived. BUT offline audit vs the legacy grid proved the new grid
+> is FICTION beyond ~125m of the bake spot (player stood near the first chest at
+> (-266,-105) during F9):
+> - Height agreement ~99% within 125m of the bake spot; 10–30% of cells diverge beyond,
+>   with the new height LOWER in ~100% of divergent cells (CalcHeight pierced unloaded
+>   rock colliders and hit base terrain: rock belt west of Salva real standing Y≈15–17,
+>   baked 4.8–5.6). Massive ground-status flips both directions vs legacy (the LEGACY grid
+>   has the same disease far from ITS OWN bake spot — it was only ever locally correct).
+> - Because the obstacle probe runs at groundY+0.5, pierced heights put it BELOW the real
+>   L22/L23 walls' Y-span → 7082 obstacle→walkable flips (0 reverse) in the Salva box alone
+>   → foot regions FALSELY MERGED: Krosse plains ↔ Arlia valley ↔ Lasgus are ONE region in
+>   the new grid (two fictional smooth descents east and west of Salva). "Arlia reachable
+>   on foot" / "Mountain Palace reachable" in the 18:54 list were honest reads of a wrong
+>   grid. B8's expectation (Mountain Palace unreachable) can NOT be validated on this grid.
+> - USER-REPORTED BUG EXPLAINED (foot walk to Unopened chest at (-370,-179) kept failing):
+>   A* routed a fictional low corridor (grid Y≈5) while the player physically walked the
+>   rock tops 12m above; real Col_Obstacle walls up there wedged him (3 stuck-recalcs,
+>   each recalc re-planned the same fiction). The chest cell itself baked noGround. The
+>   bunny succeeded because it physically climbs everything regardless of grid fiction.
+> - USER-REPORTED BUG 2 (bunny chest arrival "not close enough"): both mounted arrivals
+>   stopped at distXZ≈1.25m; the game's "Open Treasure Chest" prompt is side/facing-
+>   sensitive — first approach (NE side) prompt didn't persist, second (NW side) worked
+>   and the chest opened. Candidate fix (NOT implemented): creep-closer-until-prompt for
+>   object targets, like locations gate arrival on the enter prompt. Discuss first.
+> DECISIONS TAKEN: new grid RETIRED (do NOT re-embed, do NOT trust annotations from it,
+> Phase E stays blocked). Offline evidence tooling in scratchpad (gridprobe) built on
+> permanent tools\GridAnalysis.cs. Game stores map collision as ScriptableMapCollisionData
+> → MapCollisionDataGroup (CollisionPointerData/CollisionTransformData); the consumer is
+> native/scene-side (not in managed stubs) — finding the streaming controller needs
+> in-game scene inspection.
+> ✅ DONE (2026-07-06, user approved): retired grid DELETED from UserData — the embedded
+> legacy grid re-extracts on next game launch (watch for "[GridGen] Extracted embedded
+> expel grid" + WMGH legacy load line in the log; foot behavior back to known-good,
+> bunny fail-open, no annotations while mounted).
+> USER OBSERVATION CONFIRMED BY MECHANISM (2026-07-06): past navigation trouble around
+> Lacuer and Linga (vs. fine behavior around Krosse/Arlia) matches the streaming bug —
+> no bake was ever done standing on the Lacuer continent, so its grid data (old AND new)
+> is far-field fiction; the offline diff map shows heavy old-vs-new disagreement across
+> that whole landmass. AFTER the streaming fix lands: rebake standing on the Lacuer
+> continent and RE-TEST navigation around Lacuer City, Linga, Hilton — remaining issues
+> there are then real, separate bugs.
+> NEXT WORK ITEM (user approved): (A) STREAMING INVESTIGATION — in-game diagnostic to
+> find the collision streaming controller: dump which GameObjects own the rock
+> Mesh_Col/Col_Height (layer 24) colliders near a distant coordinate, log what
+> enables/disables them as the player moves (component names up the hierarchy, active
+> state transitions), then try force-loading during the bake. Fallback if forcing is
+> impossible: (B) progressive bake — F9 bakes/merges only the trustworthy ~100m patch
+> around the player with a per-cell confidence flag; grid fills in as the user travels.
+>
+> ⏳ (superseded by the 2026-07-06 entry above) **BUILD 2 DEPLOYED (2026-07-05 session 4,
+> build 0/0): Phases B+C+D implemented.** Session 4 ended with NO tests run yet.
+> The bake+audit gate (B6/B7) must pass BEFORE trusting any bunny annotations.
+> What changed (all world-map only):
+> - **Grid format v2 "WMGI"** (new WorldmapGridFormat.cs, save/load/CachedGrid moved out of the
+>   generator): PURE height lane (0 = no ground) + per-cell FLAGS byte (bit0 footBlocked,
+>   bit1 bunnyBlocked, bit2 sealedInterior); header records the baked masks/floors. The current
+>   embedded grid is legacy WMGH: it loads foot-IDENTICAL to before, bunny data "unavailable" →
+>   every bunny question fails open (no annotations) + one log hint to regenerate.
+> - **Generator** (F9): reads GameRenderManager.LayerMaskWall/LayerMaskBunnyWall LIVE at bake
+>   (aborts with spoken error if unreadable — never falls back to hardcoded bits); probes each
+>   cell per mode (foot = full 6-layer mask incl. the 4 layers the old grid missed; bunny =
+>   L17|L21|L22, no CharaWall, no sub-cell tables); flood-fill seal runs PER MODE and the
+>   d<4→8 diagonal bug is FIXED; entrance punch clears both mode bits (+ repairs roof-height
+>   cells to road level). Bake now ~2 min (two probe passes), speech says per-mode counts.
+> - **Pathfinder**: FindPath(start, end, MODE, blocked); per-mode connected regions (foot eager
+>   at load, bunny LAZY on first mounted query, one-time ~1-2s + 75MB); region fast-reject per
+>   mode (skipped when that mode's map is missing — fail open); 0.60m comfort tier + clearance
+>   penalty/offsets are FOOT-ONLY (bunny ignores CharaWall gaps); runtime stamps/start-clears
+>   journal the FLAGS lane (height lane read-only; legacy grid keeps its old height-lane clear).
+>   Bunny on legacy grid searches with the foot predicate (safe, logged). Psynard never searches.
+> - **Nav list honesty (annotate-first)**: BuildWorldmapLocations resolves per-location
+>   reachability for the CURRENT mode (new NavigationHandler.Worldmap.Reachability.cs: one
+>   mapjump scan per list-open; entrance candidates from the SAME sampler auto-walk uses, so
+>   list and walk can never disagree). PROVEN-disconnected items read "{name}, unreachable on
+>   foot" / "by bunny" (Loc keys nav_wm_unreachable_foot/bunny). NOTHING is hidden; walking an
+>   annotated item still gives the honest refusal. EVERY verdict logged at Msg level:
+>   "[WMReach] <name>: <verdict> (<mode>, player region N) — <reason>". Unknown ALWAYS =
+>   reachable (all failure paths fail open).
+> - **Chest/enemy check**: the 10-sample CalcHeight ocean line-check is DELETED (it false-hid
+>   chests behind lake fingers); replaced by per-mode region compare (region 0 either side →
+>   keep; psynard → keep). Keep-all safety net in SortAndFilterUnreachable unchanged.
+> - **Mode plumbing**: travel mode re-queried at every path computation (walk start, battle
+>   resume, mid-walk recalc) — dismounting mid-walk re-plans on the foot lane automatically.
+> - Offline audit tool GridAnalysis.cs updated for WMGI (both lanes, per-mode regions, WMGH
+>   branch kept) — now PERMANENT at E:\StarOcean\tools\GridAnalysis.cs (tools\ is excluded
+>   from the mod build in the csproj; run it from a scratch script, no game needed).
+> - Files new: WorldmapGridFormat.cs, WorldmapPathfinder.Regions.cs,
+>   NavigationHandler.Worldmap.Reachability.cs. Modified: WorldmapGridGenerator.cs (rewritten),
+>   WorldmapPathfinder.cs (rewritten, now partial), WorldmapGridDiagnostics.cs,
+>   WorldmapDiagnostics.cs (type refs), NavigationHandler.Worldmap.Pathfinding.cs,
+>   NavigationHandler.Worldmap.cs, NavigationHandler.AutoWalk.cs,
+>   NavigationHandler.Build.Worldmap.cs, Loc.cs.
+>
+> SELF-REVIEW PASS (same session, 8-angle multi-agent review of the diff, fixes applied +
+> rebuilt 0/0): (1) all reachability verdicts (list annotation, chest/enemy filter, ring-point
+> tier 1) now compare against the player's START-REGION SET (new
+> WorldmapPathfinder.GetStartRegionIds = snapped cell + 3m start-clear disc + rim, exactly
+> FindPath's own StartTouchesRegion semantics) instead of the single player cell — the
+> single-cell compare could falsely report everything unreachable while the player stands in
+> a small rocky pocket the A* bridges out of; (2) stuck-position stamps now WIN over the
+> start-clearing (old code's implicit precedence, restored via a stamped-cell exemption set)
+> — without it a recalc near the wedge spot could re-route into it forever; (3) grid load now
+> bulk-reads both lanes (was ~75M per-element stream reads = seconds of freeze at first
+> world-map path); (4) F11 grid diagnostics made flags-aware (v2 blocked cells read as
+> obstacles, not walkable); (5) failed bunny region build latches instead of retrying its
+> 75MB allocation every query; (6) reachability ring sampling stops at first proven-connected
+> candidate (saves physics calls per list-open). Known accepted deviations (reported, not
+> changed): dev-only F9/F10 speech strings remain raw (pre-existing file style, CLAUDE.md
+> Loc rule violation to clean up later); WorldmapPathfinder.cs 840 lines (over the ~500 aim);
+> location→entrance attribution uses nearest-mapjump-within-100m (same rule as the walk
+> picker, so list and walk stay consistent even if a location has no own trigger).
+>
+> TEST SCRIPT (F12 debug ON; steps B1–B5 work on the CURRENT embedded legacy grid, before F9):
+> [ ] B1. FOOT ANNOTATIONS (legacy grid) — on the world map near Krosse, open the nav list,
+>        category Locations. Same-region towns (Krosse City, Salva...) read PLAIN names; Arlia
+>        (valley region) should read "Arlia, unreachable on foot". Log has one [WMReach] line
+>        per location with a reason. Bunny NOT summoned yet.
+> [ ] B2. FOOT REGRESSION — auto-walk Krosse → Salva still completes (connected ring point at
+>        the north entrance, as before).
+> [ ] B3. HONEST REFUSAL UNCHANGED — walk an annotated town (Arlia): still the "No walkable
+>        route..." message, near-instant, no walking.
+> [ ] B4. CHESTS/ENEMIES REGRESSION — world-map chests + enemies: nothing that used to be
+>        listed vanishes; walks still arrive. (If something vanishes: send log — the [WMReach]
+>        chest line names both region ids.)
+> [ ] B5. BUNNY ON LEGACY GRID (before F9) — mount the bunny, reopen the list: NO bunny
+>        annotations (fail open), log has the bunny-data-unavailable / regenerate hint.
+>        Auto-walk while mounted still works (uses foot routes — safe).
+> [ ] B6. F9 REGEN — on the world map press F9. Expect start speech mentioning foot AND bunny,
+>        ~2 minutes, then "Grid saved..." speech with per-mode obstacle counts. Log must show
+>        "[GridGen] Bake masks (read live): foot=0x04E28000 ... bunny=0x00620000 ..." — if it
+>        aborts with a spoken mask error, STOP and send the log.
+> [ ] B7. OFFLINE AUDIT GATE — after F9, tell me; I diff the new grid offline with GridAnalysis
+>        BEFORE we trust it in game: known Krosse/Salva/Arlia probe points keep their foot
+>        regions, per-mode counts sane, Mountain Palace/Lasgus split off the mainland foot
+>        region. Any known-walkable road flipping foot-blocked = stop and investigate.
+> [ ] B8. FOOT + NEW GRID — reopen list on foot: Mountain Palace should NOW read "unreachable
+>        on foot" (the 4 missing wall layers are baked). Krosse→Salva walk still completes.
+> [ ] B9. BUNNY + NEW GRID — mount, reopen list: first open builds bunny regions (one-time
+>        ~1-2s pause is OK, logged). Towns beyond CharaWall region borders (Arlia!) should
+>        LOSE the suffix (bunny crosses region walls); anything beyond OCEAN keeps
+>        "unreachable by bunny". Auto-walk mounted to a previously foot-unreachable town →
+>        should route and arrive. Dismount mid-walk → next recalc re-plans on foot or refuses
+>        honestly.
+> [ ] B10. ANY false "unreachable" in ANY mode (a town you can genuinely walk/ride to reads
+>        the suffix) = STOP, send Latest.log — the [WMReach] reason line is the diagnosis.
+> AFTER VALIDATION: I gzip the new grid into grids\worldmap_expel.grid.gz + rebuild so the
+> shipped DLL carries the v2 grid. Phase E (hide toggle) comes ONLY after zero
+> false-unreachables confirmed.
+>
+> ✅ **PHASE A COMPLETE — ANALYSIS GATE PASSED (2026-07-05 session 3, log 14:07–14:11).**
+> All Build-2 inputs confirmed from the user's ride log:
+> - **Foot mask = 0x04E28000** = L15 ObjectWall + L17 PsynardWall + L21 GimmickWall + L22 Wall
+>   + L23 CharacterWall + L26 CameraDitherWall. Our grid bakes ONLY L22|L23 → **4 layers
+>   missing (L15/L17/L21/L26)** — this is the confirmed suspect for the Lasgus/Mountain-Palace
+>   false-connection. Build 2 bakes the game's masks verbatim.
+> - **Bunny mask = 0x00620000** = L17 + L21 + L22 ONLY. So the bunny IGNORES L23 CharacterWall
+>   (region boundary walls — matches it crossing Salva/Arlia-type boundaries in the trace) and
+>   L15 ObjectWall, but IS still blocked by L22 Wall (plain rock walls). **Psynard mask =
+>   L17 PsynardWall only.**
+> - **Virtual GetLayerMaskWall() confirmed**: FieldPlayer returns foot mask, FieldBunny returns
+>   bunny mask. **Detection validated**: IsFieldFlag(Bunny) and TryCast<FieldBunny> agreed on
+>   every sample; "mode Foot→Bunny" transition logged correctly at mount.
+> - **Bunny body = IDENTICAL to foot** (capsule radius 0.5000m, height 1.70m,
+>   MoveCollisionRadius 0.50m) → same 0.50m clearance floor, NO re-measure/re-bake cycle needed
+>   (user's instinct was right).
+> - **Ride trace**: bunny repeatedly crossed foot-BLOCKED cells and climbed slopes up to
+>   ~15.8m ΔY over ~9.3m horizontal (~0.85m per 0.5m cell — under the existing MaxClimbCm=500,
+>   so the SAME climb rule works for both modes; colliders, not slope, are the differentiator).
+>   Bunny NEVER entered an ocean (no-ground) cell → needs ground confirmed.
+> BUILD 2 RULES LOCKED: foot lane blocked by game foot mask {15,17,21,22,23,26}; bunny lane
+> blocked by game bunny mask {17,21,22}; both 0.50m floor; same climb rule; ocean = no ground
+> blocks both; psynard = everything reachable (no grid).
+>
+> 🐛 **BUG NOTED (2026-07-05, user report — fix in a FUTURE session, not now): Welsh specialty
+> SP cost reads "1 SP" wrongly.** Camp → Enhance → Skill on WELSH: most SPECIALTY rows announce
+> "1 SP to increase" (e.g. Scouting lv7 → 1 SP), but Triangle (component-skill view) shows the
+> real component costs are far higher (Danger Radar). Code path: CampMenuHandler.Formation.cs
+> SkillInfoPresenter_Set_Postfix, specialty branch (~:233-258) — cost = SUM of
+> levelUpList[i].consumeSP over UICommon.CalcNeedSpecialSkillForLevelUp(charaParam,
+> specialSkillID) (the "fresh compute" added for the stale-itemDataList fix). Hypotheses, in
+> order: (1) IL2CPP field read on the returned list entries is wrong for some entries (constant
+> "1" smells like reading a count/level/bool, not SP); (2) semantics: the game function may
+> return ONLY the lagging component(s) needed for +1 specialty level — if one cheap component
+> lags, "1 SP" could even be CORRECT and the real bug is unclear wording (needs verification
+> against the game's own displayed number); (3) charaParam from tabBase.currentPlayerID stale
+> for Welsh (recently recruited, unique skill set). DEBUG PLAN when picked up: F12-log each
+> levelUpList entry (skillID + name + consumeSP) plus the stale itemData.consumeSP for a Welsh
+> specialty, compare with the Triangle per-component costs the user hears. See memory
+> welsh-specialty-sp-bug.
+>
+> ✅ (tested, superseded by the analysis above) **PHASE A INVESTIGATION BUILD (build 0/0,
+> deployed — zero behavior change, all debug-gated).** New WorldmapTravelMode.cs
+> (WorldmapTravel.CurrentMode()), WorldmapGridDiagnostics.cs (LogTravelMasks + moved
+> LogPlayerCollider/MeasureGapWidth out of the generator, which shrank 1126→893 lines),
+> WorldmapPathfinder.TryGetCellRaw (diagnostic cell reader), DebugHotkeys F10 now also dumps
+> travel masks + per-frame WorldmapGridDiagnostics.Tick (mode-transition log + bunny ride
+> trace vs the loaded FOOT grid, 0.5s throttle, [WMInvest] prefix).
+> TEST SCRIPT (F12 debug ON, world map):
+> [ ] A1. On FOOT press F10 → "Collision diagnostics logged." Log gets the [WMInvest] mask
+>        dump (LayerMaskWall/BunnyWall/PsynardWall decoded per layer) + foot capsule.
+> [ ] A2. Summon + MOUNT the bunny → log should show "[WMInvest] mode Foot→Bunny". Press F10
+>        again (captures the BUNNY capsule + the virtual GetLayerMaskWall for the bunny).
+> [ ] A3. RIDE across things that block you on foot: rocky obstacle belts, a region boundary
+>        (e.g. toward Arlia past Salva), up a mountain slope (Lasgus), along a shoreline/
+>        shallows. The trace logs "[WMInvest] Bunny entered foot-BLOCKED / OCEAN / walkable
+>        cell at (x,z)" transitions + climb lines — this is the DATA that decides the bunny
+>        grid rules.
+> [ ] A4. DISMOUNT → log "mode Bunny→Foot". Press F10 once more on foot.
+> [ ] A5. Send Latest.log. (Allocating skill points first is fine — no mod impact.)
+> ANALYSIS GATE for Build 2: exact per-mode mask bits; does footMask == L22|L23 (if NOT, the
+> extra layers likely explain the Lasgus/Mountain-Palace false-connection); bunny capsule
+> radius; what the bunny actually crossed (walls? slopes? shallows?) → bunny region rule.
 
-> ⏳ **PENDING USER TEST (2026-07-05 session 2b): "Unreachable Salva from Krosse" — FIXED via
-> region-aware entrance picking.** User tested the perf pass: SPEED CONFIRMED (paths 0–436ms,
+> ✅ **CONFIRMED WORKING (2026-07-05 session 3, user tested): "Unreachable Salva from Krosse" —
+> FIXED via region-aware entrance picking.** User walked the Salva route successfully.
+> (P1–P6 perf tests below: re-run opportunistically; speed itself was already confirmed.) User tested the perf pass: SPEED CONFIRMED (paths 0–436ms,
 > rejects 0ms in log), but Salva reported unreachable from Krosse City — a real bug, diagnosed
 > OFFLINE from the actual grid file (scratchpad GridAnalysis.cs, no game needed):
 > - The grid is FINE: Krosse plains, Krosse ring, and Salva's NORTH mapjump entrance

@@ -20,12 +20,6 @@ namespace SO2RAccess
         /// </summary>
         private const float WorldmapStuckMinMove = 1.5f;
 
-        /// <summary>
-        /// Number of CalcHeight samples along the line from player to target
-        /// for ocean barrier detection on the world map.
-        /// </summary>
-        private const int WorldmapCalcHeightSamples = 10;
-
         /// <summary>Max distance to show chests on the world map.</summary>
         private const float WorldmapChestMaxDistance = 200f;
 
@@ -351,8 +345,21 @@ namespace SO2RAccess
                             return;
                         }
 
+                        // Mode re-queried per recalc: dismounting mid-walk
+                        // makes the next recalc re-plan on the foot lane.
+                        // Recalc goal: locations MUST re-plan to the stored
+                        // ring point (_wmPathGoal), never the town-centre
+                        // symbol — the centre sits INSIDE the walls, so a
+                        // centre-aimed re-plan always collapses to a
+                        // wall-hugging floor route (proven by goal-cell
+                        // clearance logs, 2026-07-10).
+                        Vector3 recalcGoal =
+                            _autoWalkCategoryIndex == CAT_LOCATION
+                                ? _wmPathGoal : _autoWalkTarget;
                         var newPath = WorldmapPathfinder.FindPath(
-                            playerPos, _autoWalkTarget, _wmBlockedPositions);
+                            playerPos, recalcGoal,
+                            WorldmapTravel.CurrentMode(),
+                            _wmBlockedPositions);
                         if (newPath != null && newPath.Length > 0)
                         {
                             _wmPathWaypoints = newPath;

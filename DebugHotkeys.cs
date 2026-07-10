@@ -14,9 +14,17 @@ namespace SO2RAccess
     /// <see cref="Main.DebugMode"/> by the caller and do nothing in normal play.
     ///
     /// F5  — scan L22/L23 obstacle collider parents within 50m (world map).
+    /// F6  — toggle the collision STREAMING trace (world map): logs colliders
+    ///       appearing/vanishing/toggling as the player moves, to find the
+    ///       game's collision streaming controller (see
+    ///       <see cref="WorldmapStreamingDiagnostics"/>).
+    /// F7  — world map: ROUTE AUDITOR (plan + capsule-sweep every nav-list
+    ///       route, log every physically impassable segment); field map:
+    ///       NavMesh carving proof-of-concept.
     /// F8  — CharaWall boundary scan (world map).
     /// F9  — generate + cache the world-map walkability grid.
-    /// F10 — log player collider details.
+    /// F10 — log player collider details + travel-mode wall masks (press
+    ///       once on foot and once mounted to capture both bodies/masks).
     /// F11 — diagnostics: world map pathfinding (RunAll) or, on field maps,
     ///       recorded-traversal reachability report.
     /// </summary>
@@ -49,10 +57,44 @@ namespace SO2RAccess
             // Advance the F7 carving proof-of-concept (deferred path comparison).
             TickPoc();
 
-            // F7 — NavMesh carving proof-of-concept (debug only, field map)
+            // Phase-A travel-mode investigation: mode-transition logging +
+            // bunny ride trace (world map only; cheap, debug-gated by caller).
+            WorldmapGridDiagnostics.Tick();
+
+            // Collision streaming trace (only sweeps while F6-armed).
+            WorldmapStreamingDiagnostics.Tick();
+
+            // F6 — collision streaming trace toggle (debug only, world map)
+            if (kb[Key.F6].wasPressedThisFrame)
+            {
+                try
+                {
+                    WorldmapStreamingDiagnostics.Toggle();
+                }
+                catch (Exception ex)
+                {
+                    MelonLogger.Msg($"F6 streaming trace error: {ex.Message}");
+                }
+                return true;
+            }
+
+            // F7 — world map: route auditor (plan + physics-validate every
+            // nav-list route without walking). Field map: NavMesh carving
+            // proof-of-concept (unchanged).
             if (kb[Key.F7].wasPressedThisFrame)
             {
-                StartCarvePoc();
+                try
+                {
+                    var fm = FieldManager.Instance;
+                    if (fm != null && fm.IsWorldmap())
+                        _navigationHandler.RunWorldmapRouteAudit();
+                    else
+                        StartCarvePoc();
+                }
+                catch (Exception ex)
+                {
+                    MelonLogger.Msg($"F7 route audit error: {ex.Message}");
+                }
                 return true;
             }
             // F5 — scan L22/L23 obstacle parents near player (debug only, world map)
@@ -166,12 +208,14 @@ namespace SO2RAccess
                 }
                 return true;
             }
-            // F10 — player collider diagnostics (debug only)
+            // F10 — travel-mode masks + player collider diagnostics (debug only)
             if (kb[Key.F10].wasPressedThisFrame)
             {
                 try
                 {
-                    WorldmapGridGenerator.LogPlayerCollider();
+                    WorldmapGridDiagnostics.LogTravelMasks();
+                    WorldmapGridDiagnostics.LogPlayerCollider();
+                    WorldmapGridDiagnostics.LogHeightTruthCensus();
                 }
                 catch (Exception ex)
                 {

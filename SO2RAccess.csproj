@@ -9,10 +9,14 @@
     <RootNamespace>SO2RAccess</RootNamespace>
   </PropertyGroup>
 
-  <!-- Exclude decompiled and template files from build -->
+  <!-- Exclude decompiled, template, and offline tooling files from build.
+       tools\ holds standalone analysis utilities (e.g. GridAnalysis.cs,
+       which audits baked .grid files offline) that must not ship in the
+       mod DLL. -->
   <ItemGroup>
     <Compile Remove="decompiled\**" />
     <Compile Remove="templates\**" />
+    <Compile Remove="tools\**" />
   </ItemGroup>
 
   <!-- Pre-recorded traversal maps, compiled into the DLL for release. The mod
