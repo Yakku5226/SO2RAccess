@@ -286,18 +286,23 @@ namespace SO2RAccess
                     string assistName = item.assistName ?? "";
 
                     DebugLogger.LogGameValue("CampAssist.slot",
-                        $"btn='{button}' char='{charName}' assist='{assistName}' ({idx + 1}/{total})");
+                        $"btn='{button}' char='{charName}' assist='{assistName}' type='{item.battleSkillType}' cool={item.coolTime} ({idx + 1}/{total})");
 
+                    var sb = new StringBuilder();
                     if (string.IsNullOrEmpty(charName))
                     {
-                        ScreenReader.Say(Loc.Get("camp_assist_slot_empty",
-                            button, idx + 1, total));
+                        sb.Append(Loc.Get("camp_assist_slot_empty", button));
                     }
                     else
                     {
-                        ScreenReader.Say(Loc.Get("camp_assist_slot",
-                            button, charName, assistName, idx + 1, total));
+                        sb.Append(Loc.Get("camp_assist_slot", button, charName));
+                        string summary = BuildAssistSkillSummary(item.assistID, assistName, item.battleSkillType, item.coolTime)
+                            ?? assistName;
+                        if (!string.IsNullOrEmpty(summary))
+                            sb.Append(' ').Append(summary);
                     }
+                    TextUtil.AppendPosition(sb, idx, total);
+                    ScreenReader.Say(sb.ToString());
                 }
                 else // SelectAssistCharacter — picking a character
                 {
@@ -323,18 +328,24 @@ namespace SO2RAccess
                     string settingNow = item.settingNow ?? "";
 
                     DebugLogger.LogGameValue("CampAssist.char",
-                        $"name='{charName}' settingNow='{settingNow}' ({idx + 1}/{total})");
+                        $"name='{charName}' assistID={item.assistID} settingNow='{settingNow}' ({idx + 1}/{total})");
 
-                    if (!string.IsNullOrEmpty(settingNow))
-                    {
-                        ScreenReader.Say(Loc.Get("camp_assist_char_current",
-                            charName, idx + 1, total));
-                    }
-                    else
-                    {
-                        ScreenReader.Say(Loc.Get("camp_assist_char",
-                            charName, idx + 1, total));
-                    }
+                    var sb = new StringBuilder();
+                    sb.Append(!string.IsNullOrEmpty(settingNow)
+                        ? Loc.Get("camp_assist_char_current", charName)
+                        : Loc.Get("camp_assist_char", charName));
+
+                    // Skill name and type come from the on-screen info panel, which the
+                    // game refreshes for the hovered character (UpdateAssistDescription).
+                    var panel = _assistSelector.assistDescriptionPresenter;
+                    string panelName = TextUtil.StripTags(panel?.assistName?.text);
+                    string typeText = TextUtil.StripTags(panel?.battleSkillType?.text);
+                    string summary = BuildAssistSkillSummary(item.assistID, panelName, typeText);
+                    if (summary != null)
+                        sb.Append(' ').Append(summary);
+
+                    TextUtil.AppendPosition(sb, idx, total);
+                    ScreenReader.Say(sb.ToString());
                 }
             }
             catch (Exception ex)
@@ -346,6 +357,106 @@ namespace SO2RAccess
                 _assistCharListBase = null;
                 _assistLastState = -1;
             }
+        }
+
+        /// <summary>
+        /// Builds a spoken summary of the assault skill an assist character performs:
+        /// "[skill name], [type], cooldown [N] seconds." — matching exactly what the
+        /// screen shows (no description; user decision 2026-07-11, and the game data
+        /// has none for assist-only skills anyway).
+        /// The skill ID comes from the character's LIVE CharacterParameter.AssistBattleSkillID
+        /// (the player-assigned assault skill), falling back to the const assist table for
+        /// fixed assist-only characters. displayedSkillName (info panel / list data) is
+        /// preferred; the const message table name is the fallback. Do NOT use
+        /// UICommon.CreateBattleSkillInformationData here — it returns stale cached data
+        /// for invalid IDs and non-party assists (confirmed via 2026-07-11 logs).
+        /// Returns null when nothing readable was found (reason logged).
+        /// </summary>
+        private static string BuildAssistSkillSummary(
+            AssistID assistID, string displayedSkillName, string skillTypeText, int coolTime = -1)
+        {
+            if (assistID == AssistID.INVALID || assistID == AssistID.MAX) return null;
+
+            var pm = ParameterManager.Instance;
+            if (pm == null)
+            {
+                DebugLogger.LogState("CampAssist: ParameterManager null — no skill summary.");
+                return null;
+            }
+
+            ConstAssistParameter assistParam = null;
+            try
+            {
+                assistParam = pm.GetAssistParameter(assistID);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"CampAssist: GetAssistParameter({assistID}) failed: {ex.Message}");
+            }
+            if (assistParam == null)
+            {
+                DebugLogger.LogState($"CampAssist: no assist parameter for {assistID} — no skill summary.");
+                return null;
+            }
+
+            // Resolve the actual assault skill: live character assignment first,
+            // const table fallback (fixed assist-only characters).
+            var playerID = assistParam.PlayerID;
+            var skillID = BattleSkillID.INVALID;
+            try
+            {
+                var charaParam = pm.UserParameter?.GetCharacterParameter(playerID);
+                if (charaParam != null) skillID = charaParam.AssistBattleSkillID;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"CampAssist: GetCharacterParameter({playerID}) failed: {ex.Message}");
+            }
+            if (skillID == BattleSkillID.INVALID) skillID = assistParam.AssistBattleSkillID;
+
+            // The on-screen name is authoritative; const message table fills the gap
+            // if the display was empty (first-hover edge case).
+            string skillName = TextUtil.StripTags(displayedSkillName)?.Trim() ?? "";
+            if (string.IsNullOrEmpty(skillName) && skillID != BattleSkillID.INVALID)
+            {
+                try
+                {
+                    var msg = pm.GetConstBattleSkillMessage(skillID);
+                    skillName = TextUtil.StripTags(msg?.name) ?? "";
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogState($"CampAssist: const message failed for {skillID}: {ex.Message}");
+                }
+            }
+
+            if (coolTime < 0 && skillID != BattleSkillID.INVALID)
+            {
+                try
+                {
+                    coolTime = UICommon.CalcAssistCoolTime(skillID, playerID);
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogState($"CampAssist: CalcAssistCoolTime failed for {assistID}: {ex.Message}");
+                }
+            }
+
+            var parts = new List<string>();
+            if (!string.IsNullOrEmpty(skillName)) parts.Add(skillName);
+            if (!string.IsNullOrEmpty(skillTypeText)) parts.Add(skillTypeText);
+            if (coolTime > 0) parts.Add(Loc.Get("camp_assist_cooldown", coolTime));
+
+            if (parts.Count == 0)
+            {
+                DebugLogger.LogState($"CampAssist: no readable skill data for {assistID}.");
+                return null;
+            }
+
+            DebugLogger.LogGameValue("CampAssist.skill",
+                $"id={assistID} skillID={skillID} name='{skillName}' " +
+                $"type='{skillTypeText}' cool={coolTime}");
+            return string.Join(", ", parts) + ".";
         }
 
         /// <summary>

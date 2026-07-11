@@ -1254,6 +1254,114 @@
 > pickpocket (L1 on an NPC) still opens and reads items/rates. Fix = PickpocketHandler.cs
 > now detects via `selectChoicePresenter.gameObject.activeInHierarchy`. Details below.
 
+### Assault Action skill readout — FINAL (2026-07-11): screen parity, no descriptions
+
+USER DECISION (option 2 of 2): the screen shows NO skill descriptions for anyone (user
+confirmed visually via sighted info) — readout now matches the screen exactly for all
+characters: "[skill name], [type], cooldown [N] seconds." Description resolution code
+REMOVED from BuildAssistSkillSummary (incl. the UICommon fallback — doc comment warns it
+returns stale cache for non-party assists; the name mismatch safety net is gone with it
+since the displayed name is now always preferred, const-message name only as first-hover
+fallback). KNOWN_ISSUES "Assault Actions" section reworded: descriptions aren't shown on
+this screen for anyone; party skills readable in Battle Skills menu; assist-only guests
+have no description text in the game data at all.
+Build 0/0, deployed. ✅ USER CONFIRMED WORKING (2026-07-11) — feature CLOSED.
+
+### Assault Action skill readout — v4 probe record (2026-07-11): no description exists for assist-only skills
+
+v4 probe results (log 15:03) — DEFINITIVE:
+- Celine / M_FIREVOLT: constMsg name=9 desc=37 effect=0 area=14 → full data, reads fine.
+- Laeticia / LAETICIA_ASSIST_01: constMsg name=12 desc=0 effect=0 area=0, and
+  'ASSIST_0019' → '' in ALL THREE TextManager tables (System/Skill/Item).
+CONCLUSION: the game data has NO description text for assist-only characters' skills —
+the name is the only string that exists. Not a mod bug; sighted players also see only
+name/type/cooldown on this screen. Probe code removed (kept areaDescription as a desc
+fallback — real skills like Fire Bolt do populate it); a debug line notes "no description
+in game data" when it happens. KNOWN_ISSUES.md updated (new "Assault Actions" section).
+Final behavior: party members read name/type/cooldown/description (live-tracked when
+reassigned); assist-only characters read name/type/cooldown.
+Remaining: user confirmation of final build, then feature CLOSED.
+
+### Assault Action skill readout v4 (2026-07-11) — description last-resorts (probes done, see above)
+
+v3 RETEST (log 14:57): Laeticia name now resolves CLEAN from the const message table
+('Ultime Camui', no mismatch, no fallback) — but desc=none: the row's description AND
+effectDescription are both empty, and the UICommon fallback returned nothing either.
+The devs left assist-skill descriptions blank in the battle-skill message table (this
+camp screen never displays one). Celine (M_FIREVOLT) keeps working perfectly.
+v4 adds two cheap last-resorts + logging, one test decides:
+(a) ConstBattleSkillMessage.areaDescription (third text field, previously unread) +
+    a constMsg length log for all four fields;
+(b) assistEffectMessageID ('ASSIST_0019') probed against ALL THREE TextManager tables
+    (System was empty before; Skill/Item untested) — each probe logged.
+If both come back empty, the game data simply has no reachable description for
+assist-only skills; readout stays name/type/cooldown (matches what sighted players see
+on this screen) and KNOWN_ISSUES gets a note.
+
+### Assault Action skill readout v3 (2026-07-11) — const-message description (superseded by v4)
+
+v2 RETEST (log 14:40–14:41): Celine PERFECT (skillID=M_ERUPTION fromConst=False, live
+tracking works, desc reads). Laeticia: her const skillID IS valid (LAETICIA_ASSIST_01) but
+CreateBattleSkillInformationData STILL returned the stale cache for it (resolved 'Fire
+Bolt'/'Eruption' vs displayed 'Ultime Camui') — the builder can't handle non-party assists.
+Safety net worked as designed: read "Ultime Camui", dropped the wrong description. So the
+user heard her real skill name but still no description.
+v3: NEW PRIMARY SOURCE `pm.GetConstBattleSkillMessage(skillID)` → ConstBattleSkillMessage
+(.name/.description/.effectDescription — resolved strings, const table, no UI cache; keyed
+directly by BattleSkillID so LAETICIA_ASSIST_01 should hit). UICommon builder demoted to
+fallback for whichever piece is still missing. Displayed-name cross-check unchanged.
+Expected: Laeticia reads "Ultime Camui, HP-focused, cooldown 60 seconds. [description]."
+
+### Assault Action skill readout v2 (2026-07-11) — STALE-CACHE FIX (superseded by v3)
+
+v1 BUG (user + log 14:31–14:32): both characters read "Fire Bolt"; after user reassigned
+Celine to Eruption, ONE read said Eruption then everything snapped back to Fire Bolt.
+Log signature: Laeticia's first-ever lookup returned name='' (and effect-message fallback
+'ASSIST_0019' → '' — that key is native-only, fallback REMOVED); afterwards every lookup
+returned whatever skill info the game built last. Cooldown (60 vs 72) and type stayed
+correct per character throughout. DIAGNOSIS: ConstAssistParameter.AssistBattleSkillID is
+INVALID for these assists; CreateBattleSkillInformationData(INVALID, …) returns stale
+cached data instead of failing.
+v2 FIX: skill ID now read from the character's LIVE
+CharacterParameter.AssistBattleSkillID (pm.UserParameter.GetCharacterParameter(
+assistParam.PlayerID)) — the player-assigned assault skill, so Celine=Eruption reads
+correctly; const table only as fallback (fixed assist-only chars). The info builder is
+never called with an INVALID ID. Safety net: resolved skill name is cross-checked against
+the on-screen name (info panel assistName / equip data assistName); on mismatch the
+displayed name wins and the description is dropped + logged (never read the wrong skill's
+text). Debug line now logs skillID + fromConst.
+
+### Assault Action skill readout v1 (2026-07-11) — BUILT + DEPLOYED, superseded by v2 above
+
+User confirmed the same day: Formation, Party Formation, Assist Formation (both screens),
+and Tactics (both screens) all work — Operations child screens fully closed. Remaining gap
+(user report + log 13:20–13:21): the assault character picker read only "Laeticia, currently
+set. 1 of 2." — no way to know what the assault skill does (Laeticia is assist-only, never
+visible in the battle-skill menus like party members are).
+
+New: `BuildAssistSkillSummary(AssistID, typeText, coolTime)` in `CampMenuHandler.Party.cs`:
+- assistID (from `UICampAssistSettingCharacterListItemData` / `UICampAssistEquipListItemData`)
+  → `ParameterManager.GetAssistParameter(AssistID)` → `ConstAssistParameter` with
+  `AssistBattleSkillID` + `PlayerID` (PascalCase properties confirmed present).
+- Skill name + description via `UICommon.CreateBattleSkillInformationData(skillID, playerID,
+  false)` — same proven path as BattleResultHandler.
+- Description fallback: `assistEffectMessageID` (lowercase field, no PascalCase twin; const
+  data) via `TextManager.GetMessage(id, System)` — debug-logged so the test shows which
+  source is right.
+- Cooldown: `UICommon.CalcAssistCoolTime(skillID, playerID)` (game's own calc); the Equip
+  rows pass their data's `coolTime` instead.
+- Skill TYPE (attack/support): character picker reads the on-screen info panel
+  `assistSelector.assistDescriptionPresenter.battleSkillType.text` (GameText, refreshed by
+  the game's native UpdateAssistDescription on cursor move); Equip rows use data's
+  `battleSkillType` string.
+- Announcement: "Laeticia, currently set. [Skill], [type], cooldown [N] seconds.
+  [Description]. 1 of 2." Slots: "[Button]: [Char]. [same summary]. X of Y."
+  Summary parts joined with string.Join; missing parts skipped with reason logged.
+- Loc: camp_assist_slot/slot_empty/char/char_current lost their embedded ". N of M."
+  (now via TextUtil.AppendPosition); new key camp_assist_cooldown.
+Build: 0 warnings / 0 errors, DLL deployed. Test checklist under "Pending Tests
+(Assault Action Skill Readout)".
+
 ### World-map auto-walk wedged in body-width pinch (Lacuer City) — FIX, PENDING USER TEST (2026-06-21)
 
 - **Symptom:** Auto-walk to Lacuer City failed identically every attempt — player got
@@ -3084,14 +3192,14 @@ Without this list, mod keys WILL conflict with game controls. -->
   - Toggle mode (Square button): announces "Toggle mode", skill active/inactive status on navigate and confirm
   - Double punctuation fix: AppendSentence helper strips trailing periods from game text
 
-- **Camp formation sub-screen announcements** (`CampMenuHandler.cs`) — NOT TESTED (needs more party members)
+- **Camp formation sub-screen announcements** (`CampMenuHandler.cs`) — ✓ CONFIRMED WORKING (user, 2026-07-11)
 
-- **Camp operations child screens** (`CampMenuHandler.cs`)
+- **Camp operations child screens** (`CampMenuHandler.cs`) — ALL CONFIRMED WORKING (2026-07-11)
   - Operations root menu reads its items (Formation, Party Formation, Assist Formation, Tactics) ✓
   - Formation: announces formation name, effect, sphere count, bonus details ✓ TESTED
   - Party Formation: cursor tracking via cursorTarget position matching, per-slot data from SetData hook ✓ TESTED
-  - Assist Formation: polls UICampAssistSettingSelector (Equip slots + character picker) — NOT TESTED (needs more party members)
-  - Tactics: polls UICampOperationSelector (character + operation states), hook for operation info ✓ TESTED
+  - Assist Formation: polls UICampAssistSettingSelector (Equip slots + character picker) ✓ TESTED 2026-07-11
+  - Tactics: polls UICampOperationSelector (character + operation states), hook for operation info ✓ TESTED (incl. operation picker, 2026-07-11)
 
 - **Equipment Wizard handler** (`EquipWizardHandler.cs`) — CONFIRMED WORKING (2026-06-14)
   - New polling handler: FindObjectOfType<UISystemWindow>, polls IsShowingEquipWizard
@@ -3218,18 +3326,21 @@ Without this list, mod keys WILL conflict with game controls. -->
 - [ ] Floor labels: items on the same floor have no suffix
 - [ ] Regression: auto-walk to NPCs, chests, exits, counter NPCs all still work normally
 
-## Pending Tests (Camp Formation Sub-screen)
+## Pending Tests (Operations Child Screens) — ALL CONFIRMED WORKING (user, 2026-07-11)
 
-- [ ] Not yet testable — area inaccessible in current game progress
-
-## Pending Tests (Operations Child Screens — need more party members)
-
-- [ ] Operations → Formation: announces formation name + effect on navigation
+- [x] Operations → Formation: announces formation name + effect on navigation
 - [x] Operations → Party Formation: announces character name, level, HP/MP, role, position on navigation
-- [ ] Operations → Assist Formation (Equip): announces button slot + assigned character/skill
-- [ ] Operations → Assist Formation (Character picker): announces character names
+- [x] Operations → Assist Formation (Equip): announces button slot + assigned character/skill
+- [x] Operations → Assist Formation (Character picker): announces character names
 - [x] Operations → Tactics (character list): announces character + current tactic ✓
-- [ ] Operations → Tactics (operation picker): announces operation name + description
+- [x] Operations → Tactics (operation picker): announces operation name + description
+
+## Pending Tests (Assault Action Skill Readout) — ✅ CONFIRMED WORKING (user, 2026-07-11)
+
+- [x] Assist Formation character picker: reads skill name, type, cooldown after character
+      name (final: NO description — screen parity, user decision; see feature entry)
+- [x] Live skill tracking: reassigning Celine's assault skill updates the readout
+- [x] "None" row and empty slots: unchanged (no skill summary)
 
 ## Dialogue Voice Mode Toggle — TESTED (2026-03-07)
 
@@ -3718,7 +3829,7 @@ Stale-open check helper consolidation. Key changes:
 - Navigation: Doors (stone only) — DONE (pending dungeon test)
 - Navigation: Warp Points (panels, circles, platforms) — DONE (pending dungeon test)
 - Navigation: Flavor chat triggers (FieldFlavorChatCollision) — party banter spots
-- Operations child screens: Party Formation ✓, Formation ✓, Assist Formation — pending test (need more party members)
+- Operations child screens: Party Formation ✓, Formation ✓, Assist Formation ✓, Tactics ✓ (all confirmed 2026-07-11)
 - Camp sub-screen: skill learning (UICampSkillLearningSelector — complex, deferred)
 - Battle pause menu handler (detailed enemy info: element resistances, buffs, HP when spectacled)
 - Battle status announcements (player HP/MP during combat)

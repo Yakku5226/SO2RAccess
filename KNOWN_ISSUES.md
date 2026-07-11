@@ -32,6 +32,15 @@ broken.
 - Note: the world map has a few other routing limitations in general; this is the most
   common one to be aware of.
 
+## Assault Actions — skills have no description on this screen
+
+In the Assist Formation (Assault Action) screen, hovering a character reads their skill's
+name, type, and cooldown — which is everything the game shows there; the screen displays
+no skill descriptions for anyone. For **party members'** skills you can read the full
+description in the Battle Skills menu. For **assist-only characters** (guests like
+Laeticia who cannot join the party) the game data contains no description text at all,
+so there is nowhere to look one up.
+
 ## Item Creation — selected character not announced when opening a skill
 
 When you open a specialty skill in Item Creation (for example Art or Cooking), the mod does

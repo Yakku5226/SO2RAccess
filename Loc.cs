@@ -431,10 +431,11 @@ namespace SO2RAccess
 
             // Camp menu — assist formation sub-screen (assign assist characters to buttons)
             Add("camp_assist_screen",          "Assist formation.");
-            Add("camp_assist_slot",            "{0}: {1}, {2}. {3} of {4}.");
-            Add("camp_assist_slot_empty",      "{0}: None. {1} of {2}.");
-            Add("camp_assist_char",            "{0}. {1} of {2}.");
-            Add("camp_assist_char_current",    "{0}, currently set. {1} of {2}.");
+            Add("camp_assist_slot",            "{0}: {1}.");
+            Add("camp_assist_slot_empty",      "{0}: None.");
+            Add("camp_assist_char",            "{0}.");
+            Add("camp_assist_char_current",    "{0}, currently set.");
+            Add("camp_assist_cooldown",        "cooldown {0} seconds");
 
             // Camp menu — tactics sub-screen (assign tactics to party members)
             Add("camp_tactics_screen",             "Tactics.");
