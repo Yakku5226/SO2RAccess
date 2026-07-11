@@ -220,11 +220,26 @@
 > startExemptDist (measured from path[0]). Start-side gate pinches are never marked
 > (marking them seals the player in and refuses routes they physically just walked).
 > MP/Arlia unaffected: their wedges sit 44m+ from any endpoint.
-> RETEST K:
-> [ ] K1. Marze → Krosse Cave (from the gate area AND from a few steps out): must WALK
->        and arrive. Do not open the nav menu mid-walk — that cancels the walk.
-> [ ] K2. Mountain Palace overland + Arlia: must STILL refuse fast (regression guard).
-> [ ] K3. Any other false refusal → Latest.log.
+> RETEST K RESULTS (2026-07-11 log 12:52+):
+> [✅] K1. Marze → Krosse Cave WORKS — from BOTH Marze exits (Marze has 2 world-map
+>        triggers, user confirmed; sweep passed cleanly, no false refusal). Caveat:
+>        first walk wedged in the cave-mouth canyon ~20m from the entrance (party
+>        members crowding + 0.51m walls; 5 stuck-recalcs accumulated 28 blocked zones
+>        that poisoned re-plans in the narrow canyon) → "Cannot reach" give-up; the
+>        user re-triggered the walk and ARRIVED in 4s (fresh walk clears blocked
+>        zones → clean plan straight in).
+> [—] K2/K3 not re-run this round; MP/Arlia refused correctly at 12:43/12:44 under the
+>        16m build, and the endpoint change cannot affect them (wedges 44m+ from
+>        endpoints).
+> DECISION (user, 2026-07-11): stuck-give-up behavior stays AS IS — proposed one-shot
+> "clear blocked zones + fresh re-plan before cancelling" auto-retry was DECLINED;
+> manual walk re-trigger is the accepted recovery. (If this annoys later, the proposal
+> is in the session record: once per walk command, on 5th-recalc give-up, wipe blocked
+> zones, re-plan fresh, reset counter; cancel for real on second exhaustion.)
+> H3 NOTE: the two Marze F7 audits double as the pending auditor-fix re-audit — the
+> null-collider guard visibly worked ("N segments had unresolvable overlap hits
+> (ignored)") and Mountain Palace audited at 10 wedges instead of 188 overhang
+> artifacts. H3 considered DONE.
 >
 > 🗂️ (superseded by the entry above — instrument built, results in) **ROUTE AUDITOR
 > (2026-07-10, build 0/0) — the definitive instrument.
