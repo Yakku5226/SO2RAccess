@@ -646,6 +646,62 @@
 > blocked by game bunny mask {17,21,22}; both 0.50m floor; same climb rule; ocean = no ground
 > blocks both; psynard = everything reachable (no grid).
 >
+> 📝 **FEATURE REQUEST (user, 2026-07-11 — for a FUTURE session, not now): world map
+> nav list is missing FISHING SPOTS.** The list currently does not offer them as
+> targets. Task when picked up: (1) find how fishing spots exist on the world map
+> (decompiled/ — likely related to the fishing system, see memory fishing-system for
+> the field-map integration) and add them to the nav list build; (2) survey what OTHER
+> world-map point-of-interest types exist that the list doesn't cover yet (user asked
+> for a general audit, not just fishing).
+>
+> ✅ **2026-07-11: WELSH SP BUG FIXED + VALIDATED (retest M, user: "works perfectly,
+> calculations are perfect") — CLOSED.** Log 18:55 confirms: specialty rows match in
+> specialSkillItemDataList (specialID set, e.g. SCOUT), fresh-compute branch runs
+> (Scouting = Danger Radar 55; Compounding = Biology 235 + Herbology 70 + Mental
+> Science 226). Temp SpDiag diagnostics REMOVED, final build 0/0 deployed.
+> FindSkillRowOnScreen (name-verified list lookup) is the permanent fix. NOT YET
+> COMMITTED to git. Test L logs (18:02) were definitive: hover diagnostic showed
+> screen='Scouting' idx=8 but row name='Resilience' consumeSP=1 — the Enhance→Skill
+> screen has TWO Square-toggled tabs backed by SEPARATE lists (skills: itemDataList,
+> specialties: specialSkillItemDataList) and the mod always indexed itemDataList, so
+> every specialty row announced the SAME-POSITION row of the SKILLS tab (Oracle→
+> Biology's 4, Train→Faeriology's 60, Familiar→Eye for Detail's 18, Scouting→
+> Resilience's 1 — "believable" costs on other characters were coincidental garbage
+> too). Triangle narrow-down worked (narrowDownItemDataList path, Danger Radar 130 ✓).
+> The specialty fresh-compute branch NEVER ran (specialSkillID always INVALID on
+> skills-tab rows). Hypotheses 1–3 all wrong: it was list mis-selection, one level up.
+> FIX: FindSkillRowOnScreen(name, idx) — name-verified lookup across all three lists
+> (priority: narrowDown if active → specialSkill → skill); currentState NOT trusted
+> (IC action selector precedent: native state fields go stale); no match → announce
+> WITHOUT SP cost + log reason (never a wrong number). SpDiag hover log kept to
+> confirm specialty rows now hit the fresh-compute branch; remove all SpDiag after M.
+> RETEST M (F12 ON, restart game):
+> [ ] M1. Welch → specialties tab: Scouting must NOT read "1 SP" (expect Danger
+>        Radar-driven cost, ~130); Oracle/Train/Familiar read sane costs.
+> [ ] M2. Skills tab unchanged (Danger Radar 130, Eye for Detail 18).
+> [ ] M3. Triangle on Scouting: components still read correctly.
+> [ ] M4. Another character's specialties for comparison (e.g. Claude).
+> [ ] M5. Send Latest.log (SpDiag lines must show specialID set + "matched in
+>        specialSkill list" on the specialties tab).
+>
+> 🔬 **2026-07-11: WELSH SP BUG PICKED UP — DIAGNOSTIC BUILT + DEPLOYED (build 0/0),
+> PENDING TEST SCRIPT L.** Debug plan below executed: LogSpecialtySpDiagnostic in
+> CampMenuHandler.Formation.cs (called from the specialty branch, F12-gated, marked
+> TEMPORARY — remove after diagnosis). Per specialty hover it logs: specialSkillID,
+> playerID the cost was computed for, stale itemData.consumeSP/isLevelMax, AND both
+> level-up lists side by side — the fresh CalcNeedSpecialSkillForLevelUp result and
+> the game's own precomputed itemData.levelUpDataList — each entry as
+> skillID('name') levelUps=N sp=M. Decides hypothesis 1 (garbage entries) vs
+> 2 (lagging-component semantics: fresh list legitimately short/cheap) vs 3 (wrong
+> character: playerID mismatch).
+> TEST SCRIPT L (F12 debug ON):
+> [ ] L1. Camp → Enhance → Skill, switch to WELSH, hover 2–3 specialties that read
+>        "1 SP" (include Scouting), plus one that reads a believable cost.
+> [ ] L2. On Scouting press Triangle and note the component skills + SP costs the
+>        narrowed list reads out (tell me what you heard).
+> [ ] L3. Also hover Scouting on a NORMAL character (e.g. Claude) for a baseline.
+> [ ] L4. Send Latest.log ([GAME] [SpDiag] lines are the evidence).
+>
 > 🐛 **BUG NOTED (2026-07-05, user report — fix in a FUTURE session, not now): Welsh specialty
 > SP cost reads "1 SP" wrongly.** Camp → Enhance → Skill on WELSH: most SPECIALTY rows announce
 > "1 SP to increase" (e.g. Scouting lv7 → 1 SP), but Triangle (component-skill view) shows the
@@ -2608,12 +2664,11 @@ Full investigation record in docs/worldmap-pathfinding.md and memory file worldm
   - **Result announcement fix (2026-03-19):** single-item results at index 0
     were not announced due to stale seed. Fixed by resetting result index on
     create mode exit with 1.5s delay to sync with result animation.
-- **What's NOT yet accessible (future work):**
-  - **Material selection screen** (`UICampSpecialSkillAddMaterialSelector`):
-    ALL sub-selectors have stale `activeInHierarchy=true`. The `Set` hook (CallerCount 1)
-    does NOT fire (native-only call). The `currentState` field stays at `Normal` (never
-    transitions). This screen likely only appears for Compounding/Customization at higher
-    skill levels. Hook + polling code is dormant, ready when encountered.
+- **Material selection screen** (`UICampSpecialSkillAddMaterialSelector`) — ✅ DONE,
+  user confirmed 2026-07-11 it was tested and working long ago. (Historical notes:
+  sub-selectors have stale `activeInHierarchy=true`; the `Set` hook (CallerCount 1)
+  does not fire — native-only call.) Item Creation is fully accessible; no remaining
+  IC work.
 - **Files:**
   - `CampMenuHandler.ItemCreation.cs` — all IC logic (skill, action, create mode, result, field shortcut flag)
   - `CampMenuHandler.cs` — selector caching in Open postfix, shortcut detection, 3 Harmony patches, Update call

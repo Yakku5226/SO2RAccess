@@ -209,24 +209,14 @@ namespace SO2RAccess
                     total = dataList?.Count ?? 0;
                 }
 
-                // Pick the data list that matches what's on screen. The specialty
-                // filter (Square, then Triangle) narrows the visible list to
-                // narrowDownItemDataList; currentIndex is relative to that narrowed
-                // list. Indexing the full itemDataList while narrowed read the wrong
-                // skill's SP cost (e.g. Piety reported Biology's 235 SP instead of its
-                // own 24, since both sit at the same list position). narrowDownSpecialSkillID
-                // is INVALID when no filter is active.
-                var itemList = _skillSelector.itemDataList;
-                if (_skillSelector.narrowDownSpecialSkillID != SpecialSkillID.INVALID)
+                // Find the highlighted row's data by name-verified lookup across
+                // the screen's three backing lists (skills tab, specialties tab,
+                // Triangle narrow-down) — see FindSkillRowOnScreen. Blindly
+                // indexing itemDataList read the same-position row of the OTHER
+                // tab (Welch's Scouting announced Resilience's "1 SP").
+                var itemData = FindSkillRowOnScreen(name, idx);
+                if (itemData != null)
                 {
-                    var narrowed = _skillSelector.narrowDownItemDataList;
-                    if (narrowed != null && narrowed.Count > 0)
-                        itemList = narrowed;
-                }
-                int itemCount = itemList?.Count ?? 0;
-                if (itemCount > 0 && idx >= 0 && idx < itemCount)
-                {
-                    var itemData = itemList[idx];
 
                     // The game's itemDataList is stale for specialties after leveling —
                     // consumeSP and isLevelMax don't refresh. Compute fresh values.
@@ -318,6 +308,48 @@ namespace SO2RAccess
             {
                 MelonLogger.Warning($"CampMenuHandler.SkillInfoPresenter_Set_Postfix: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Finds the data row for the currently highlighted Skill-screen entry.
+        /// The screen shows one of three lists — the skills tab (itemDataList),
+        /// the specialties tab (specialSkillItemDataList, toggled with Square),
+        /// or a specialty's component skills after Triangle narrowing
+        /// (narrowDownItemDataList) — and currentIndex is relative to the visible
+        /// one. The selector exposes no reliable tab flag (currentState fields on
+        /// these native selectors go stale, see the Item Creation action selector),
+        /// so the row is verified by comparing its name to the on-screen presenter
+        /// text. Returns null when no list matches — announcing no SP cost is
+        /// better than announcing another row's.
+        /// </summary>
+        private static UICampSkillListItemData FindSkillRowOnScreen(string screenName, int idx)
+        {
+            if (string.IsNullOrEmpty(screenName) || idx < 0) return null;
+
+            bool narrowed = _skillSelector.narrowDownSpecialSkillID != SpecialSkillID.INVALID;
+            var candidates = new (string Label, Il2CppSystem.Collections.Generic.List<UICampSkillListItemData> List)[]
+            {
+                ("narrowDown", narrowed ? _skillSelector.narrowDownItemDataList : null),
+                ("specialSkill", _skillSelector.specialSkillItemDataList),
+                ("skill", _skillSelector.itemDataList),
+            };
+
+            string target = screenName.Trim();
+            foreach (var candidate in candidates)
+            {
+                if (candidate.List == null || idx >= candidate.List.Count) continue;
+                var row = candidate.List[idx];
+                if (row != null && row.skillName?.Trim() == target)
+                {
+                    DebugLogger.Log(LogCategory.Game, "CampSkill",
+                        $"row '{target}' matched in {candidate.Label} list");
+                    return row;
+                }
+            }
+
+            DebugLogger.Log(LogCategory.Game, "CampSkill",
+                $"no data row matches screen entry '{target}' at index {idx} — announcing without SP cost");
+            return null;
         }
 
         /// <summary>
