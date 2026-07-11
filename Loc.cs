@@ -162,7 +162,7 @@ namespace SO2RAccess
             Add("nav_autowalk_resuming", "Resuming walk to {0}.");
             Add("nav_autowalk_unreachable","Cannot reach {0}.");
             Add("nav_autowalk_route_exits","Cannot reach {0} without leaving the area. No safe route found.");
-            Add("nav_autowalk_no_land_route","No walkable route to {0} from here. It may lie beyond mountains or water, or require passing through another location.");
+            Add("nav_autowalk_no_land_route","No walkable route to {0} from here. It may lie beyond mountains or water, or the way may lead through another location or a dungeon.");
             Add("nav_autowalk_no_navmesh", "No navigation data available.");
             Add("nav_autowalk_lost_path",  "Lost path to {0}.");
             Add("nav_autowalk_stuck",      "Path blocked to {0}. Auto-walk stopped.");

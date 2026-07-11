@@ -554,18 +554,20 @@ namespace SO2RAccess
                 }
             }
 
-            // FLOOR-TIER PHYSICS VALIDATION (foot only): a route that only
-            // exists at the 0.50m clearance floor threads gaps the size of
-            // the player's body — the route audit proved such routes
-            // physically wedge (walls 0.51m from the body centre; Arlia
-            // route: 27 impassable segments). Sweep the body capsule along
-            // the planned route BEFORE walking: impassable segments become
-            // blocked zones and the route is re-planned around them; when no
-            // physically passable route survives, refuse honestly instead of
-            // wedging through 5 stuck-recalcs. Segments within 10m of the
-            // goal are exempt (arrival is prompt/proximity-gated there).
-            if (bestPath != null && mode == WorldmapTravelMode.Foot &&
-                bestPathFloorTier)
+            // PRE-WALK PHYSICS VALIDATION (foot only): sweep the body
+            // capsule along the planned route BEFORE walking. Floor-tier
+            // routes (0.50m clearance) thread body-width gaps and were the
+            // proven wedge factories (Arlia route: 27 impassable segments),
+            // but Mountain Palace showed comfort-tier routes wedge too: the
+            // grid believes the Lasgus rock passages are wide enough while
+            // the game's collision physics disagree. So EVERY foot route is
+            // swept: impassable segments become blocked zones and the route
+            // is re-planned around them; when no physically passable route
+            // survives, refuse honestly instead of wedging through 5
+            // stuck-recalcs. Segments within 10m of the goal are exempt
+            // (town-gate pinches sit there and arrival is prompt/proximity-
+            // gated before the walk needs them).
+            if (bestPath != null && mode == WorldmapTravelMode.Foot)
             {
                 for (int round = 0; round < 2 && bestPath != null; round++)
                 {
@@ -574,24 +576,24 @@ namespace SO2RAccess
                     if (wedges == 0) break;
 
                     DebugLogger.LogState(
-                        $"NAV WM floor-route sweep round {round}: {wedges} " +
-                        "physically impassable segments — re-planning " +
-                        "around them.");
+                        $"NAV WM route sweep round {round}: {wedges} " +
+                        "physically impassable segments on " +
+                        (bestPathFloorTier ? "floor" : "comfort") +
+                        "-tier route — re-planning around them.");
                     bestPath = WorldmapPathfinder.FindPath(aStarStart,
                         targetPos, mode,
                         _wmBlockedPositions.Count > 0 ? _wmBlockedPositions : null);
                     bestPathFloorTier = WorldmapPathfinder.LastPathUsedFloorTier;
-                    if (bestPath != null && !bestPathFloorTier)
-                        break; // comfort route found once wedges were blocked
                 }
 
-                if (bestPath != null && bestPathFloorTier &&
+                if (bestPath != null &&
                     CountRouteWedges(bestPath, targetPos, 10f,
                         markBlocked: false) > 0)
                 {
                     DebugLogger.LogState(
-                        "NAV WM floor-route sweep: no physically passable " +
-                        "route after re-planning — refusing honestly.");
+                        "NAV WM route sweep: no physically passable " +
+                        (bestPathFloorTier ? "floor" : "comfort") +
+                        "-tier route after re-planning — refusing honestly.");
                     WorldmapPathfinder.LastNoPathWasDisconnected = true;
                     bestPath = null;
                 }

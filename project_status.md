@@ -164,13 +164,42 @@
 >   Mountains dungeon. NOT caught today because the pre-walk sweep only runs on
 >   FLOOR-tier routes.
 > NEXT SESSION CANDIDATES (in order):
-> 1. Extend the pre-walk body sweep to COMFORT-tier routes too (would honestly handle
->    Mountain Palace overland; must not false-refuse: keep goal-exempt zone, re-plan
->    rounds, and verify Salva/Marze/Krosse Cave still pass — their only wedges are
->    inside the arrival zone). Discuss first.
-> 2. Arlia/MP list wording for "region-connected but physically blocked" targets.
+> 1. ✅ DONE 2026-07-11 (entry below): Extend the pre-walk body sweep to COMFORT-tier
+>    routes too.
+> 2. ✅ CLOSED 2026-07-11 (entry below): list stays untouched by user decision; only the
+>    refusal message wording improved.
 > 3. H3 leftover: one F7 re-audit to confirm auditor fixes (opportunistic).
 > 4. Then back to the regular queue (item creation material screen etc.).
+>
+> 🚧 **2026-07-11: PRE-WALK SWEEP EXTENDED TO COMFORT ROUTES (candidates 1+2) —
+> BUILT + DLL DEPLOYED (branch worktree-comfort-route-sweep) — PENDING TEST SCRIPT I.**
+> Decision record: Option A ("remember refusals" list tag) REJECTED by user — a
+> remembered verdict is position-stale (refused-from-Krosse stops being true after
+> crossing Lasgus; success there stops being true after teleporting back). Agreed
+> principle: the mod only speaks verdicts computed LIVE from the current position.
+> The list's plain name claims only "same landmass" (position-independent, always true);
+> walkability is judged at walk start. Long-term accurate-list idea (NOT now, grid frozen
+> until zero false-unreachables): bake-time capsule sweep would disconnect MP/Arlia in
+> the grid and the existing region annotation would become honest for free.
+> CHANGES:
+> - NavigationHandler.Worldmap.Pathfinding.cs: pre-walk body-capsule sweep now runs on
+>   EVERY foot route, comfort tier included (gate no longer requires bestPathFloorTier).
+>   Re-planned routes are re-swept every round — the old loop trusted a comfort re-plan
+>   blindly, which is exactly the Mountain Palace hole. Goal-10m exemption, up-to-2
+>   re-plans, honest refusal via LastNoPathWasDisconnected all unchanged. Sweep logs
+>   now name the tier of the offending route. Safe-exit leg gate left floor-tier-only
+>   (its fallback "go direct" is benign; not part of this change).
+> - Loc.cs nav_autowalk_no_land_route: "No walkable route to {0} from here. It may lie
+>   beyond mountains or water, or the way may lead through another location or a dungeon."
+> TEST SCRIPT I (world map, ON FOOT; F12 helpful for logs):
+> [ ] I1. Krosse plains → Salva: still walks and arrives normally (regression guard —
+>        its only pinch is inside the 10m arrival zone and must stay exempt).
+> [ ] I2. → Marze and → Krosse Cave: same expectation as I1.
+> [ ] I3. → Mountain Palace overland: REFUSES within a few seconds with the new message
+>        (instead of minutes of walking then wedging in the Lasgus foothills).
+> [ ] I4. → Arlia from Krosse plains: still the honest refusal, now with new wording.
+> [ ] I5. Watch for ANY refusal of a walk that used to work (false refusal) — if one
+>        appears, send Latest.log: the sweep logs the exact segment + blocking collider.
 >
 > 🗂️ (superseded by the entry above — instrument built, results in) **ROUTE AUDITOR
 > (2026-07-10, build 0/0) — the definitive instrument.
