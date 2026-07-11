@@ -191,15 +191,27 @@
 >   (its fallback "go direct" is benign; not part of this change).
 > - Loc.cs nav_autowalk_no_land_route: "No walkable route to {0} from here. It may lie
 >   beyond mountains or water, or the way may lead through another location or a dungeon."
-> TEST SCRIPT I (world map, ON FOOT; F12 helpful for logs):
-> [ ] I1. Krosse plains → Salva: still walks and arrives normally (regression guard —
->        its only pinch is inside the 10m arrival zone and must stay exempt).
-> [ ] I2. → Marze and → Krosse Cave: same expectation as I1.
-> [ ] I3. → Mountain Palace overland: REFUSES within a few seconds with the new message
->        (instead of minutes of walking then wedging in the Lasgus foothills).
-> [ ] I4. → Arlia from Krosse plains: still the honest refusal, now with new wording.
-> [ ] I5. Watch for ANY refusal of a walk that used to work (false refusal) — if one
->        appears, send Latest.log: the sweep logs the exact segment + blocking collider.
+> TEST SCRIPT I RESULTS (2026-07-11, user: "everything worked as you said it should
+> except Marze → Krosse Cave"):
+> [✅] I1. Salva walks/arrives. [✅] I3. Mountain Palace overland refused fast (log
+>        12:30:09: 179 impassable comfort-tier segments). [✅] I4. Arlia refusal
+>        unchanged (12:30:21). [🔴→fixed] I2/I5: Marze → Krosse Cave FALSE REFUSAL.
+> FALSE-REFUSAL DIAGNOSIS (log 12:32 + user's F7 audit from outside Marze 12:33):
+> the route is a clean 873-wp COMFORT road whose ONLY wedge is the known Krosse Cave
+> canyon-mouth pinch at (89.8,-97.2) — 14.0m from the ring point (99.5,-87.1), just
+> OUTSIDE the 10m arrival exemption (re-plans shifted it to 12.6m/12.0m — still out).
+> The same pinch class passed from the Krosse City side because it fell inside 10m
+> there. Audit cross-check: Mountain Palace/Arlia wedges sit 50m+ from their goals
+> (spread over foothills/rock belt), so widening the exemption cannot un-refuse them.
+> Audit also showed 7–8 shared "wedges" within metres of the player standing at
+> Marze's gate (start-side pinch, sweep-conservative; live walks not affected).
+> FIX (2026-07-11, built + deployed): goal exemption 10m → 16m, named constant
+> WmSweepGoalExemptDist with the data rationale in its doc comment.
+> RETEST J:
+> [ ] J1. Marze → Krosse Cave: must WALK now and arrive (pinch exempt; slow-follow
+>        carries the mouth as it did from the Krosse side).
+> [ ] J2. Mountain Palace overland + Arlia: must STILL refuse fast (regression guard).
+> [ ] J3. Any other false refusal → Latest.log again.
 >
 > 🗂️ (superseded by the entry above — instrument built, results in) **ROUTE AUDITOR
 > (2026-07-10, build 0/0) — the definitive instrument.

@@ -42,6 +42,19 @@ namespace SO2RAccess
         private static readonly int WmObstacleLayerMask = 1 << 22;
 
         /// <summary>
+        /// Pre-walk sweep: wedges closer than this to the goal ring point
+        /// are exempt — destination-gate pinches live there and the walk
+        /// survives them in practice (slow-follow + enter-prompt arrival;
+        /// proven at Salva and Krosse Cave). 16m is data-grounded: the
+        /// farthest observed arrival pinch is Krosse Cave's canyon mouth at
+        /// 14.0m from the ring point when approached from Marze (2026-07-11
+        /// false-refusal log), while genuinely unwalkable routes (Mountain
+        /// Palace, Arlia) wedge 50m+ from their goals. Do not raise this
+        /// without route-audit data.
+        /// </summary>
+        private const float WmSweepGoalExemptDist = 16f;
+
+        /// <summary>
         /// Maximum distance (meters) at which a straight-line fallback is
         /// still used when the grid pathfinder finds no path. Close-range
         /// failures are usually grid-snap artifacts; beyond this, "no path"
@@ -564,15 +577,16 @@ namespace SO2RAccess
             // swept: impassable segments become blocked zones and the route
             // is re-planned around them; when no physically passable route
             // survives, refuse honestly instead of wedging through 5
-            // stuck-recalcs. Segments within 10m of the goal are exempt
-            // (town-gate pinches sit there and arrival is prompt/proximity-
-            // gated before the walk needs them).
+            // stuck-recalcs. Segments near the goal are exempt (see
+            // WmSweepGoalExemptDist: gate/canyon-mouth pinches sit there and
+            // the walk survives them via slow-follow + prompt arrival).
             if (bestPath != null && mode == WorldmapTravelMode.Foot)
             {
                 for (int round = 0; round < 2 && bestPath != null; round++)
                 {
                     int wedges = CountRouteWedges(
-                        bestPath, targetPos, 10f, markBlocked: true);
+                        bestPath, targetPos, WmSweepGoalExemptDist,
+                        markBlocked: true);
                     if (wedges == 0) break;
 
                     DebugLogger.LogState(
@@ -587,8 +601,8 @@ namespace SO2RAccess
                 }
 
                 if (bestPath != null &&
-                    CountRouteWedges(bestPath, targetPos, 10f,
-                        markBlocked: false) > 0)
+                    CountRouteWedges(bestPath, targetPos,
+                        WmSweepGoalExemptDist, markBlocked: false) > 0)
                 {
                     DebugLogger.LogState(
                         "NAV WM route sweep: no physically passable " +
