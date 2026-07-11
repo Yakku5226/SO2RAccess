@@ -42,17 +42,18 @@ namespace SO2RAccess
         private static readonly int WmObstacleLayerMask = 1 << 22;
 
         /// <summary>
-        /// Pre-walk sweep: wedges closer than this to the goal ring point
-        /// are exempt — destination-gate pinches live there and the walk
-        /// survives them in practice (slow-follow + enter-prompt arrival;
-        /// proven at Salva and Krosse Cave). 16m is data-grounded: the
-        /// farthest observed arrival pinch is Krosse Cave's canyon mouth at
-        /// 14.0m from the ring point when approached from Marze (2026-07-11
-        /// false-refusal log), while genuinely unwalkable routes (Mountain
-        /// Palace, Arlia) wedge 50m+ from their goals. Do not raise this
-        /// without route-audit data.
+        /// Pre-walk sweep: wedges closer than this to either route endpoint
+        /// (start or goal ring point) are exempt. Town-gate and canyon-mouth
+        /// pinches live at endpoints and the walk survives them in practice
+        /// (slow-follow + enter-prompt arrival, proven at Salva and Krosse
+        /// Cave; the player standing at a gate demonstrably traversed it).
+        /// 16m is data-grounded (2026-07-11 Marze↔Krosse Cave false-refusal
+        /// logs): farthest observed goal-side pinch 14.0m from the ring
+        /// point, farthest start-side pinch 6m from the player — while
+        /// genuinely unwalkable routes (Mountain Palace, Arlia) wedge 44m+
+        /// from any endpoint. Do not raise this without route-audit data.
         /// </summary>
-        private const float WmSweepGoalExemptDist = 16f;
+        private const float WmSweepEndpointExemptDist = 16f;
 
         /// <summary>
         /// Maximum distance (meters) at which a straight-line fallback is
@@ -577,16 +578,19 @@ namespace SO2RAccess
             // swept: impassable segments become blocked zones and the route
             // is re-planned around them; when no physically passable route
             // survives, refuse honestly instead of wedging through 5
-            // stuck-recalcs. Segments near the goal are exempt (see
-            // WmSweepGoalExemptDist: gate/canyon-mouth pinches sit there and
-            // the walk survives them via slow-follow + prompt arrival).
+            // stuck-recalcs. Segments near EITHER endpoint are exempt (see
+            // WmSweepEndpointExemptDist: gate/canyon-mouth pinches sit there
+            // and the walk survives them via slow-follow + prompt arrival —
+            // marking a start-side gate pinch would seal the player in and
+            // refuse routes they physically just walked, proven at Marze).
             if (bestPath != null && mode == WorldmapTravelMode.Foot)
             {
                 for (int round = 0; round < 2 && bestPath != null; round++)
                 {
                     int wedges = CountRouteWedges(
-                        bestPath, targetPos, WmSweepGoalExemptDist,
-                        markBlocked: true);
+                        bestPath, targetPos, WmSweepEndpointExemptDist,
+                        markBlocked: true,
+                        startExemptDist: WmSweepEndpointExemptDist);
                     if (wedges == 0) break;
 
                     DebugLogger.LogState(
@@ -602,7 +606,8 @@ namespace SO2RAccess
 
                 if (bestPath != null &&
                     CountRouteWedges(bestPath, targetPos,
-                        WmSweepGoalExemptDist, markBlocked: false) > 0)
+                        WmSweepEndpointExemptDist, markBlocked: false,
+                        startExemptDist: WmSweepEndpointExemptDist) > 0)
                 {
                     DebugLogger.LogState(
                         "NAV WM route sweep: no physically passable " +
@@ -690,13 +695,15 @@ namespace SO2RAccess
         /// Body-capsule sweep over a planned route (see
         /// <see cref="SweepSegmentBlocked"/>). Returns the number of
         /// physically impassable segments, skipping those within
-        /// <paramref name="goalExemptDist"/> of the goal. When
+        /// <paramref name="goalExemptDist"/> of the goal and within
+        /// <paramref name="startExemptDist"/> of the route start. When
         /// <paramref name="markBlocked"/> is set, each impassable segment's
         /// start is added to the walk's blocked zones so a re-plan avoids
         /// it. First few wedges are logged with their blocker.
         /// </summary>
         private int CountRouteWedges(Vector3[] path, Vector3 goal,
-            float goalExemptDist, bool markBlocked)
+            float goalExemptDist, bool markBlocked,
+            float startExemptDist = 0f)
         {
             var fm = FieldManager.Instance;
             var player = fm != null ? fm.GetControlPlayer() : null;
@@ -705,11 +712,15 @@ namespace SO2RAccess
 
             int wedges = 0;
             float exemptSq = goalExemptDist * goalExemptDist;
+            float startExemptSq = startExemptDist * startExemptDist;
             for (int i = 0; i < path.Length - 1; i++)
             {
                 float gdx = path[i].x - goal.x;
                 float gdz = path[i].z - goal.z;
                 if (gdx * gdx + gdz * gdz <= exemptSq) continue;
+                float sdx = path[i].x - path[0].x;
+                float sdz = path[i].z - path[0].z;
+                if (sdx * sdx + sdz * sdz <= startExemptSq) continue;
 
                 try
                 {

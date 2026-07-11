@@ -207,11 +207,24 @@
 > Marze's gate (start-side pinch, sweep-conservative; live walks not affected).
 > FIX (2026-07-11, built + deployed): goal exemption 10m → 16m, named constant
 > WmSweepGoalExemptDist with the data rationale in its doc comment.
-> RETEST J:
-> [ ] J1. Marze → Krosse Cave: must WALK now and arrive (pinch exempt; slow-follow
->        carries the mouth as it did from the Krosse side).
-> [ ] J2. Mountain Palace overland + Arlia: must STILL refuse fast (regression guard).
-> [ ] J3. Any other false refusal → Latest.log again.
+> RETEST J RESULT (2026-07-11 log 12:42+, game restarted with the 16m build): STILL
+> REFUSED — but differently: "Cannot reach" (not no-land-route). Log 12:42:59 shows the
+> GOAL-side fix worked (no cave-mouth flag) — the new blocker is the START side: user
+> stood IN Marze's gate rocks; sweep flagged ONE segment at (208.5,110.0) = 6m from the
+> player (Marze gate pinch); marking it + 5 rounds of L22 pre-validate markings SEALED
+> the gate corridor → re-plan found no path at all → "Cannot reach". Rest of the 887-wp
+> road swept clean. (Also: 12:44:09 the user started a walk to Krosse Cave from near
+> Krosse City — cancelled 1s later by opening the nav menu, which stops a walk.)
+> FIX 2 (2026-07-11, built + deployed): sweep exemption now applies at BOTH route
+> endpoints — constant renamed WmSweepEndpointExemptDist (16m), CountRouteWedges gained
+> startExemptDist (measured from path[0]). Start-side gate pinches are never marked
+> (marking them seals the player in and refuses routes they physically just walked).
+> MP/Arlia unaffected: their wedges sit 44m+ from any endpoint.
+> RETEST K:
+> [ ] K1. Marze → Krosse Cave (from the gate area AND from a few steps out): must WALK
+>        and arrive. Do not open the nav menu mid-walk — that cancels the walk.
+> [ ] K2. Mountain Palace overland + Arlia: must STILL refuse fast (regression guard).
+> [ ] K3. Any other false refusal → Latest.log.
 >
 > 🗂️ (superseded by the entry above — instrument built, results in) **ROUTE AUDITOR
 > (2026-07-10, build 0/0) — the definitive instrument.
