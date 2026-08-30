@@ -257,6 +257,261 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// A game-verified standing point for a fishing spot: where to stop
+        /// and what water point to face so the game raises its fishing prompt.
+        /// </summary>
+        private struct FishingStand
+        {
+            /// <summary>Walkable shore cell to stand on.</summary>
+            public Vector3 Stand;
+            /// <summary>Water point to face on arrival.</summary>
+            public Vector3 Face;
+            /// <summary>Squared distance from the player when computed.</summary>
+            public float DistSq;
+        }
+
+        /// <summary>
+        /// Maximum verified stands the auto-walk will attempt routes to
+        /// before announcing "no walkable route". Bounds worst-case planning
+        /// time (a refused floor-tier route can cost several seconds).
+        /// </summary>
+        private const int MaxFishingStandAttempts = 3;
+
+        /// <summary>
+        /// Perimeter sampling step for a fishing spot's water box: fine
+        /// enough for small ponds, capped for the huge coastal boxes (some
+        /// are 1000m+ across).
+        /// </summary>
+        private static float WaterBoxEdgeStep(Bounds waterBox)
+        {
+            float perimeter = 2f * ((waterBox.max.x - waterBox.min.x)
+                + (waterBox.max.z - waterBox.min.z));
+            return Mathf.Clamp(perimeter / 64f, 2f, 12f);
+        }
+
+        /// <summary>
+        /// Visits points along a water box's edge at <see cref="WaterBoxEdgeStep"/>
+        /// spacing, passing each edge point and its outward normal.
+        /// </summary>
+        private static void ForEachWaterBoxEdgePoint(Bounds waterBox,
+            Action<Vector3, Vector3> visit)
+        {
+            float minX = waterBox.min.x, maxX = waterBox.max.x;
+            float minZ = waterBox.min.z, maxZ = waterBox.max.z;
+            float waterY = waterBox.center.y;
+            float step = WaterBoxEdgeStep(waterBox);
+
+            for (float x = minX; x <= maxX; x += step)
+            {
+                visit(new Vector3(x, waterY, minZ), new Vector3(0, 0, -1));
+                visit(new Vector3(x, waterY, maxZ), new Vector3(0, 0, 1));
+            }
+            for (float z = minZ; z <= maxZ; z += step)
+            {
+                visit(new Vector3(minX, waterY, z), new Vector3(-1, 0, 0));
+                visit(new Vector3(maxX, waterY, z), new Vector3(1, 0, 0));
+            }
+        }
+
+        /// <summary>
+        /// Shore snaps that wander farther than this from their edge sample
+        /// belong to another shore and are discarded — so the walkable-cell
+        /// search is also capped here. The old uncapped (~50m) search froze
+        /// the list build: ocean-facing samples on remote coastal boxes ran
+        /// the full failed search per sample, only for the result to be
+        /// rejected by this very distance check.
+        /// </summary>
+        private const float ShoreSnapMaxMeters = 6f;
+
+        /// <summary>
+        /// Visits each DISTINCT walkable shore cell around a water box: every
+        /// edge point is nudged 1.5m outside the water, snapped to the
+        /// nearest cell walkable for the travel mode, and passed to
+        /// <paramref name="visit"/> once (snaps that wander more than
+        /// <see cref="ShoreSnapMaxMeters"/> belong to another shore and are
+        /// skipped). Shared by the walk-time stand search and the list
+        /// build's same-side shore pick. Returns (edge samples, distinct
+        /// walkable cells) for honest logging.
+        /// </summary>
+        private static (int sampled, int walkable) ForEachWaterBoxShoreCell(
+            Bounds waterBox, WorldmapTravelMode mode, Action<Vector3> visit)
+        {
+            int sampled = 0, walkable = 0;
+            float waterY = waterBox.center.y;
+            var seenCells = new HashSet<(int, int)>();
+
+            ForEachWaterBoxEdgePoint(waterBox, (e, outward) =>
+            {
+                sampled++;
+
+                Vector3 s = e + outward * 1.5f;
+                s.y = waterY;
+                if (!WorldmapPathfinder.TryGetNearestWalkableWorld(
+                        s, mode, out Vector3 cell, ShoreSnapMaxMeters))
+                    return;
+                float snapDx = cell.x - s.x, snapDz = cell.z - s.z;
+                if (snapDx * snapDx + snapDz * snapDz >
+                    ShoreSnapMaxMeters * ShoreSnapMaxMeters) return;
+
+                var cellKey = (Mathf.RoundToInt(cell.x * 2f),
+                               Mathf.RoundToInt(cell.z * 2f));
+                if (!seenCells.Add(cellKey)) return;
+                walkable++;
+
+                visit(cell);
+            });
+
+            return (sampled, walkable);
+        }
+
+        /// <summary>
+        /// Finds ALL standing points on a fishing spot's water box perimeter
+        /// that the GAME confirms are fishable, on the player's side of the
+        /// water, sorted nearest-first and thinned so retries approach from
+        /// genuinely different directions. The list's coarse target (nearest
+        /// walkable cell to the box center) can land on a cliff bank or the
+        /// far shore where the prompt never fires; this samples the box edge,
+        /// snaps each sample to a walkable cell, rejects cells in a different
+        /// connected region than the player (opposite bank — proven by
+        /// Fishing spot 3 picking the far side of a river), and asks the
+        /// game's own water probe (IsWorldmapFishingPoint) whether a point in
+        /// front of that cell — at the game's own worldmapFishingFrontDistance
+        /// — is fishable water. Returning MULTIPLE candidates lets the caller
+        /// fall back to the next stand when the route sweep refuses the
+        /// nearest one (proven by Fishing spot 1: the nearest stand sat
+        /// behind a rock while a reachable stand existed 40m further).
+        /// Empty result = nothing verified; the caller keeps the coarse
+        /// target, so this can never remove a walkable target.
+        /// </summary>
+        private List<FishingStand> ComputeWorldmapFishingStands(
+            Bounds waterBox, Vector3 playerPos)
+        {
+            var candidates = new List<FishingStand>();
+
+            var fm = FieldManager.Instance;
+            if (fm == null) return candidates;
+            var mode = WorldmapTravel.CurrentMode();
+
+            // The game's own forward probe distance (how far ahead of the
+            // player it looks for fishable water when deciding to prompt).
+            float frontDist = 0f;
+            try { frontDist = FieldManager.worldmapFishingFrontDistance; }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState(
+                    $"NAV WM fishing: worldmapFishingFrontDistance read " +
+                    $"failed: {ex.Message}");
+            }
+            if (frontDist <= 0.01f) frontDist = 3f;
+
+            float minX = waterBox.min.x, maxX = waterBox.max.x;
+            float minZ = waterBox.min.z, maxZ = waterBox.max.z;
+            float waterY = waterBox.center.y;
+
+            // Player's connected regions, for rejecting far-bank stands.
+            // Empty = unknown → no region filtering (fail open).
+            var startRegions = new List<int>();
+            WorldmapPathfinder.GetStartRegionIds(playerPos, mode, startRegions);
+
+            int regionRejected = 0, verified = 0;
+
+            var counts = ForEachWaterBoxShoreCell(waterBox, mode, stand =>
+            {
+                // Opposite-bank reject: a stand in a different connected
+                // region than the player has no overland route by
+                // definition. Region 0 = unknown → keep (fail open).
+                if (startRegions.Count > 0)
+                {
+                    int standRegion = WorldmapPathfinder.GetRegionId(stand, mode);
+                    if (standRegion != 0 && !startRegions.Contains(standRegion))
+                    {
+                        regionRejected++;
+                        return;
+                    }
+                }
+
+                // Water point in front of the stand (toward the box).
+                float wx = Mathf.Clamp(stand.x, minX, maxX);
+                float wz = Mathf.Clamp(stand.z, minZ, maxZ);
+                Vector3 toWater = new Vector3(wx - stand.x, 0f, wz - stand.z);
+                if (toWater.sqrMagnitude < 0.01f) return; // inside the box?
+                Vector3 dir = toWater.normalized;
+
+                // Game-truth probes at the game's own front distance, tried
+                // at stand height and water height (the native check has a
+                // height tolerance we don't want to re-implement).
+                Vector3 probe = stand + dir * frontDist;
+                bool fishable = false;
+                try
+                {
+                    Vector3 pA = probe;
+                    fishable = fm.IsWorldmapFishingPoint(pA, out _);
+                    if (!fishable)
+                    {
+                        Vector3 pB = new Vector3(probe.x, waterY, probe.z);
+                        fishable = fm.IsWorldmapFishingPoint(pB, out _);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogState(
+                        $"NAV WM fishing: probe failed: {ex.Message}");
+                    return;
+                }
+                if (!fishable) return;
+
+                verified++;
+                candidates.Add(new FishingStand
+                {
+                    Stand = stand,
+                    Face = new Vector3(wx, waterY, wz) + dir * frontDist,
+                    DistSq = (stand - playerPos).sqrMagnitude,
+                });
+            });
+
+            candidates.Sort((a, b) => a.DistSq.CompareTo(b.DistSq));
+
+            // Thin to stands at least an endpoint-exemption apart: a stand
+            // inside that ring of a refused one shares its blocked approach
+            // (the sweep exempts segments closer than this), so retrying it
+            // would fail identically and waste a planning round.
+            var spaced = new List<FishingStand>();
+            float minSepSq = WmSweepEndpointExemptDist * WmSweepEndpointExemptDist;
+            foreach (var c in candidates)
+            {
+                bool tooClose = spaced.Exists(k =>
+                {
+                    float dx = k.Stand.x - c.Stand.x;
+                    float dz = k.Stand.z - c.Stand.z;
+                    return dx * dx + dz * dz < minSepSq;
+                });
+                if (!tooClose) spaced.Add(c);
+            }
+
+            if (spaced.Count > 0)
+            {
+                var near = spaced[0];
+                DebugLogger.LogState(
+                    $"NAV WM fishing: {spaced.Count} verified stands " +
+                    $"(from {verified} fishable of {counts.walkable} walkable " +
+                    $"of {counts.sampled} edge samples, {regionRejected} on " +
+                    $"the far bank, frontDist={frontDist:F1}). Nearest at " +
+                    $"({near.Stand.x:F1},{near.Stand.y:F1},{near.Stand.z:F1}), " +
+                    $"{Mathf.Sqrt(near.DistSq):F1}m from player.");
+            }
+            else
+            {
+                DebugLogger.LogState(
+                    $"NAV WM fishing: NO game-verified stand on the " +
+                    $"player's side ({counts.sampled} edge samples, " +
+                    $"{counts.walkable} walkable, {regionRejected} far bank, " +
+                    $"{verified} fishable, frontDist={frontDist:F1}) — using " +
+                    $"the coarse shore point; prompt may need manual repositioning.");
+            }
+            return spaced;
+        }
+
+        /// <summary>
         /// Computes a safe exit point when the player is STARTING near a town:
         /// a point ~25m away in the direction AWAY from the nearest trigger
         /// (toward open terrain), so the A* leaves the town's wall ring cleanly
@@ -403,10 +658,21 @@ namespace SO2RAccess
         /// walls (proven by goal-cell logs, 2026-07-10).</summary>
         private Vector3 _wmPathGoal;
 
+        /// <summary>
+        /// True when the route ACCEPTED by the last successful
+        /// <see cref="WorldmapCalculateAndStorePath"/> used the floor tier
+        /// (0.50m clearance) — i.e. it threads body-width pinches. Read by the
+        /// fishing stand selection to prefer stands with comfort-tier routes.
+        /// (WorldmapPathfinder.LastPathUsedFloorTier reflects only the LAST
+        /// FindPath call, which may be a dropped safe-exit leg or re-plan.)
+        /// </summary>
+        private bool _wmLastRouteFloorTier;
+
         private bool WorldmapCalculateAndStorePath(Vector3 playerPos, Vector3 targetPos,
-            bool keepBlockedPositions = false)
+            bool keepBlockedPositions = false, bool skipComfortTier = false)
         {
             _wmPathGoal = targetPos;
+            _wmLastRouteFloorTier = false;
             _wmRecalcCount = 0;
             if (!keepBlockedPositions)
                 _wmBlockedPositions.Clear();
@@ -475,7 +741,8 @@ namespace SO2RAccess
             {
                 var path = WorldmapPathfinder.FindPath(aStarStart, targetPos,
                     mode,
-                    _wmBlockedPositions.Count > 0 ? _wmBlockedPositions : null);
+                    _wmBlockedPositions.Count > 0 ? _wmBlockedPositions : null,
+                    skipComfortTier: skipComfortTier);
                 bool pathFloorTier = WorldmapPathfinder.LastPathUsedFloorTier;
 
                 if (path == null || path.Length == 0)
@@ -598,9 +865,16 @@ namespace SO2RAccess
                         "physically impassable segments on " +
                         (bestPathFloorTier ? "floor" : "comfort") +
                         "-tier route — re-planning around them.");
+                    // If this walk's plan already fell back to the floor tier,
+                    // skip the comfort pass on the re-plan: wedge stamps only
+                    // REMOVE passable cells, so the comfort tier that just
+                    // failed cannot succeed now — repeating it burned ~1.2s
+                    // per round (2026-08-29 log: 7s refusal, half of it spent
+                    // re-failing the comfort tier).
                     bestPath = WorldmapPathfinder.FindPath(aStarStart,
                         targetPos, mode,
-                        _wmBlockedPositions.Count > 0 ? _wmBlockedPositions : null);
+                        _wmBlockedPositions.Count > 0 ? _wmBlockedPositions : null,
+                        skipComfortTier: bestPathFloorTier);
                     bestPathFloorTier = WorldmapPathfinder.LastPathUsedFloorTier;
                 }
 
@@ -620,6 +894,8 @@ namespace SO2RAccess
 
             if (bestPath != null && bestPath.Length > 0)
             {
+                _wmLastRouteFloorTier = bestPathFloorTier;
+
                 // Concatenate exit path + main path if using safe exit.
                 if (usingSafeExit && exitPath != null && exitPath.Length > 0)
                 {

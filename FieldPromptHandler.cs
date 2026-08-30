@@ -38,6 +38,56 @@ namespace SO2RAccess
         /// <summary>The action word that identifies the jump-down prompt (English build).</summary>
         private const string JumpAction = "Jump";
 
+        /// <summary>True while the fishing bubble is showing (announce-once edge state).</summary>
+        private static bool _fishShowing = false;
+
+        /// <summary>
+        /// True while the game shows its fishing bubble — the world-space icon above the
+        /// player's head that means "press the action button to fish". World-map auto-walk
+        /// to a fishing spot treats this as an authoritative arrival signal. Detected by
+        /// POLLING the UIFieldIconSelector's presenters for a visible FieldIconType.Fishing
+        /// sprite each frame: the bubble is shown via ShowFieldIcon(..., ref Vector3, ...),
+        /// which cannot be hooked (ref IL2CPP value-type param = native crash). The earlier
+        /// FieldManager.GetContactFishingWaterPlaceID poll was proven WRONG 2026-08-29: it
+        /// is contact with the water-place VOLUME (some span 200m+ over land — one overlaps
+        /// the Krosse City exit), not "can fish now", causing false prompts and false
+        /// auto-walk arrivals.
+        /// </summary>
+        public static bool FishPromptShowing => _fishShowing;
+
+        // --- Fishing bubble poll state ---
+
+        /// <summary>Cached world-space icon selector that draws the fishing bubble.</summary>
+        private static UIFieldIconSelector _iconSelector = null;
+
+        /// <summary>Next allowed FindObjectOfType time for the icon selector (throttle).</summary>
+        private static float _iconSelectorNextFindTime = 0f;
+
+        /// <summary>Seconds between icon-selector find attempts while it is unresolved.</summary>
+        private const float IconSelectorFindInterval = 2f;
+
+        /// <summary>Instance ID of the fishing icon sprite, 0 while unresolved.</summary>
+        private static int _fishingSpriteId = 0;
+
+        /// <summary>
+        /// True after "You can fish here" was spoken for the current approach. The game
+        /// BLINKS the bubble (hides/re-shows it in cycles while the player stands still —
+        /// observed 2026-08-29), so each re-show must not re-announce. Cleared only once
+        /// the player moves away from the announcement position (see
+        /// <see cref="FishReannounceDistance"/>), so a genuine re-approach announces again.
+        /// </summary>
+        private static bool _fishAnnounceLatched = false;
+
+        /// <summary>Player position at the last fishing announcement.</summary>
+        private static UnityEngine.Vector3 _fishAnnouncePos;
+
+        /// <summary>Meters the player must move from the announcement position before
+        /// the bubble may announce again (blink-proofing, not a rate limit).</summary>
+        private const float FishReannounceDistance = 3f;
+
+        /// <summary>Debug-only: last logged fishing diagnostic state (log-on-change).</summary>
+        private static string _lastFishDiagSignature = "";
+
         /// <summary>Parses a "&lt;sprite name=BUTTON&gt;ACTION" operation entry into button + action.</summary>
         private static readonly Regex _operationParser = new Regex(
             @"<sprite\s+name\s*=\s*([^>]+?)>\s*(.*)",
@@ -209,12 +259,14 @@ namespace SO2RAccess
         /// </summary>
         public void Update()
         {
-            if (_jumpShowing && !IsJumpStillShowing())
+            if (_jumpShowing && !IsActionStillShowing(_jumpPresenter, JumpAction))
             {
                 _jumpShowing = false;
                 _jumpPresenter = null;
                 DebugLogger.LogState("FieldPrompt: jump prompt cleared.");
             }
+
+            UpdateFishingBubblePoll();
 
             if (_enterShowing && !IsEnterStillShowing())
             {
@@ -226,21 +278,23 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Returns true if the cached presenter is still active and still displaying the jump
-        /// action. Any IL2CPP access failure (destroyed object) is treated as "not showing".
+        /// Returns true if the cached presenter is still active and still displaying the
+        /// given action word. Any IL2CPP access failure (destroyed object) is treated as
+        /// "not showing". Shared by the jump and fishing hide polls.
         /// </summary>
-        private static bool IsJumpStillShowing()
+        private static bool IsActionStillShowing(
+            UIFieldOperationPresenter presenter, string action)
         {
             try
             {
-                if (_jumpPresenter == null) return false;
-                if (!_jumpPresenter.gameObject.activeInHierarchy) return false;
+                if (presenter == null) return false;
+                if (!presenter.gameObject.activeInHierarchy) return false;
 
-                // Confirm the live on-screen text still contains the jump action — guards the
+                // Confirm the live on-screen text still contains the action — guards the
                 // case where the presenter stays active but its text was swapped/cleared.
                 // The action word survives tag-stripping unchanged, so the raw text can be
                 // substring-checked directly, avoiding a regex strip pass on this per-frame path.
-                var texts = _jumpPresenter.operationTextList;
+                var texts = presenter.operationTextList;
                 if (texts == null || texts.Count == 0) return false;
 
                 for (int i = 0; i < texts.Count; i++)
@@ -249,7 +303,7 @@ namespace SO2RAccess
                     if (gt == null) continue;
                     string raw = gt.text;
                     if (!string.IsNullOrEmpty(raw) &&
-                        raw.IndexOf(JumpAction, StringComparison.OrdinalIgnoreCase) >= 0)
+                        raw.IndexOf(action, StringComparison.OrdinalIgnoreCase) >= 0)
                         return true;
                 }
                 return false;
@@ -305,6 +359,255 @@ namespace SO2RAccess
             }
 
             DebugLogger.LogGameValue("FieldPrompt", $"jump prompt shown (button='{button}')");
+        }
+
+        /// <summary>
+        /// Per-frame poll of the game's fishing bubble — the world-space icon it shows
+        /// above the player's head exactly while fishing can be started. The bubble is
+        /// native-driven UI (ShowFieldIcon has a ref Vector3 param, unhookable), so the
+        /// icon presenters are polled instead. Edge-triggered: announces once when the
+        /// bubble appears, clears when it hides. Shares the enter-prompt F4 speech
+        /// toggle — both are "you can act here" guides. In debug mode, every change of
+        /// bubble/contact/visible-icon state is logged for evidence.
+        /// </summary>
+        private static void UpdateFishingBubblePoll()
+        {
+            bool bubble = IsFishingBubbleShowing(out string visibleIcons);
+
+            if (Main.DebugMode)
+                LogFishingDiag(bubble, visibleIcons);
+
+            // Re-arm the announcement once the player has left the spot: the game
+            // blinks the bubble while standing still, so hiding alone must NOT
+            // re-arm — only real movement away from where it was announced.
+            if (!bubble && _fishAnnounceLatched &&
+                TryGetPlayerPos(out var pos) &&
+                (pos - _fishAnnouncePos).sqrMagnitude >
+                    FishReannounceDistance * FishReannounceDistance)
+            {
+                _fishAnnounceLatched = false;
+                DebugLogger.LogState(
+                    "FieldPrompt: fishing announce re-armed (moved away).");
+            }
+
+            if (bubble == _fishShowing) return;
+            _fishShowing = bubble;
+
+            if (bubble)
+            {
+                if (_fishAnnounceLatched)
+                {
+                    // A blink re-show at the same spot — stay quiet.
+                    DebugLogger.LogState(
+                        "FieldPrompt: fishing bubble re-shown (blink), announce suppressed.");
+                    return;
+                }
+
+                // Bubble sound instead of speech (user decision 2026-08-30);
+                // speech only as fallback when the WAV is missing/unparseable so
+                // the prompt never goes silent by accident.
+                if (AudioCuePlayer.IsFishPromptSoundLoaded)
+                {
+                    if (ModSettings.FishPromptSoundEnabled)
+                        AudioCuePlayer.PlayFishPromptCue();
+                }
+                else if (ModSettings.EnterPromptSpeechEnabled)
+                {
+                    ScreenReader.Say(Loc.Get("fish_prompt"));
+                }
+                _fishAnnounceLatched = true;
+                if (!TryGetPlayerPos(out _fishAnnouncePos))
+                    _fishAnnouncePos = UnityEngine.Vector3.zero;
+                DebugLogger.LogGameValue("FieldPrompt", "fishing bubble shown");
+            }
+            else
+            {
+                DebugLogger.LogState("FieldPrompt: fishing bubble hidden.");
+            }
+        }
+
+        /// <summary>
+        /// Reads the control player's world position. False during scene
+        /// transitions or when no player exists.
+        /// </summary>
+        private static bool TryGetPlayerPos(out UnityEngine.Vector3 pos)
+        {
+            pos = UnityEngine.Vector3.zero;
+            try
+            {
+                var player = FieldManager.Instance?.GetControlPlayer();
+                if (player == null) return false;
+                pos = player.transform.position;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// True while any world-space icon presenter is visibly showing the fishing
+        /// sprite. Outputs the names of all visible icon sprites in debug mode (for
+        /// cataloguing — empty otherwise) so a wrong sprite-index assumption shows up
+        /// as log evidence instead of silence.
+        /// </summary>
+        private static bool IsFishingBubbleShowing(out string visibleIcons)
+        {
+            visibleIcons = "";
+            var sel = GetIconSelector();
+            if (sel == null || _fishingSpriteId == 0) return false;
+
+            bool fishing = false;
+            StringBuilder catalog = Main.DebugMode ? new StringBuilder() : null;
+
+            try
+            {
+                var list = sel.iconPresenterList;
+                if (list == null) return false;
+
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var presenter = list[i];
+                    if (!IsPresenterVisible(presenter)) continue;
+
+                    var img = presenter.icon;
+                    var sprite = img != null ? img.sprite : null;
+                    if (sprite == null) continue;
+
+                    if (sprite.GetInstanceID() == _fishingSpriteId)
+                        fishing = true;
+
+                    if (catalog != null)
+                    {
+                        if (catalog.Length > 0) catalog.Append(", ");
+                        catalog.Append(sprite.name);
+                    }
+                    else if (fishing)
+                    {
+                        break;  // no catalog wanted — first hit is enough
+                    }
+                }
+            }
+            catch
+            {
+                // Presenters destroyed mid-transition — treat as not showing this frame.
+                return false;
+            }
+
+            if (catalog != null) visibleIcons = catalog.ToString();
+            return fishing;
+        }
+
+        /// <summary>
+        /// True if the icon presenter is actually visible on screen: active in the
+        /// hierarchy and not faded out by its canvas group. Any IL2CPP access failure
+        /// (destroyed object) is treated as "not visible".
+        /// </summary>
+        private static bool IsPresenterVisible(UIFieldIconPresenter presenter)
+        {
+            try
+            {
+                if (presenter == null) return false;
+                if (!presenter.gameObject.activeInHierarchy) return false;
+
+                var canvasGroup = presenter.canvasGroup;
+                if (canvasGroup != null && canvasGroup.alpha < 0.5f) return false;
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Returns the cached UIFieldIconSelector, re-finding it (throttled) after scene
+        /// changes destroy it. Caches the fishing sprite's instance ID alongside — the
+        /// sprite at index FieldIconType.Fishing of the selector's sprite list.
+        /// </summary>
+        private static UIFieldIconSelector GetIconSelector()
+        {
+            try
+            {
+                // Touching gameObject validates the cached instance; a destroyed
+                // selector throws and falls through to the re-find below.
+                if (_iconSelector != null && _iconSelector.gameObject != null)
+                    return _iconSelector;
+            }
+            catch
+            {
+                _iconSelector = null;
+            }
+
+            float now = UnityEngine.Time.realtimeSinceStartup;
+            if (now < _iconSelectorNextFindTime) return null;
+            _iconSelectorNextFindTime = now + IconSelectorFindInterval;
+
+            try
+            {
+                // includeInactive: the selector may be disabled while no icon shows.
+                _iconSelector =
+                    UnityEngine.Object.FindObjectOfType<UIFieldIconSelector>(true);
+                if (_iconSelector == null) return null;
+
+                _fishingSpriteId = 0;
+                var sprites = _iconSelector.spriteList;
+                int fishingIndex = (int)UIDefine.FieldIconType.Fishing;
+                if (sprites != null && sprites.Count > fishingIndex &&
+                    sprites[fishingIndex] != null)
+                {
+                    _fishingSpriteId = sprites[fishingIndex].GetInstanceID();
+                }
+
+                DebugLogger.LogState(
+                    $"FieldPrompt: UIFieldIconSelector cached " +
+                    $"(sprites={(sprites != null ? sprites.Count : -1)}, " +
+                    $"fishingSpriteId={_fishingSpriteId}).");
+                if (_fishingSpriteId == 0)
+                    DebugLogger.LogState(
+                        "FieldPrompt: fishing sprite NOT resolved — bubble " +
+                        "detection inactive (sprite list too short or null entry).");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState(
+                    $"FieldPrompt: icon selector find failed: {ex.Message}");
+                _iconSelector = null;
+            }
+            return _iconSelector;
+        }
+
+        /// <summary>
+        /// Debug-only, log-on-change: correlates the bubble state with the old
+        /// water-place contact signal and the visible icon sprites, plus the player
+        /// position — the evidence trail for tuning the bubble detection.
+        /// </summary>
+        private static void LogFishingDiag(bool bubble, string visibleIcons)
+        {
+            int contactId = 0;
+            try
+            {
+                var fm = FieldManager.Instance;
+                if (fm != null && fm.GetControlPlayer() != null)
+                    contactId = fm.GetContactFishingWaterPlaceID();
+            }
+            catch
+            {
+                // Scene teardown — leave 0; diagnostic only.
+            }
+
+            string signature = $"{bubble}|{contactId}|{visibleIcons}";
+            if (signature == _lastFishDiagSignature) return;
+            _lastFishDiagSignature = signature;
+
+            string pos = TryGetPlayerPos(out var p)
+                ? $"({p.x:F1},{p.y:F1},{p.z:F1})" : "?";
+
+            DebugLogger.LogGameValue("FieldPrompt",
+                $"FISHDIAG bubble={bubble} contactID={contactId} " +
+                $"icons=[{visibleIcons}] pos={pos}");
         }
 
         /// <summary>

@@ -26,7 +26,12 @@ namespace SO2RAccess
         {
             if (_isAutoWalking)
             {
+                // Say WHICH walk this key press just killed — silently losing
+                // the walk left the player thinking it was still running
+                // (proven by the 2026-08-29 world-map fishing test).
+                string label = _autoWalkLabel;
                 CancelAutoWalk();
+                ScreenReader.Say(Loc.Get("nav_autowalk_cancelled_menu", label));
                 return;
             }
 
@@ -53,8 +58,14 @@ namespace SO2RAccess
 
             if (_isAutoWalking)
             {
+                // Opening the menu cancels the walk as a SIDE EFFECT — say so,
+                // or the player believes the walk is still running (proven by
+                // the 2026-08-29 world-map fishing test: the walk was 23m from
+                // its goal when a menu open silently killed it).
                 DebugLogger.LogState("GamepadOpenNav: cancelling auto-walk first.");
+                string label = _autoWalkLabel;
                 CancelAutoWalk();
+                ScreenReader.Say(Loc.Get("nav_autowalk_cancelled_menu", label));
             }
 
             if (!IsFieldFree())
@@ -206,12 +217,15 @@ namespace SO2RAccess
 
                 if (_isWorldmap)
                 {
-                    // World map: locations (from game data), nearby chests/enemies only.
-                    // Skip NPCs, exits, markers, events, save points, stairs, doors,
-                    // warps — these are either absent or redundant with Locations.
+                    // World map: locations (from game data), fishing spots,
+                    // nearby chests/enemies. Skip NPCs, exits, markers, events,
+                    // save points, stairs, doors, warps — these are either
+                    // absent or redundant with Locations.
                     BuildWorldmapLocations(playerPos, fm.WorldmapID);
                     BuildChests(playerPos);
                     BuildEnemies(playerPos);
+                    BuildFishingSpots(playerPos);
+                    LogWorldmapObjectSurvey(fm);
                 }
                 else
                 {

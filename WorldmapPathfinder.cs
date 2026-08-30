@@ -246,6 +246,56 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// Finds the nearest grid cell passable for the given travel mode
+        /// and returns its world-space centre with the grid's baked ground
+        /// height. Default snap range matches the pathfinder's endpoint
+        /// snapping (~50m); callers that discard long snaps anyway (the
+        /// fishing shore sampler) pass a small <paramref name="maxSnapMeters"/>
+        /// so failed searches over open ocean stay cheap. Used by the nav
+        /// list to turn in-water targets (fishing spots) into shore points
+        /// the walk can actually arrive at. Returns false when no grid is
+        /// cached or nothing passable exists within range — callers keep
+        /// their original position then.
+        /// </summary>
+        public static bool TryGetNearestWalkableWorld(Vector3 world,
+            WorldmapTravelMode mode, out Vector3 walkable,
+            float maxSnapMeters = 50f)
+        {
+            walkable = world;
+            try
+            {
+                var fm = FieldManager.Instance;
+                if (fm == null || !fm.IsExistWorldGridData()) return false;
+                var grid = GetCachedGrid(fm.WorldmapID);
+                if (grid == null) return false;
+
+                byte modeBit = ModeSearchBit(grid, mode);
+                grid.WorldToGrid(world.x, world.z, out int ax, out int az);
+                ax = Mathf.Clamp(ax, 0, grid.GridW - 1);
+                az = Mathf.Clamp(az, 0, grid.GridH - 1);
+                if (!grid.IsPassable(ax, az, modeBit))
+                {
+                    int maxRings = Mathf.Max(1,
+                        Mathf.CeilToInt(maxSnapMeters / grid.CellSize));
+                    SnapToPassable(ref ax, ref az, grid, modeBit, maxRings);
+                }
+                if (!grid.IsPassable(ax, az, modeBit)) return false;
+
+                Vector3 wp = grid.GridToWorld(ax, az);
+                ushort hv = grid.Height[ax, az];
+                wp.y = hv >= 2 ? (hv / 100f) - 100f : world.y;
+                walkable = wp;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState(
+                    $"NAV WM TryGetNearestWalkableWorld error: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Diagnostic: raw grid cell value + flags at a world position.
         /// Raw height: 0 = no ground, 1 = legacy baked obstacle,
         /// 2+ = ground with encoded height. Flags: per-mode blocked bits
@@ -284,10 +334,19 @@ namespace SO2RAccess
         /// Finds a path on the world map using the pre-computed grid, with
         /// the passability rule of the given travel mode. Returns
         /// world-space waypoints or null if no path exists.
+        /// <paramref name="skipComfortTier"/> skips the comfort-clearance
+        /// first pass and searches the 0.50m floor directly — pass true ONLY
+        /// when a previous FindPath for the SAME start/goal already fell back
+        /// to the floor and only blocked positions were added since: stamps
+        /// strictly remove passable cells, so the failed comfort pass cannot
+        /// succeed on a re-plan, and repeating it burned ~1.2s per round
+        /// (measured 2026-08-29: three 1.25M-cell comfort failures inside one
+        /// 7s refusal).
         /// </summary>
         public static Vector3[] FindPath(Vector3 start, Vector3 end,
             WorldmapTravelMode mode = WorldmapTravelMode.Foot,
-            List<Vector3> blockedPositions = null)
+            List<Vector3> blockedPositions = null,
+            bool skipComfortTier = false)
         {
             LastNoPathWasDisconnected = false;
             LastPathUsedFloorTier = false;
@@ -510,7 +569,13 @@ namespace SO2RAccess
                 List<Vector2Int> path = null;
                 int expansions1 = 0, expansions2 = 0;
 
-                if (foot)
+                if (foot && skipComfortTier)
+                {
+                    DebugLogger.LogState(
+                        "NAV WM pathfinder: comfort tier skipped (already " +
+                        "failed for this goal, only blocked stamps added).");
+                }
+                else if (foot)
                 {
                     path = AStarSearch(startAx, startAz, endAx, endAz,
                         grid, modeBit, PreferredMinClearance, true,
@@ -854,24 +919,44 @@ namespace SO2RAccess
         }
 
         /// <summary>Finds the nearest cell passable for the mode, searching
-        /// outward in growing rings (up to 50m).</summary>
+        /// outward in growing rings (default 100 rings = 50m). Visits only
+        /// the ~8r cells ON each ring — a full failed search costs tens of
+        /// thousands of cell reads, not millions (the old whole-square scan
+        /// per ring froze the fishing list build over open ocean).</summary>
         private static void SnapToPassable(ref int gx, ref int gz,
-            WorldmapGridFormat.CachedGrid grid, byte modeBit)
+            WorldmapGridFormat.CachedGrid grid, byte modeBit,
+            int maxRadiusCells = 100)
         {
-            for (int r = 1; r <= 100; r++)
+            for (int r = 1; r <= maxRadiusCells; r++)
             {
                 for (int dx = -r; dx <= r; dx++)
                 {
-                    for (int dz = -r; dz <= r; dz++)
+                    if (dx == -r || dx == r)
                     {
-                        if (Mathf.Abs(dx) != r && Mathf.Abs(dz) != r)
-                            continue;
-                        int nx = gx + dx;
-                        int nz = gz + dz;
-                        if (grid.IsPassable(nx, nz, modeBit))
+                        // Left/right edge of the ring: full column.
+                        for (int dz = -r; dz <= r; dz++)
                         {
-                            gx = nx;
-                            gz = nz;
+                            if (grid.IsPassable(gx + dx, gz + dz, modeBit))
+                            {
+                                gx += dx;
+                                gz += dz;
+                                return;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Interior column: only its top/bottom ring cells.
+                        if (grid.IsPassable(gx + dx, gz - r, modeBit))
+                        {
+                            gx += dx;
+                            gz -= r;
+                            return;
+                        }
+                        if (grid.IsPassable(gx + dx, gz + r, modeBit))
+                        {
+                            gx += dx;
+                            gz += r;
                             return;
                         }
                     }

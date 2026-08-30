@@ -107,14 +107,103 @@ namespace SO2RAccess
             // "Press X to enter" prompt fires), not the location centre — so the
             // pathfinder keeps the model wall impassable and still reaches the entrance.
             Vector3 walkTarget = item.Position;
+            // Live-transform targets (NPCs): path to where the target IS, not where
+            // it stood when the list was built — a wandering NPC can be meters away
+            // by the time the walk starts (proven: "Could not reach Youth" 2026-08-30).
+            if (item.LiveTransform != null)
+            {
+                try { walkTarget = item.LiveTransform.position; }
+                catch { /* destroyed transform — keep the list position */ }
+            }
+            List<FishingStand> fishingStands = null;
             if (_isWorldmap && _currentCategoryIndex == CAT_LOCATION)
                 walkTarget = ComputeEnterTriggerTarget(item.Position, playerPos);
+            // World-map fishing spots: refine the coarse shore point to
+            // standing spots the GAME confirms are fishable (its own water
+            // probe), searching the water box perimeter. Multiple candidates
+            // — when the route to the nearest is refused, the next is tried
+            // below. Arrival facing aims at the stand's verified water point.
+            else if (_isWorldmap && _currentCategoryIndex == CAT_INTERACTABLE
+                     && item.TriggerBounds.HasValue)
+            {
+                fishingStands = ComputeWorldmapFishingStands(
+                    item.TriggerBounds.Value, playerPos);
+                if (fishingStands.Count == 0)
+                    item.FacePosition = item.TriggerBounds.Value.center;
+            }
 
             bool pathFound;
             try
             {
-                pathFound = CalculateAndStorePath(playerPos, walkTarget,
-                    allowPartial: true, isCounter: item.IsCounterNpc);
+                if (fishingStands != null && fishingStands.Count > 0)
+                {
+                    pathFound = false;
+                    int tries = Math.Min(fishingStands.Count, MaxFishingStandAttempts);
+
+                    // PASS 1 — comfort routes only: prefer a stand reachable
+                    // on wide paths. A floor-tier (0.50m clearance) route
+                    // threads body-width pinches where the party followers
+                    // crowd the player into a stuck-recalc ordeal (proven at
+                    // the Krosse river spot, 2026-08-29), so such a route is
+                    // kept only as a LAST resort — not taken just because its
+                    // stand happens to be nearest.
+                    int firstFloorTierStand = -1;
+                    for (int s = 0; s < tries && !pathFound; s++)
+                    {
+                        walkTarget = fishingStands[s].Stand;
+                        item.FacePosition = fishingStands[s].Face;
+                        bool found = CalculateAndStorePath(playerPos, walkTarget,
+                            allowPartial: true, isCounter: item.IsCounterNpc);
+                        if (found && !_wmLastRouteFloorTier)
+                        {
+                            pathFound = true;
+                        }
+                        else if (found)
+                        {
+                            if (firstFloorTierStand < 0) firstFloorTierStand = s;
+                            DebugLogger.LogState(
+                                $"NAV WM fishing: stand {s + 1} of {tries} at " +
+                                $"({walkTarget.x:F1},{walkTarget.z:F1}) only has " +
+                                "a floor-tier (0.50m) route — kept as last " +
+                                "resort, trying the next stand for a comfort route.");
+                        }
+                        else
+                        {
+                            DebugLogger.LogState(
+                                $"NAV WM fishing: no route to stand {s + 1} of " +
+                                $"{tries} at ({walkTarget.x:F1},{walkTarget.z:F1})" +
+                                " — trying the next stand.");
+                        }
+                    }
+
+                    // PASS 2 — no comfort route to any stand: take the first
+                    // stand that had a floor-tier route. Recomputed, because
+                    // later pass-1 attempts overwrote the stored path; the
+                    // comfort A* is skipped (it already failed for this goal,
+                    // and blocked stamps only remove cells).
+                    if (!pathFound && firstFloorTierStand >= 0)
+                    {
+                        walkTarget = fishingStands[firstFloorTierStand].Stand;
+                        item.FacePosition = fishingStands[firstFloorTierStand].Face;
+                        DebugLogger.LogState(
+                            "NAV WM fishing: no comfort-tier route to any " +
+                            $"stand — taking the floor-tier route to stand " +
+                            $"{firstFloorTierStand + 1}.");
+                        pathFound = CalculateAndStorePath(playerPos, walkTarget,
+                            allowPartial: true, isCounter: item.IsCounterNpc,
+                            skipComfortTier: true);
+                    }
+
+                    if (!pathFound)
+                        DebugLogger.LogState(
+                            "NAV WM fishing: no reachable stands — " +
+                            "reporting unreachable.");
+                }
+                else
+                {
+                    pathFound = CalculateAndStorePath(playerPos, walkTarget,
+                        allowPartial: true, isCounter: item.IsCounterNpc);
+                }
             }
             catch (Exception ex)
             {
@@ -148,6 +237,8 @@ namespace SO2RAccess
             _autoWalkCategoryIndex = _currentCategoryIndex;
             _isAutoWalking       = true;
             _autoWalkArrived     = false;
+            _autoWalkArrivalAnnounced = false;
+            _pathExhaustRecalcs  = 0;
             _staticIsAutoWalking = true;
 
             // Initialize stuck detection.
@@ -157,6 +248,7 @@ namespace SO2RAccess
                 _wmLastStuckCheckPos = playerPos;
                 _wmTightTerrain      = false;
                 _wmTightProbeCounter = 0;
+                _wmFishCreepActive   = false;
             }
             else
             {
@@ -218,8 +310,11 @@ namespace SO2RAccess
         /// <summary>
         /// Cancels an active auto-walk silently.
         /// Called by manual input, scene change, or when the field becomes busy.
-        /// No announcement — the "Arrived" message handles successful completion,
-        /// and manual cancellation needs no confirmation (player initiated it).
+        /// No announcement here — the "Arrived" message handles successful
+        /// completion and explicit cancel gestures (NumPad 1, stick) need no
+        /// confirmation. Exception: the nav-menu open paths announce the cancel
+        /// themselves, because there the cancel is a side effect the player may
+        /// not intend (see NavigationHandler.List.cs).
         /// </summary>
         public void CancelAutoWalk()
         {
@@ -236,6 +331,7 @@ namespace SO2RAccess
             _staticAutoWalkStickDir = Vector2.zero;
             _staticCameraStickX     = 0f;
             _wmDirectMoveActive     = false;
+            _wmFishCreepActive      = false;
             _pathCorners                = null;
             _pathCornerIndex            = 0;
             _pathRecalcTimer            = 0f;
@@ -598,6 +694,7 @@ namespace SO2RAccess
             _staticAutoWalkStickDir = Vector2.zero;
             _staticCameraStickX  = 0f;
             _wmDirectMoveActive  = false;
+            _wmFishCreepActive   = false;
             _isAvoidingObstacle  = false;
             _pathCorners         = null;
             _spatialSensor.Reset();
@@ -815,11 +912,17 @@ namespace SO2RAccess
         /// When <paramref name="isCounter"/> is true the recorded-traversal route is
         /// skipped: a counter NPC must use the partial NavMesh path that stops right
         /// in front of the counter, not a breadcrumb route that won't line up there.
+        /// <paramref name="skipComfortTier"/> (world map only) skips the comfort-
+        /// clearance pathfinder pass — valid ONLY when a previous computation for
+        /// the SAME goal already fell back to the floor tier (see
+        /// WorldmapPathfinder.FindPath).
         /// </summary>
         private bool CalculateAndStorePath(Vector3 playerPos, Vector3 targetPos,
-            bool allowPartial = false, bool isCounter = false)
+            bool allowPartial = false, bool isCounter = false,
+            bool skipComfortTier = false)
         {
-            bool ok = CalculateAndStorePathCore(playerPos, targetPos, allowPartial, isCounter);
+            bool ok = CalculateAndStorePathCore(playerPos, targetPos, allowPartial,
+                isCounter, skipComfortTier);
             if (ok) return true;
 
             // Disconnection safety net: if carving markers are active and no path was
@@ -848,10 +951,13 @@ namespace SO2RAccess
         /// <see cref="CalculateAndStorePath"/> which adds the carving disconnection fallback.
         /// </summary>
         private bool CalculateAndStorePathCore(Vector3 playerPos, Vector3 targetPos,
-            bool allowPartial = false, bool isCounter = false)
+            bool allowPartial = false, bool isCounter = false,
+            bool skipComfortTier = false)
         {
             // World map has no NavMesh — use the game's A* pathfinder instead.
-            if (_isWorldmap) return WorldmapCalculateAndStorePath(playerPos, targetPos);
+            if (_isWorldmap)
+                return WorldmapCalculateAndStorePath(playerPos, targetPos,
+                    skipComfortTier: skipComfortTier);
 
             Vector3[] corners;
             bool fromTraversal = false;

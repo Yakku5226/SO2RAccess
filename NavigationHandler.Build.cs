@@ -570,18 +570,53 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Scans for FieldFishingWaterPlace objects and adds them to the
-        /// Interactables category. Position is set to the nearest walkable
-        /// shore point (NavMesh sample from collider center). LiveTransform
-        /// is set to the BoxCollider transform so the arrival code can face
-        /// the player toward the water.
+        /// Builds the fishing spot entries of the Interactables category.
+        /// Fields scan live FieldFishingWaterPlace objects; the world map
+        /// has NONE (its spots are painted into the game's native world
+        /// grid data), so spots come from the ConstFishingWaterPlaceParameter
+        /// database there. Both paths share reachability filtering,
+        /// numbering, and the shore-point/face-water arrival contract.
         /// </summary>
         private void BuildFishingSpots(Vector3 playerPos)
         {
-            var found = UnityEngine.Object.FindObjectsOfType<FieldFishingWaterPlace>();
-            if (found == null || found.Length == 0) return;
+            var items = _isWorldmap
+                ? CollectWorldmapFishingSpots(playerPos)
+                : CollectFieldFishingSpots(playerPos);
+            if (items.Count == 0) return;
 
+            SortAndFilterUnreachable(items, playerPos);
+
+            // Number if multiple fishing spots on the same map.
+            if (items.Count > 1)
+            {
+                for (int i = 0; i < items.Count; i++)
+                {
+                    var item = items[i];
+                    item.Label = Loc.Get("nav_fishing_n", i + 1);
+                    items[i] = item;
+                }
+            }
+
+            _categories[CAT_INTERACTABLE].AddRange(items);
+
+            foreach (var item in items)
+                DebugLogger.LogGameValue("NAV:FISHING",
+                    $"[{item.Label}] dist={item.Distance:F1} pos={item.Position}");
+        }
+
+        /// <summary>
+        /// Collects field-map fishing spots from live FieldFishingWaterPlace
+        /// objects. Walk target is the nearest NavMesh point to the collider
+        /// center (the water's edge); the center itself becomes the
+        /// face-on-arrival point.
+        /// </summary>
+        private List<NavItem> CollectFieldFishingSpots(Vector3 playerPos)
+        {
             var items = new List<NavItem>();
+
+            var found = UnityEngine.Object.FindObjectsOfType<FieldFishingWaterPlace>();
+            if (found == null) return items;
+
             foreach (var spot in found)
             {
                 if (spot == null) continue;
@@ -619,24 +654,7 @@ namespace SO2RAccess
                 });
             }
 
-            SortAndFilterUnreachable(items, playerPos);
-
-            // Number if multiple fishing spots on the same map.
-            if (items.Count > 1)
-            {
-                for (int i = 0; i < items.Count; i++)
-                {
-                    var item = items[i];
-                    item.Label = Loc.Get("nav_fishing_n", i + 1);
-                    items[i] = item;
-                }
-            }
-
-            _categories[CAT_INTERACTABLE].AddRange(items);
-
-            foreach (var item in items)
-                DebugLogger.LogGameValue("NAV:FISHING",
-                    $"[{item.Label}] dist={item.Distance:F1} pos={item.Position}");
+            return items;
         }
 
         /// <summary>

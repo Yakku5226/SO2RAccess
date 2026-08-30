@@ -93,6 +93,17 @@ namespace SO2RAccess
         private const float InteractableArrivalRadius = 1.3f;
 
         /// <summary>
+        /// Approach radius for NPCs — how close the walk TRIES to get before
+        /// stopping. 1.2m: the one logged successful talk fired at 1.0m while
+        /// stops at 1.74–1.80m left the action button dead for 10s of following
+        /// (Cunning Fighter, 2026-08-30); NPC + player colliders make ~1.0m the
+        /// physical minimum. Acceptance stays at AutoWalkArrivalRadius (1.8m) in
+        /// IsAtRealTarget: when geometry (carve holes, colliders) exhausts the
+        /// path between 1.2 and 1.8m, arrival is still honestly reported.
+        /// </summary>
+        private const float NpcApproachRadius = 1.2f;
+
+        /// <summary>
         /// Maximum vertical gap (world units) for the player to count as being on
         /// the target's level. Larger gaps mean the target is on a floor above or
         /// below, so arrival must NOT be announced.
@@ -205,6 +216,22 @@ namespace SO2RAccess
         /// In proximity-lock mode the player stays glued to the NPC until NumPad 5 is pressed.
         /// </summary>
         private bool _autoWalkArrived;
+        /// <summary>
+        /// True once the proximity-lock arrival message has been spoken for this walk.
+        /// A wandering NPC drifts in and out of the arrival radius while being
+        /// followed — the full "Arrived ..." message must not replay on every
+        /// re-catch (spoke 6 times in 4s at the Cunning Fighter, 2026-08-30).
+        /// </summary>
+        private bool _autoWalkArrivalAnnounced;
+        /// <summary>
+        /// Path-exhaustion recalcs used on the current walk. A live-transform target
+        /// (NPC) that moved since the path was computed gets the path recomputed to
+        /// its current position instead of a false "Could not reach"; capped so a
+        /// genuinely unreachable NPC still gets an honest refusal.
+        /// </summary>
+        private int _pathExhaustRecalcs;
+        /// <summary>Maximum path-exhaustion recalcs per walk for moving targets.</summary>
+        private const int MaxPathExhaustRecalcs = 2;
         /// <summary>
         /// True when auto-walking to a counter NPC (shop, inn, guild) via a partial path.
         /// Arrival is detected at the last waypoint rather than proximity to the NPC.
@@ -549,6 +576,8 @@ namespace SO2RAccess
                         _autoWalkLabel = _wmResumeLabel;
                         _autoWalkCategoryIndex = _wmResumeCategoryIndex;
                         _autoWalkTransform = _wmResumeTransform;
+                        _autoWalkTriggerBounds = _wmResumeTriggerBounds;
+                        _autoWalkFacePosition = _wmResumeFacePosition;
                         _isWorldmap = true;
 
                         // Update target from live transform if available.
@@ -642,6 +671,11 @@ namespace SO2RAccess
                         _wmResumeLabel = _autoWalkLabel;
                         _wmResumeCategoryIndex = _autoWalkCategoryIndex;
                         _wmResumeTransform = _autoWalkTransform;
+                        // Fishing identity too — CancelAutoWalk clears both,
+                        // and without them the resumed walk skips the
+                        // bubble-confirmed arrival (false "Arrived").
+                        _wmResumeTriggerBounds = _autoWalkTriggerBounds;
+                        _wmResumeFacePosition = _autoWalkFacePosition;
                         // Keep blocked positions across battles.
                         DebugLogger.LogState(
                             $"NAV worldmap: battle interrupt, saving resume for '{_autoWalkLabel}'.");
@@ -781,7 +815,9 @@ namespace SO2RAccess
                     || _autoWalkCategoryIndex == CAT_SAVE
                     || _autoWalkCategoryIndex == CAT_INTERACTABLE;
                 float arrivalRadius = isInteractable
-                    ? InteractableArrivalRadius : AutoWalkArrivalRadius;
+                    ? InteractableArrivalRadius
+                    : (_autoWalkCategoryIndex == CAT_NPC
+                        ? NpcApproachRadius : AutoWalkArrivalRadius);
                 // Announce arrival ONLY when genuinely at the real target — never
                 // while standing on a different floor than the target.
                 bool atTarget = targetDist <= arrivalRadius
@@ -843,14 +879,28 @@ namespace SO2RAccess
                         _autoWalkArrived     = true;
                         _staticIsAutoWalking = false;
                         _staticAutoWalkStickDir = Vector2.zero;
-                        AnnounceArrival(Loc.Get("nav_autowalk_arrived_npc", _autoWalkLabel));
-                        DebugLogger.LogState($"NAV auto-walk proximity lock '{_autoWalkLabel}'.");
+
+                        // Announce (and dump diagnostics) only on the FIRST catch of
+                        // this walk. A wandering NPC re-enters the radius every few
+                        // steps while being followed — replaying the full message
+                        // each time is pure noise (6× in 4s, 2026-08-30).
+                        if (!_autoWalkArrivalAnnounced)
+                        {
+                            _autoWalkArrivalAnnounced = true;
+                            AnnounceArrival(Loc.Get("nav_autowalk_arrived_npc", _autoWalkLabel));
+                            DebugLogger.LogState($"NAV auto-walk proximity lock '{_autoWalkLabel}'.");
+
+                            // --- Diagnostic dump on NPC arrival ---
+                            LogNpcArrivalDiagnostics(player, playerPos, targetDist);
+                        }
+                        else
+                        {
+                            DebugLogger.LogState(
+                                $"NAV auto-walk proximity re-lock '{_autoWalkLabel}' (silent).");
+                        }
 
                         // Face the NPC.
                         player.transform.rotation = Quaternion.LookRotation(targetDir, Vector3.up);
-
-                        // --- Diagnostic dump on NPC arrival ---
-                        LogNpcArrivalDiagnostics(player, playerPos, targetDist);
                     }
 
                     // Stay stopped — don't inject any input while in proximity-lock.
@@ -1093,6 +1143,47 @@ namespace SO2RAccess
                 // the NavMesh edge.
                 if (_pathCornerIndex >= _pathCorners.Length)
                 {
+                    // Live-transform rescue: the target may simply have MOVED since
+                    // this path was computed (wandering NPC) — recompute to its
+                    // current position instead of a false "Could not reach" (proven
+                    // at the Lacuer Youth, 2026-08-30: NPC 4m from the stale goal).
+                    // The initial approach is capped so a genuinely unreachable NPC
+                    // still gets an honest refusal; the FOLLOW phase (after the
+                    // first catch) recalcs without a cap — short 2-corner paths to
+                    // a walker exhaust every few steps, and the stuck detector
+                    // already guards against chasing an unreachable target.
+                    if (_autoWalkTransform != null
+                        && (_autoWalkArrivalAnnounced
+                            || _pathExhaustRecalcs < MaxPathExhaustRecalcs))
+                    {
+                        if (!_autoWalkArrivalAnnounced) _pathExhaustRecalcs++;
+                        bool rescued = false;
+                        try
+                        {
+                            rescued = CalculateAndStorePath(playerPos, _autoWalkTarget,
+                                allowPartial: true, isCounter: _autoWalkIsCounter);
+                        }
+                        catch (Exception ex)
+                        {
+                            DebugLogger.LogState(
+                                $"NAV auto-walk: exhaust-recalc error: {ex.Message}");
+                        }
+                        if (rescued)
+                        {
+                            DebugLogger.LogState(
+                                $"NAV auto-walk: path exhausted for '{_autoWalkLabel}' " +
+                                $"but target moved — recomputed to live position " +
+                                $"({_autoWalkTarget.x:F1},{_autoWalkTarget.z:F1}), " +
+                                (_autoWalkArrivalAnnounced
+                                    ? "follow phase (uncapped)."
+                                    : $"attempt {_pathExhaustRecalcs} of {MaxPathExhaustRecalcs}."));
+                            return;
+                        }
+                        DebugLogger.LogState(
+                            $"NAV auto-walk: exhaust-recalc to live position failed " +
+                            $"for '{_autoWalkLabel}' — falling through to honest stop.");
+                    }
+
                     // Path exhausted but proximity check didn't fire.
                     // With input injection, event triggers and map exits fire
                     // naturally via Unity colliders as the player walks through.
