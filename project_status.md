@@ -37,6 +37,197 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> ✅ **REBINDING MENU: TEST R1 PASSED (2026-08-30, session 3 — user: "The
+> keybindings menu works"). NOT YET COMMITTED — joins the pile (scheme rework +
+> battle strategy-menu fix + README/LICENSE docs) when the user says go.**
+>
+> ✅ **FINALISATION TWEAKS (same day, DLL deployed, user: "Looks good"):**
+> - Debug hotkeys F5–F11 REMOVED from the rebind list (BuildRebindRows skips
+>   ModKeyContext.DebugOnly; their 7 keybind_action_* Loc strings deleted;
+>   list is now 16 actions + 2 commands = 18 rows). Capturing F5–F11 for any
+>   other action gives a new passive warning instead (keybind_clash_debug):
+>   "Warning: <key> is reserved for debugging and will only work if debug
+>   mode is not active." Key still accepted; F12 (debug toggle) and F1–F4
+>   stay rebindable. Reset-all still covers debug actions internally (scrubs
+>   any stale settings.json override). README + docs/mod-bindings.md updated.
+> - Startup announcement (mod_loaded) changed to "Welcome to SO2R Access."
+>   (was "SO2RAccess loaded. Press F1 for help." — F1 hint dropped on purpose,
+>   still in README/help).
+>
+> ✅ **DEMO COMPATIBILITY (2026-08-30, session 4):** `MelonGame` attribute in
+> Main.cs changed from `("SquareEnix", "SO2R")` to universal (no-argument
+> `[assembly: MelonGame]`), so MelonLoader loads the mod on both the full game
+> and the free demo regardless of their internal product names (game code is
+> identical; the reference BepInEx mod works on both for the same reason —
+> BepInEx has no game-name gate at all). README Requirements updated. Built and
+> deployed. NOT committed — joins the pile.
+>
+> ➡️ **NEXT:** user may have more changes, then COMMIT + PUSH
+> the whole pile: input scheme rework + battle strategy-menu fix +
+> README/LICENSE docs + rebinding menu + finalisation tweaks + demo
+> compatibility.
+>
+> What was built:
+> - New "Key bindings" item at the BOTTOM of the mod settings menu (F4). Enter
+>   opens it (Cross/A on pad). New file `ModMenuHandler.Rebinding.cs` (partial
+>   class); `ModMenuHandler.cs` gained a MenuScreen state machine (Root /
+>   Rebind / Capture), Enter/NumpadEnter + Cross/A activation, and a null-Change
+>   guard for submenu rows ("Press Enter to open." on left/right).
+> - Submenu lists ALL 23 ModActions in enum order (debug F5–F11 ones at the
+>   end), then "Reset all keys to defaults", then "Save and go back". Rows read
+>   "Story hint: apostrophe. Item 15 of 25." Arrows/D-pad navigate, wraps.
+> - Enter on an action = capture: "Press the new key for X. Escape cancels."
+>   Next key pressed (polled via kb.allKeys wasPressedThisFrame — RUNTIME
+>   UNVERIFIED under IL2CPP interop, see test R1c) becomes the PENDING binding.
+>   Escape / Circle-B cancels the capture only. The Enter that started the
+>   capture can't be captured (next-frame polling).
+> - Passive clash warnings on capture (accepted anyway): (a) game keys via new
+>   `InputBindingDump.GameActionsForKey(key)` (live map, best-effort — empty if
+>   game data not loaded); (b) other PENDING mod bindings whose context
+>   overlaps (same context, or either Global). Nav vs battle-pause sharing
+>   stays non-clash.
+> - Nothing applies until "Save and go back": ModKeys.Apply(pending) +
+>   ModSettings.Save(), announce "Key bindings saved." Escape in the list =
+>   "Key binding changes discarded." Both return to the root settings list.
+>   Force-close (L2+L3) while in the submenu also discards — safe.
+> - Menu nav keys (arrows/Enter/Escape) are FIXED, never rebindable; Escape
+>   can't be captured by design.
+> - Persistence: settings.json `KeyBindings` dict (action name → key name),
+>   ONLY non-default keys saved (so future default changes reach non-rebinders).
+>   ModSettings.Load → ApplyKeyBindings → ModKeys.Apply at startup; unknown
+>   names logged + skipped. ModKeys gained `_defaultKeys` snapshot +
+>   GetDefault().
+> - F1 help text now builds key names LIVE from ModKeys (16 placeholders) —
+>   stays truthful after rebinding. README + docs/mod-bindings.md updated.
+> - Loc: ~40 new strings (keybind_*, mod_menu_label_keybinds, mod_menu_submenu,
+>   mod_menu_use_enter, keybind_action_<EnumName> per action).
+>
+> TEST SCRIPT R1 (F12 debug ON):
+> - R1a: F4 → arrow to last item "Key bindings: press Enter to open" → Enter.
+>   Hear intro + first row "Help: F1. Item 1 of 25"? Arrows wrap both ways?
+> - R1b: Enter on an action (e.g. Quick recovery) → prompt → press a free key
+>   (e.g. O) → "… is now O."? Escape during a capture cancels cleanly?
+> - R1c: CRITICAL — does capture register keys at all (kb.allKeys under
+>   IL2CPP)? If every key press is silent in capture mode, report — fallback
+>   is polling the Key enum via kb[key].
+> - R1d: capture a game key (e.g. F = attack) → hear the game-clash warning;
+>   capture a key used by another mod action in same context → mod-clash
+>   warning; both still accepted.
+> - R1e: change a key, ESCAPE out → old key still works, new key does nothing.
+>   Change a key, "Save and go back" → new key works immediately (try Quick
+>   recovery or story hint), F1 help speaks the NEW name, settings.json gains
+>   KeyBindings entry. Restart game → rebind persists.
+> - R1f: "Reset all keys to defaults" → rows read defaults; still needs Save.
+>   After saving defaults, settings.json KeyBindings is empty.
+> - R1g: gamepad — D-pad navigates submenu, Cross/A activates, Circle/B
+>   discards; L2+L3 while submenu open closes whole menu, changes discarded.
+>
+> Foundation (previous sessions): ModKeys.Apply() swaps the dictionary with
+> zero call-site churn, InputBindingDump.FindKeyboardClashes() is the checker,
+> game's own Set/SwapKeyboardKey APIs documented in game-api.md §4.
+> User-approved plan (QOL round 1): NumPad removed entirely (numpadless
+> keyboards), gamepad modifier L1 → L2 (L1 = game pickpocket clash, user
+> report), all bindings centralized in NEW `ModKeys.cs` (ModAction/ModKeyContext
+> enums, dictionary-backed — future rebinding menu swaps contents, zero call
+> sites; DisplayName() feeds all logs/speech). NEW `InputBindingDump.cs`: on
+> F12 debug-enable, logs the game's LIVE keyboard map (per-action via
+> `ParameterManager.Instance.SystemConfigParameter.GetKeyboardKey`, verified
+> decompiled SystemConfigParameter.cs:1572) + pad map (`GetBindInputKey`) +
+> reverse pad summaries (which actions sit on L1/L2/R1/R2/L3/R3) + per-mod-key
+> FREE/CLASHES verdict, spoken one-liner (Loc binddump_*). This is the
+> foundation of the future rebind clash checker (FindKeyboardClashes()).
+>
+> New keyboard scheme: F-keys unchanged (F1 help, F2 voice, F3 Fol, F4 menu,
+> F12 debug, F5–F11 debug). NAV IS NOW MODELESS — no open/close: `-`/`=` prev/
+> next category (auto-refresh >10s), `[`/`]` prev/next item, `\` walk/cancel
+> toggle; list lives in the background, silently rebuilt when absent/stale/
+> other map (EnsureListReady in NavigationHandler.List.cs; BuildList split from
+> ScanAndOpenList — gamepad hold-overlay path unchanged; ToggleNavList/CloseList
+> deleted; nav_close Loc removed; nav_autowalk_cancelled_menu renamed
+> nav_autowalk_cancelled). Announced distances now LIVE-recomputed from player
+> position (LiveDistanceUnits) — build-time distances mislead on a background
+> list. Battle pause reuses the family: `-`/`=` tier, `[`/`]` character.
+> Story hint NumPad7→H (camp), party status NumPad0→P (quick recovery);
+> fallbacks Quote/Semicolon if dump shows clash (one line in ModKeys).
+> Gamepad: hold L2 = nav overlay, L2+L3 menu, L2+R3 Fol, L3-alone guards now
+> "L2 not held"; pause keeps L1/R1. Suppression while overlay held is now a
+> DYNAMIC set: RebuildModifierSuppressSet (Patches.cs) collects every action
+> whose live pad binding == InputKey.L2 on each overlay open (fallback set
+> TriggerLeft2/FieldWalk/FieldCameraUp/Down if API not ready); hardcoded
+> FieldCameraLeft dropped (L1 no longer ours). NavCategoryNext/Prev now
+> re-announce when only one category (feedback on every press). Docs updated:
+> game-api.md §3 rewritten + SystemConfigParameter API in §4, NEW
+> docs/mod-bindings.md (user-facing reference), project_status key table,
+> README.md Controls section filled in. Builds clean, DLL deployed.
+>
+> ✅ K1 BINDING DUMP PASSED (2026-08-30, log 11:19): dump + spoken verdict
+>   worked. Results: `-` `=` `[` `]` `\` P all FREE; **H CLASHED** (game maps
+>   keyboard H → its R3 action: BackLog/BattleTargetLock) → **story hint moved
+>   to APOSTROPHE (Key.Quote)**, docs/help updated, rebuilt + deployed.
+>   PickPocket confirmed on L1 (pad). L2 pad actions = TriggerLeft2,
+>   FieldPsynardFallBack, PhotoMode_CameraZoomout, BattleTargetChangeMode —
+>   dynamic suppress set logged exactly that at runtime (working). Game
+>   keyboard defaults recorded in game-api.md §3 + full battle-key list in
+>   docs/mod-bindings.md (F confirm, C cancel/dodge, Q/E skills, Tab battle
+>   menu, R change command, T battle pause, LeftCtrl switch character,
+>   LeftShift target mode, LeftAlt lock, 1-4 assaults, Space skip).
+>   User session results: everything works EXCEPT battle "R" menu (below).
+>   🐛 FOUND VIA LOG: game's R (BattleChangeCommand) opens
+>   UIBattleOperationSelector (quick strategy/operations list; also has
+>   isTacticsTransition into the full tactics screen) — SILENT because
+>   UIBattleOperationListItemPresenter is on ListSelectionHandler's
+>   suppression list ("dedicated handler owns it") but NO handler reads that
+>   standalone screen (BattleMenuHandler only handles tacticsSelector reached
+>   via Tab menu root; operationSelector lands in PHASE_OTHER). ✅ FIX BUILT +
+>   DEPLOYED + K4 PASSED (2026-08-30, "all looks good"): PHASE_OPERATION added to
+>   BattleMenuHandler (peek == _battleWindow.operationSelector, a
+>   UIListSelectorBase; announces "Strategy." heading + polls currentIndex,
+>   reads itemDataList[idx].operationName via battle_menu_root_item Loc;
+>   Phase F in class docs). Entering the full tactics screen from it hits the
+>   existing PHASE_TACTICS (entry-path-agnostic peek check) — its duplicate
+>   "Strategy." heading is suppressed when oldPhase==PHASE_OPERATION. Row
+>   type deliberately KEPT on the ListSelectionHandler suppression list (same
+>   presenter used inside the menu tactics op list — unsuppressing would
+>   double-speak). Two debug diagnostics added: unhandled-peek-selector type
+>   logging in IdentifyPhase (names any future silent battle screen), and
+>   "operation selector active but window IsOpened=false" probe in case the R
+>   shortcut doesn't open the battle window (would explain a silent retest).
+>   ✅ K4 PASSED — R strategy menu reads (heading + orders), no double-speak.
+> ✅ K2 KEYBOARD + K3 GAMEPAD PASSED (2026-08-30, user: "Everything seems to
+>   work fine but for the in battle controls" → the one battle finding became
+>   the K4 fix below; user then confirmed "all looks good"). Modeless nav,
+>   walk/cancel toggle, battle-pause family, apostrophe hint, P status, L2
+>   overlay + chords, L1 pickpocket regression — all working. No L2 flutter
+>   or release-blip issues reported (hysteresis remedy stays on the shelf).
+>   International-layout caveat stands (Key values are physical positions,
+>   QWERTY assumed) — the rebinder is the real fix.
+>
+> 📘 **2026-08-30 DOCS SESSION: README + LICENSE drafted (NOT committed — new
+> uncommitted pile).** New root `README.md`: intro, feature list, installation
+> guide (MelonLoader links, Tolk DLLs step, Sounds → UserData\SO2RAccess\Sounds),
+> Controls section = PLACEHOLDER until the control scheme is final, credits
+> (user as Yakku, MelonLoader, Tolk, Square Enix disclaimer, all six Freesound
+> sounds from `Sounds\Game sound license directory.txt`), license section. New
+> `LICENSE` = MIT, "Copyright (c) 2026 Yakku" (free use/modify/redistribute as
+> long as the credit notice is kept). `.gitignore`: `Sounds/` → `Sounds/*` +
+> negation so the sound-license txt is now tracked (WAVs stay ignored).
+> **EMBEDDED NAV DATA REFRESHED:** the DLL ships breadcrumbs + world map grid as
+> embedded resources (csproj `traversals\*.json` + `grids\*.grid.gz`; auto-
+> extract at runtime, local UserData copies always win) — but the embeds were
+> STALE: 4 breadcrumb files from June 12 and the July-5 grid (pre-D1-fix bake).
+> Fixed: all 61 live breadcrumb JSONs copied from game UserData into
+> `traversals\`; live July-10 rebaked grid re-gzipped into
+> `grids\worldmap_expel.grid.gz` (11.2MB). Rebuilt; verified 62 embedded
+> resources in the DLL; deployed to Mods (same code, fresh data). README has a
+> "Navigation data (no action needed)" note. OPEN: dodge sound (andersmmg) has
+> NO license line in the credits txt — user to check its Freesound page and add
+> it (README carries it license-less for now). RELEASE CHECKLIST seed: before
+> any release, re-copy live traversals + re-gzip the current grid into the
+> project so the shipped DLL stays current.
+> **NEW STANDING RULE (added to CLAUDE.md):** major new features or other
+> user-facing changes must be reflected in README.md too (features,
+> installation, credits), not just project_status.md.
+
 > ✅ **FISHING M10 PASSED (2026-08-29, session end): world-map fishing feature-complete
 > and user-accepted ("Seems good") — but NOT COMMITTED: user has more changes planned
 > first.** M10 log (20:13–20:16) confirmed everything green: comfort-first stand
@@ -4036,28 +4227,34 @@ Stale-open check helper consolidation. Key changes:
 
 ## Key Bindings (Mod)
 
-### Keyboard
-- F1: Help
-- F2: Toggle dialogue voice mode (full text / name only when voiced)
-- NumPad 5: Open/close navigation list (also cancels auto-walk)
-- NumPad 8 / 2: Navigate up/down in nav list
-- NumPad 4 / 6: Switch category in nav list
-- NumPad 1: Auto-walk to selected item / cancel auto-walk / stop following
-- F12: Toggle debug mode
-- NumPad 7 (camp menu open): Read story hint
-- NumPad 0 (Quick Recovery overlay): Read party status
+REWORKED 2026-08-30 — single source of truth is `ModKeys.cs`; full user-facing
+reference in `docs/mod-bindings.md`. NumPad removed entirely (numpadless
+keyboards); gamepad modifier moved L1 → L2 (L1 = game's pickpocket).
 
-### Gamepad
-- Hold L1: Open navigation list (field only, not in menus/battle)
-- D-pad Up/Down (while L1 held): Switch category
-- D-pad Left/Right (while L1 held): Navigate previous/next item
-- Left stick up (while L1 held): Auto-walk to highlighted item
-- Release L1: Close navigation list
-- L1 press during auto-walk: Cancel auto-walk and reopen nav list
-- L1+L3: Toggle mod settings menu
-- L1+R3: Read current Fol
+### Keyboard
+- F1: Help. F2: Dialogue voice mode. F3: Read Fol. F4: Mod settings menu. F12: Debug (runs binding dump on enable)
+- Minus / Equals: Previous / next nav category (modeless — no open/close; auto-builds/refreshes the background list)
+- Left / Right bracket: Previous / next nav item
+- Backslash: Auto-walk to selected item / cancel active walk
+- Battle pause open: Minus / Equals = tier down/up, brackets = character prev/next (same keys, different context)
+- H (camp menu open): Read story hint (fallback Quote if dump shows clash)
+- P (Quick Recovery overlay): Read party status (fallback Semicolon)
+- F5–F11: Debug-only diagnostics (unchanged)
+
+### Gamepad (modifier = L2)
+- Hold L2: Open navigation overlay (field only, not in menus/battle)
+- D-pad Up/Down (while L2 held): Switch category
+- D-pad Left/Right (while L2 held): Navigate previous/next item
+- Left stick up (while L2 held): Auto-walk to highlighted item
+- Release L2: Close navigation overlay
+- L2 press during auto-walk: Cancel auto-walk and reopen overlay
+- L2+L3: Toggle mod settings menu
+- L2+R3: Read current Fol
 - L3 (camp menu open): Read story hint
 - L3 (Quick Recovery overlay): Read party status
+- Battle pause open: L1 = tier up, R1 = tier down (free during pause; unchanged)
+- While L2 held, game actions bound to L2 are suppressed via a dynamic set built
+  from live bindings (RebuildModifierSuppressSet in NavigationHandler.Patches.cs)
 
 ## Architecture Notes
 

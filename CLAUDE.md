@@ -74,6 +74,7 @@ Play sounds to alert the user (who is blind and may not be watching the screen):
 - Feature done → suggest new conversation to save tokens. Update `project_status.md`.
 - ~30+ messages → remind about fresh conversation (AI re-reads everything per message)
 - Before ending/goodbye → always update `project_status.md`
+- Major new feature or user-facing change (controls, installation, credits) → update `README.md` too, not just `project_status.md`
 - After new code analysis → document in `docs/game-api.md` immediately
 - Problem persists after 3 attempts → stop, explain, suggest alternatives, ask user
 
