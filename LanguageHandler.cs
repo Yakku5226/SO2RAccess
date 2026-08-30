@@ -4,6 +4,7 @@ using Il2CppGame;
 using MelonLoader;
 using System;
 using System.Runtime.CompilerServices;
+using UnityEngine;
 
 namespace SO2RAccess
 {
@@ -11,7 +12,7 @@ namespace SO2RAccess
     /// Auto-detects the game's text language and keeps the mod's speech
     /// language in sync when ModSettings.Language is "auto".
     ///
-    /// Two mechanisms:
+    /// Three mechanisms:
     /// 1. One-shot startup detection in Update() — reads
     ///    SystemConfigParameter.TextLanguage once the game is ready (game
     ///    singletons must not be touched earlier, see Main.cs).
@@ -19,9 +20,12 @@ namespace SO2RAccess
     ///    player changes the text language in the game's config menu, so the
     ///    mod switches mid-session without a restart. The parameter is a
     ///    by-value enum, so the never-hook-ref-IL2CPP-value-types rule is
-    ///    respected. Should IL2CPP ever inline this method away (patch applies
-    ///    but never fires), the fallback would be polling TextLanguage on a
-    ///    slow timer here in Update().
+    ///    respected.
+    /// 3. Polling backup in Update() (every 2 s, auto mode only) — the game
+    ///    applies language changes through a native ChangeLanguageTask, so
+    ///    the managed hook may never fire; the poll catches any change the
+    ///    hook misses. Hook and poll share _lastSeenGameLanguage so a switch
+    ///    is only ever announced once.
     ///
     /// A manual override (any setting other than "auto") disables both — the
     /// override is applied by Loc.Initialize() at startup and by the settings
@@ -32,10 +36,15 @@ namespace SO2RAccess
         #region Fields
 
         private bool _patchesApplied;
+        private float _pollTimer;
+
+        private const float PollIntervalSeconds = 2f;
 
         // Static: shared by the static Harmony postfix and DetectNow(), which
         // the settings menu calls without a handler reference.
         private static bool _autoDetectDone;
+        private static int _lastSeenGameLanguage = -1;
+        private static bool _readFailureLogged;
 
         #endregion
 
@@ -73,40 +82,45 @@ namespace SO2RAccess
         #region Public Methods
 
         /// <summary>
-        /// Per-frame update. Runs the one-shot startup auto-detection; free
-        /// after it completes or when a manual override is set.
+        /// Per-frame update. Runs the one-shot startup auto-detection, then
+        /// polls for live language changes every couple of seconds while the
+        /// setting is Automatic. Free when a manual override is set.
         /// </summary>
         public void Update()
         {
-            if (_autoDetectDone || ModSettings.Language != "auto") return;
-            DetectNow(announce: false);
+            if (ModSettings.Language != "auto") return;
+
+            if (!_autoDetectDone)
+            {
+                DetectNow(announce: false);
+                return;
+            }
+
+            _pollTimer += Time.deltaTime;
+            if (_pollTimer < PollIntervalSeconds) return;
+            _pollTimer = 0f;
+
+            int gameLanguage = TryReadGameLanguage();
+            if (gameLanguage < 0 || gameLanguage == _lastSeenGameLanguage) return;
+
+            MelonLogger.Msg($"LanguageHandler: game text language change detected by polling ({_lastSeenGameLanguage} -> {gameLanguage}).");
+            _lastSeenGameLanguage = gameLanguage;
+            ApplyGameLanguage(gameLanguage, announce: true);
         }
 
         /// <summary>
         /// Reads the game's current text language and applies the matching
         /// translation. Called from Update() at startup and by the settings
         /// menu when the user selects Automatic. Silent when the game is not
-        /// ready yet (detection retries next frame in that case).
+        /// readable yet (detection retries via Update()).
         /// </summary>
         public static void DetectNow(bool announce)
         {
-            int gameLanguage;
-            try
-            {
-                SystemConfigParameter config = ParameterManager.Instance?.SystemConfigParameter;
-                if (config == null) return; // not ready yet — Update() retries
-                gameLanguage = (int)config.TextLanguage;
-            }
-            catch (Exception ex)
-            {
-                // Read failed outright (not just "not ready") — stop retrying,
-                // stay on the current language, and say why in the log.
-                _autoDetectDone = true;
-                MelonLogger.Warning($"LanguageHandler: could not read game language, staying on '{Loc.ActiveCode}': {ex.Message}");
-                return;
-            }
+            int gameLanguage = TryReadGameLanguage();
+            if (gameLanguage < 0) return; // not ready — Update() retries
 
             _autoDetectDone = true;
+            _lastSeenGameLanguage = gameLanguage;
             ApplyGameLanguage(gameLanguage, announce);
         }
 
@@ -122,6 +136,11 @@ namespace SO2RAccess
         {
             try
             {
+                // Always log, even when nothing is done with it — this line is
+                // the proof that the hook actually fires (vs. the polling
+                // backup catching the change).
+                MelonLogger.Msg($"LanguageHandler: OnChangeLanguage hook fired, game text language = {(int)language}.");
+                _lastSeenGameLanguage = (int)language;
                 if (ModSettings.Language != "auto") return;
                 ApplyGameLanguage((int)language, announce: true);
             }
@@ -134,6 +153,30 @@ namespace SO2RAccess
         #endregion
 
         #region Private Methods
+
+        /// <summary>
+        /// Reads the game's current text language, or -1 when it is not
+        /// readable (game still loading, or a transient IL2CPP hiccup — both
+        /// resolve on a later poll). A hard failure is logged once.
+        /// </summary>
+        private static int TryReadGameLanguage()
+        {
+            try
+            {
+                SystemConfigParameter config = ParameterManager.Instance?.SystemConfigParameter;
+                if (config == null) return -1;
+                return (int)config.TextLanguage;
+            }
+            catch (Exception ex)
+            {
+                if (!_readFailureLogged)
+                {
+                    _readFailureLogged = true;
+                    MelonLogger.Warning($"LanguageHandler: could not read game language (will keep retrying quietly): {ex.Message}");
+                }
+                return -1;
+            }
+        }
 
         /// <summary>
         /// Maps a game language value to a translation file and loads it if it
