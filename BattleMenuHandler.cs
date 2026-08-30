@@ -11,11 +11,15 @@ namespace SO2RAccess
     /// <summary>
     /// Announces the in-battle command menu (Triangle) via screen reader.
     ///
-    /// Covers four sub-screens:
+    /// Covers six sub-screens:
     ///   Phase A: Root menu (Item / Battle Skill / Tactics / Escape)
     ///   Phase B: Item sub-menu (Recovery / Combat tabs, item details)
     ///   Phase C: Spell/skill sub-menu (per-character tabs, skill details)
     ///   Phase D: Target selection (enemy or ally targeting after skill/item pick)
+    ///   Phase E: Tactics (per-character strategy assignment)
+    ///   Phase F: Operation quick list — the "change command" shortcut
+    ///            (keyboard R / Square) opens this standalone strategy list;
+    ///            one entry transitions into the full tactics screen (Phase E).
     ///
     /// All navigation is native C++ (CallerCount 0) — uses polling pattern.
     /// Data capture via Harmony postfixes on info panel presenters.
@@ -33,6 +37,7 @@ namespace SO2RAccess
         private UIBattleSpellSelector _spellSelector;
         private UIBattleSelectCharacterSelector _targetSelector;
         private UIBattleTacticsSelector _tacticsSelector;
+        private UIBattleOperationSelector _operationSelector;
         private int _findCooldown;
 
         // Phase detection via GetPeekSelector() — identifies active sub-screen
@@ -42,6 +47,7 @@ namespace SO2RAccess
         private const int PHASE_SPELL = 3;
         private const int PHASE_TARGET = 4;
         private const int PHASE_TACTICS = 5;
+        private const int PHASE_OPERATION = 6;
         private const int PHASE_OTHER = 99;
         private int _lastPhase = -1;
         private bool _wasWindowOpen;
@@ -67,6 +73,9 @@ namespace SO2RAccess
         private int _lastTacticsState = -1;
         private int _lastTacticsOpIndex = -1;
         private UIListSelectorBase _tacticsOpListBase;
+
+        // Phase F: Operation quick-list polling ("change command" shortcut)
+        private int _lastOperationIndex = -1;
 
         // Hook data caches (static — Harmony postfixes write here)
         private static string _cachedInfoLabel;
@@ -117,6 +126,8 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(UICampOperationSelectListSelector).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UICampOperationInformationPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIBattleOperationListItemPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIBattleOperationSelector).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIBattleOperationListItemData).TypeHandle);
 
                 // Hook UIBattleSpellInformationPresenter.Set(UIBattleSpellInformationData) — CallerCount(3)
                 // Fires when info panel updates for both items and spells
@@ -266,6 +277,7 @@ namespace SO2RAccess
             _spellSelector = null;
             _targetSelector = null;
             _tacticsSelector = null;
+            _operationSelector = null;
             _findCooldown = 0;
             ResetAllState();
         }
@@ -289,6 +301,7 @@ namespace SO2RAccess
                     _spellSelector = _battleWindow.spellSelector;
                     _targetSelector = _battleWindow.selectCharacterSelector;
                     _tacticsSelector = _battleWindow.tacticsSelector;
+                    _operationSelector = _battleWindow.operationSelector;
                 }
                 catch (Exception ex)
                 {
@@ -309,6 +322,13 @@ namespace SO2RAccess
                         ResetAllState();
                         _wasWindowOpen = false;
                     }
+                    // Diagnostic: the "change command" shortcut screen should
+                    // open the battle window; if it ever shows while the window
+                    // reports closed, this pinpoints why Phase F stays silent.
+                    if (Main.DebugMode && _operationSelector != null &&
+                        _operationSelector.gameObject.activeInHierarchy)
+                        DebugLogger.LogState(
+                            "BattleMenu: operation selector active but window IsOpened=false.");
                     return;
                 }
                 _wasWindowOpen = true;
@@ -332,6 +352,7 @@ namespace SO2RAccess
                     case PHASE_SPELL: PollSpellSelector(); break;
                     case PHASE_TARGET: PollTargetSelector(); break;
                     case PHASE_TACTICS: PollTacticsSelector(); break;
+                    case PHASE_OPERATION: PollOperationSelector(); break;
                 }
             }
             catch (Exception ex)
@@ -360,7 +381,7 @@ namespace SO2RAccess
             _lastTacticsState = -1;
             _lastTacticsOpIndex = -1;
             _tacticsOpListBase = null;
-
+            _lastOperationIndex = -1;
         }
 
         private static void ClearHookCaches()
@@ -398,6 +419,14 @@ namespace SO2RAccess
                 if (opSel != null && peekSelector == opSel.TryCast<UISelectorBase>())
                     return PHASE_TACTICS;
             }
+            // Standalone strategy quick list — the "change command" shortcut
+            // (keyboard R / Square) opens this without going through the root menu.
+            if (_operationSelector != null &&
+                peekSelector == (UISelectorBase)_operationSelector)
+                return PHASE_OPERATION;
+
+            DebugLogger.LogState(
+                $"BattleMenu: unhandled selector on stack: {peekSelector.GetIl2CppType()?.Name}");
             return PHASE_OTHER;
         }
 
@@ -438,6 +467,15 @@ namespace SO2RAccess
                     _lastTacticsOpIndex = -1;
                     _tacticsOpListBase = null;
                     _cachedOpName = null;
+                    // No heading when arriving from the operation quick list —
+                    // the user already heard "Strategy." there and the
+                    // per-character announcement follows immediately.
+                    if (oldPhase != PHASE_OPERATION)
+                        ScreenReader.Say(Loc.Get("battle_menu_tactics_heading"));
+                    break;
+
+                case PHASE_OPERATION:
+                    _lastOperationIndex = -1;
                     ScreenReader.Say(Loc.Get("battle_menu_tactics_heading"));
                     break;
             }

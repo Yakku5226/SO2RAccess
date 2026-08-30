@@ -180,6 +180,41 @@ namespace SO2RAccess
 
 
 
+        /// <summary>
+        /// Polls the standalone strategy quick list (Phase F) — opened by the
+        /// game's "change command" shortcut (keyboard R / Square) without going
+        /// through the root battle menu. Announces the highlighted order by
+        /// name and position; the entry that opens the full tactics screen is
+        /// then handled by the regular tactics phase.
+        /// </summary>
+        private void PollOperationSelector()
+        {
+            if (_operationSelector == null) return;
+
+            try
+            {
+                int idx = _operationSelector.currentIndex;
+                if (idx == _lastOperationIndex) return;
+                _lastOperationIndex = idx;
+
+                var dataList = _operationSelector.itemDataList;
+                if (dataList == null || idx < 0 || idx >= dataList.Count) return;
+
+                var itemData = dataList[idx];
+                if (itemData == null) return;
+
+                string opName = TextUtil.StripTags(itemData.operationName ?? "").Trim();
+                if (string.IsNullOrEmpty(opName)) return;
+
+                ScreenReader.Say(Loc.Get("battle_menu_root_item",
+                    opName, idx + 1, dataList.Count));
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"BattleMenuHandler.PollOperationSelector error: {ex.Message}");
+            }
+        }
+
         private void PollTacticsSelector()
         {
             if (_tacticsSelector == null) return;
