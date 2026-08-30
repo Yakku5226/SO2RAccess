@@ -39,9 +39,12 @@
 
   <!-- English string table, compiled into the DLL as the localization
        fallback and re-extracted to UserData\SO2RAccess\lang\en.json on every
-       launch as the translators' reference template (see TRANSLATING.md). -->
+       launch as the translators' reference template (see TRANSLATING.md).
+       Only en.json is embedded: bundled translations (fr, de, sv, pt, ...)
+       ship as loose files in the release zip's lang folder, so players and
+       the community can edit them without a rebuild. -->
   <ItemGroup>
-    <EmbeddedResource Include="lang\*.json" />
+    <EmbeddedResource Include="lang\en.json" />
   </ItemGroup>
 
   <!-- MelonLoader (net6 runtime) -->

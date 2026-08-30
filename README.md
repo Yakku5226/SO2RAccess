@@ -38,6 +38,7 @@ The mod is built on [MelonLoader](https://melonwiki.xyz/) and uses the [Tolk](ht
    - Copy `SO2RAccess.dll` into the game's `Mods` folder.
    - Copy `Tolk.dll` and `nvdaControllerClient64.dll` into the main game folder (the one containing the game's `.exe`).
    - Copy the `Sounds` folder to `UserData\SO2RAccess\Sounds` inside the game directory, so that the `.wav` files end up directly in that folder.
+   - Optional: copy the `lang` folder to `UserData\SO2RAccess\lang` if you want the bundled starter translations (French, German, Swedish, Portuguese). Skip it to play in English.
 
 4. Play.
    Start your screen reader, then start the game. The mod announces itself once it has loaded. If you hear nothing, check the MelonLoader console/log for errors — the most common cause is `Tolk.dll` not being in the game folder.
@@ -108,6 +109,8 @@ rebinding itself is keyboard-only — the gamepad layout is fixed.
 ## Translations
 
 The mod speaks English out of the box, and community translations are plain JSON files — no code changes needed. To use one, drop the translation file (for example `de.json`) into `UserData\SO2RAccess\lang` inside the game directory, then pick the language in the mod settings menu (F4) under Speech language, or leave it on Automatic to follow the game's own text language. Any text a translation does not cover falls back to English automatically.
+
+Starter translations for French (`fr.json`), German (`de.json`), Swedish (`sv.json`), and Portuguese (`pt.json`) ship with the mod. They are machine-assisted first drafts — corrections and improvements from native speakers are very welcome; open an issue or pull request on GitHub.
 
 To create a translation yourself, see [TRANSLATING.md](TRANSLATING.md) — it walks through copying the always-current English template the mod places in that same lang folder.
 
