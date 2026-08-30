@@ -65,7 +65,18 @@
 >   16-placeholder help string, UTF-8, missing-key fallback, naming/auto
 >   codes); README Translations section; docs/localization-guide.md marked
 >   SUPERSEDED (described the old hardcoded-dictionaries design).
-> - 🟡 **PENDING TESTS L1 (user, in-game):**
+> - ✅ **L1 TESTS PASSED 2026-08-30 (user: "it works properly now", tested
+>   main menu + camp menu):** startup unchanged, en.json extracted, test
+>   language loads/persists via F4 row, auto-detect works, live switching
+>   works, missing-language fallback to English works (ko/zh-Hant refusals
+>   logged cleanly). KEY FINDING: the OnChangeLanguage Harmony hook NEVER
+>   fires (game switches language via native ChangeLanguageTask) — the 2s
+>   polling backup (commit f2a1399) is the working mechanism; hook kept as
+>   a harmless proof-logger. Tests 4 (partial file missing-key fallback),
+>   5 (malformed JSON), 8 (regression sweep) not explicitly run — same
+>   code paths largely exercised, optional. Test files fr.json in the
+>   game's lang folder can be deleted or kept for future testing.
+> - Original checklist (for reference):
 >   1. Startup speaks "Welcome to SO2R Access." unchanged; F1 help reads
 >      with all key names filled in (proves export fidelity).
 >   2. `UserData\SO2RAccess\lang\en.json` exists after launch; Latest.log
