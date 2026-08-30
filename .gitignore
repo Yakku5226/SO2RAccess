@@ -24,3 +24,9 @@ coding-glossary.txt
 
 # Cloned refactoring prompts repo (not for commit)
 .llm-prompts/
+
+# Third-party mod decompiled for API research (not ours, never commit)
+reference-mods/
+
+# Notification sounds (user-provided, not for commit)
+Sounds/

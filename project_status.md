@@ -22,8 +22,8 @@
 - [x] Game directory auto-check completed
 - [x] Mod loader selected and installed (MelonLoader)
 - [x] Tolk DLLs in place (Tolk.dll + nvdaControllerClient64.dll)
-- [x] .NET SDK available (8.0.418)
-- [x] Decompiler tool ready (ilspycmd 9.1.0.7988)
+- [x] .NET SDK available (8.0.424 + 10.0.400 side by side; builds use SDK 10 since 2026-08-29)
+- [x] Decompiler tool ready (ilspycmd 11.0.0.9375, updated 2026-08-29; needs the .NET 10 SDK)
 - [x] Game launched once with MelonLoader (log + IL2CPP stubs generated)
 - [x] Game code decompiled to `decompiled/Assembly-CSharp/`
 - [ ] Tutorial texts extracted (if applicable)
@@ -36,6 +36,244 @@
 ## Current Phase
 
 **Phase:** Phase 3 — Feature Implementation
+
+> ✅ **FISHING M10 PASSED (2026-08-29, session end): world-map fishing feature-complete
+> and user-accepted ("Seems good") — but NOT COMMITTED: user has more changes planned
+> first.** M10 log (20:13–20:16) confirmed everything green: comfort-first stand
+> routing working ("kept as last resort" lines), comfort-skip firing (refusals 7s →
+> ~2s), repeated clean bubble-confirmed arrivals ("Arrived at Fishing spot X. You can
+> fish here." — incl. after battles), menu-open cancel speech working. One user
+> question ANSWERED (no code change): near-vs-far verdict flip at the Krosse river
+> pinch — standing IN the narrow area puts its wedges inside the sweep's deliberate
+> 16m start-side exemption (WmSweepEndpointExemptDist, the Marze gate fix / accepted
+> caveat 2026-07-11) → optimistic walk + honest stuck give-up; from ~99m away the
+> same wedges are mid-route → honest pre-walk refusal. Both verdicts are the same
+> truth; do NOT shrink the exemption (re-breaks town gates).
+>
+> 📋 **REFERENCE-MOD MENU PLAN (user-approved 2026-08-29, in steps):**
+> 1. ✅ TEST G1 PASSED (user 2026-08-29: "Seems to work perfectly"): Universal
+>    list-selection safety net (`ListSelectionHandler.cs`) — postfix on
+>    `UICanSelectedListItemPresenterBase.OnSelected` (game-api.md §19). Covered
+>    screens suppressed by concrete type name (44-type list) + camp/shop open
+>    gates; unknown rows spoken generically (GameText children joined) after a
+>    0.15s settle delay, deduped. Every fire logs type + decision in debug mode.
+> 2. ✅ GUILD FIRST COMMAND MENU WORKS via the generic fallback — log shows
+>    clean "Accept"/"Report"; row class = `UIShopMenuListItemPresenter` (same
+>    type as the shop's Buy/Sell root menu, which stays suppressed via the
+>    IsShopOpen gate). Quest list did NOT double-speak (suppressed, GuildHandler
+>    spoke). 🟡 STALE-ANNOUNCE FIX BUILT + DEPLOYED (PENDING TEST G2): opening
+>    the command menu woke the quest selector with stale data → GuildHandler
+>    spoke "Guild missions." + a stale mission (log 21:02:23, "Alchemy Mission 1
+>    Completed (5)" while on Accept/Report). Fix: real focus always fires
+>    UIQuestListItemPresenter.OnSelected; new
+>    `ListSelectionHandler.WasRecentlySelected(type, 1.0s)` gate in
+>    PollGuildQuests — no announcements without a recent selection event.
+>    ✅ TEST G2 PASSED (user 2026-08-30: "Works perfectly").
+> 3. ✅ STORY HINT BUILT + DEPLOYED (PENDING TEST G3) — user changed binding to
+>    L3 IN THE CAMP MENU (safe: QuickRecoveryHandler's L3 party status only
+>    listens while its field overlay is open; L1+L3 mod menu unaffected —
+>    L1-held check). Keyboard twin NumPad 7. New
+>    `CampMenuHandler.StoryHint.cs`: reads the balloon LIVE on press (no
+>    caching, no SetSpeechBalloon hook needed) via
+>    UICampDotCharacterPresenter.speechBalloonPresenter.speechBalloonText;
+>    prefers a balloon with IsShowingSpeechBalloon, falls back to any real
+>    text (balloon animates in/out); placeholders (0000/目的/-) filtered;
+>    always answers ("Story hint: ..." or "No story hint available."). Loc:
+>    camp_story_hint / camp_story_hint_none.
+>    ✅ TEST G3 PASSED (user 2026-08-30: "Works perfectly").
+> 4. ✅ MISSED DIALOGUE BUILT + DEPLOYED (PENDING TEST G4). New
+>    `DialogueHandler.WindowMessages.cs` (DialogueHandler now partial):
+>    postfixes on UIConversationWindow SetConversationAutoMessage
+>    (string,string,float,bool), SetConversationMessageFollowObject
+>    (string,string), ShowCenterMessage, ShowEntireMessage (ambient bubbles +
+>    center/full-screen text; messageID → TextManager System→Skill→Item,
+>    UNRESOLVED IDs SUPPRESSED + logged) and ShowEventInformation
+>    (title+description, spoken verbatim if not IDs). 1.0s same-text dedupe.
+>    ⚠️ ref-Vector3 overloads of these methods exist and were deliberately NOT
+>    hooked (native-crash rule) — only the plain overloads (reference-mod
+>    proven). TEST G4 STILL OPEN (2026-08-30 session: hooks fired ZERO times —
+>    no bubbles triggered, INCONCLUSIVE, nothing regressed): keep playing;
+>    ambient NPC bubbles, center-screen messages, and event info panels
+>    should speak; normal dialogue must NOT double-speak. Log lines:
+>    "DialogueHandler.windowMessage".
+> 5. 🟡 WALKING-NPC AUTO-WALK FIXES BUILT + DEPLOYED (PENDING TEST G5),
+>    user-approved 2026-08-30 (snappier-follow tweak DECLINED for now — recalc
+>    stays 1.5s/3m). Root cause of both user reports = wandering NPCs:
+>    (a) "Arrived at Cunning Fighter..." spoke 6× in 4s — proximity-lock
+>    re-announced on every re-catch of a walker; FIX: _autoWalkArrivalAnnounced
+>    latch, full message + diagnostics dump only on FIRST catch per walk,
+>    re-locks log "(silent)".
+>    (b) FALSE "Could not reach Youth. Stopped 4 meters" (Lacuer) — path was
+>    computed to the STALE list-build position, NPC had walked 4m, and
+>    path-exhaustion gave up without recomputing; FIX 1: AutoWalkTo paths to
+>    item.LiveTransform.position when present (worldmap location/fishing
+>    overrides unaffected — they run after); FIX 2: path-exhaustion recalcs to
+>    the live position for live-transform targets (MaxPathExhaustRecalcs=2 per
+>    walk, then honest refusal).
+>    TEST G5 RESULT (2026-08-30): fixes a+b VISIBLY WORKING in log (one
+>    announcement + "(silent)" re-lock; exhaust-rescue armed) BUT follow at
+>    1.8m = OUT OF TALK RANGE: 10s of following the Cunning Fighter with zero
+>    dialogue despite action presses; the ONE successful talk logged fired at
+>    dist=1.0m. → FIX ROUND 2 BUILT + DEPLOYED (PENDING TEST G6):
+>    (c) NpcApproachRadius = 1.2m — the walk now TRIES to get within 1.2m of
+>    NPCs (atTarget check, CAT_NPC only; physical minimum ~1.0m from
+>    colliders); ACCEPTANCE in IsAtRealTarget stays 1.8m so a path that
+>    exhausts between 1.2–1.8m (carve hole, collider) still honestly reports
+>    arrival — no new false refusals.
+>    (d) Follow-phase exhaust-rescue UNCAPPED (initial approach keeps the
+>    2-recalc cap → honest refusal): short 2-corner paths to a walker exhaust
+>    every few steps; stuck detector still guards livelock. Log says "follow
+>    phase (uncapped)".
+>    ✅ TEST G6 PASSED (user 2026-08-30: "Looks good").
+> 6. 🟡 FISHING PROMPT SOUND BUILT + DEPLOYED (PENDING TEST G7), user request
+>    2026-08-30: the fishing bubble now plays `bubble_big.wav` (user-provided,
+>    copied to game UserData\SO2RAccess\Sounds) INSTEAD of speaking "You can
+>    fish here." — speech remains ONLY as fallback when the WAV is
+>    missing/unparseable (never silent by accident). New AudioCuePlayer
+>    Load/Play/IsLoaded trio (jump-cue pattern); ModSettings
+>    FishPromptSoundEnabled (default on) + FishPromptSoundVolume (0.8),
+>    persisted; mod menu entries "Fishing prompt sound" toggle + volume (after
+>    Enter prompt speech). Auto-walk arrival message ("Arrived at Fishing
+>    spot X...") UNCHANGED — only the bubble prompt readout became a sound.
+>    Sounds/ added to .gitignore (bubble_big.wav must never be committed;
+>    older tracked WAVs from the initial commit left as-is).
+>    G7 ATTEMPT 1 (2026-08-30): sound did NOT play — log line "bubble_big.wav
+>    must be PCM format": the user's WAV was 32-bit IEEE FLOAT (format 3);
+>    AudioCuePlayer (like winmm) needs integer PCM. Speech fallback worked as
+>    designed. FIXED by converting the ASSET (not the code): both copies
+>    (E:\StarOcean\Sounds + game UserData) rewritten as 16-bit PCM mono
+>    44.1kHz (44142 bytes); header verified format=1, plays via SoundPlayer.
+>    No rebuild needed. RETEST G7: stand at a fishing spot → bubble sound
+>    instead of speech; re-arm by walking >3m away and back; mod menu has the
+>    2 new entries. THEN: user wants to COMMIT the whole pile.
+> ⚠️ UNCOMMITTED WORK PILE (commit together when user says go): entire fishing
+> build (M4–M10 fixes: perf, bubble detection, creep, resume bounds, routing,
+> distances, cancel speech), Welsh specialty SP fix (validated), csproj
+> reference-mods exclusion. Do not commit until the user calls it ready.
+>
+> (M9 record follows.)
+>
+> 🟡 **FISHING M9 (2026-08-29): creep+resume fixes WORKED (multiple clean
+> bubble-confirmed arrivals incl. "Arrived at Fishing spot X. You can fish here."),
+> but 3 findings → 2 FIXED (PENDING M10), 1 = known floor-tier limit (discuss).**
+> (1) STUCK SAGA (user: "stuck in a narrow area near something else"): the big
+> river spot near Krosse lists at ~19–27m but its only VERIFIED stands are 58–148m
+> away, and the only route threads a corridor that FAILS the 0.6m comfort clearance
+> (route exists only on the raw 0.50m floor tier). The walk inched along a ledge
+> (obstacle wall 0.51m away) with RENA/CELINE/PRECIS crowding within ~1m in every
+> stuck snapshot (party followers in the pinch), advanced ~2.5m per stuck-recalc,
+> and after 5 recalcs refused honestly ("Cannot reach"). NOT a creep/detection bug —
+> this is the known floor-tier pinch limit, survivable-but-miserable variant.
+> ✅ USER APPROVED + IMPLEMENTED same day ("Fix the routing please"): stand
+> selection is now two-pass — PASS 1 accepts only stands whose ACCEPTED route
+> stays on the comfort tier (new _wmLastRouteFloorTier field; the pathfinder's
+> LastPathUsedFloorTier static alone can reflect a dropped safe-exit leg or
+> re-plan, so the accepted tier is latched in WorldmapCalculateAndStorePath);
+> PASS 2 falls back to the FIRST floor-tier stand, recomputed with
+> skipComfortTier (monotone-safe; threaded through CalculateAndStorePath →
+> Core → WorldmapCalculateAndStorePath → FindPath). Nothing reachable becomes
+> unreachable — only the order changes. COST NOTE for M10: a spot whose stands
+> are ALL floor-tier (the Krosse river spot) now tries every stand before
+> walking — a few extra seconds at walk start for exactly those spots.
+> (2) "39–40m at the spot" = the inside-box
+> fallback's own lie (distance to the center snap across the lake). FIXED: list
+> target + distance = nearest walkable shore cell on the PLAYER's side
+> (TryFindShoreOnPlayerSide now runs for every spot, subsuming the far-bank rescue;
+> no same-side shore → old edge metric + filter). Standing at the stand should now
+> read ~1–2m; Krosse exit ~50–70m. BUILD log: shore=True/False dist=. (3) FREEZES
+> on walk-start/refusal (~7s measured): stand verification (game water probes,
+> 1.5–3.5s, up to 336 perimeter samples) + per-stand comfort A* (1.25M cells
+> ≈1.2s) + floor A* + capsule sweeps ×3 stands ×2 re-plan rounds. Provable waste
+> REMOVED: re-plan rounds no longer repeat a comfort-tier search that already
+> failed (wedge stamps only REMOVE cells — monotone; FindPath gained
+> skipComfortTier, passed only within one walk computation). Refusals should be
+> ~half as long; the 2–3.5s stand verification remains (= the accuracy the user
+> asked about; cacheable later if still annoying). TEST M10: distances at
+> stand/Krosse exit; refusal wait shorter; everything from M9 still green.
+>
+> (M8 record follows.) M8 log findings:
+> (a) the ONE false positive = a battle-interrupted fishing walk: the world-map resume
+> path didn't carry _autoWalkTriggerBounds/_autoWalkFacePosition (CancelAutoWalk nulls
+> them), so the resumed walk lost its fishing identity, skipped the creep, and spoke
+> the old false early "Arrived" (bubble 7s later after manual shuffle). FIXED:
+> _wmResumeTriggerBounds/_wmResumeFacePosition saved + restored. (b) The creep is NOT
+> slow — the world map ignores stick magnitude, so 3.5m took 0.55s and the honest
+> give-up message BEAT the bubble by 82ms/57ms (user heard apology + "You can fish
+> here" back to back, twice). FIXED: when the distance budget is spent, HOLD (zero
+> stick, face water) until the 5s deadline instead of giving up immediately — the
+> bubble typically fires ~0.1s after the last step. TEST M9: (1) world-map fishing
+> walk WITH a battle on the way: after "Resuming walk", arrival must still be
+> bubble-confirmed ("Arrived" + "You can fish here" together); (2) plain world-map
+> fishing walk: no more "prompt not showing" apology racing the bubble; (3) the
+> honest no-prompt message should now appear ONLY when truly not fishable after 5s.
+>
+> (M7 record follows.)
+> M7 result ("Much better"): distances honest, blink latch works (log: repeated
+> "re-shown (blink), announce suppressed"), cancel announcement in. Remaining issue
+> (user): world-map "Arrived" spoke BEFORE "You can fish here". Log truth: both walks
+> stopped 1.29/1.27m short of the verified stand (InteractableArrivalRadius=1.3) and
+> the bubble did NOT come on its own — it appeared 5–6s later only after the user
+> shuffled ~2m TOWARD THE WATER by hand (game probes water ~5m in FRONT of player;
+> stopping short puts the probe out of range). FIX (deployed, NOT committed): on
+> reaching a world-map fishing stand without the bubble, do NOT stop/announce —
+> enter a CREEP phase (UpdateFishCreep: slow stick toward nearest water-box point,
+> WmFishCreepSpeedScale 0.4, stuck detection bypassed) until FishPromptShowing ends
+> the walk with the real "Arrived" + "You can fish here", or after 5s / 3.5m give an
+> honest "Arrived near X, but the fishing prompt is not showing..." (Loc
+> nav_autowalk_arrived_no_fish_prompt). Creep state reset in StopAutoWalk /
+> CancelAutoWalk / walk start. TEST M8: world-map fishing walk end-to-end — expect
+> "Arrived" and "You can fish here" together at a truly fishable stand, cross starts
+> fishing; also re-verify town flow unchanged.
+>
+> (M6 record follows.) M6 log (19:19–19:22, full debug)
+> proved the bubble poll works: town flow perfect (auto-walk arrived at pond stand →
+> bubble 28ms later → "You can fish here"; FISHDIAG icons=[field_fishing_icon],
+> fishingSpriteId resolved), and NO false announce at the Krosse exit (contactID=25,
+> bubble=False, silent ✅ — the volume-contact lie is fully demoted). Three issues
+> found + FIXED this session: (1) "Fishing spot 1, 0 meters" while 83m from any
+> fishable stand — the water-box AABB contains the player (spans land), so
+> edge-distance collapsed to 0; now falls back to walk-target distance when the
+> player is INSIDE the box (stands sit ~1.5m outside → keep edge metric). (2) The
+> game BLINKS the bubble (hide/re-show cycles while standing still — M6 log:
+> shows of 0.2–2s, hides of 6–10s) and every re-show re-announced; now an announce
+> latch holds until the player moves >3m from the announce position (re-approach
+> re-announces, blinks don't). This was the user's town "false positive". (3) The
+> world-map fishing walk NEVER FAILED — it was 23m from the verified stand when the
+> user opened the nav menu, which cancels the walk SILENTLY; menu-open cancel now
+> speaks "Walk to {label} cancelled." (explicit cancels — NumPad 1, stick — stay
+> silent by design). TEST M7 checklist in the "World map fishing spots" entry.
+> Welsh specialty SP fix (validated) still NOT committed — do NOT commit the fishing
+> build until M7 passes; the Welsh fix can be committed separately.
+>
+> 🔧 **2026-08-29 TOOLING SESSION: ilspycmd updated 9.1.0 → 11.0.0.9375.** Newer
+> ilspycmd (10.x+) ships only for .NET 10, so the .NET 10 SDK (10.0.400) was installed
+> alongside 8.0.424 (side by side, nothing removed; `dotnet build` now uses SDK 10 —
+> verified: mod builds clean, 0 warnings). While verifying, found the build broken by
+> the decompiled reference mod: `reference-mods\` was never excluded from compilation
+> (unlike `decompiled\`/`tools\`) → 90 compile errors. FIXED: added
+> `<Compile Remove="reference-mods\**" />` to SO2RAccess.csproj. ⚠️ This csproj fix is
+> NOT committed — user decision: commit it after/with the fishing-freeze fix. Verified
+> clean: reference-mods is gitignored + untracked, never compiled into any DLL (builds
+> containing it always failed), no copied code in our sources (docs mentions only).
+>
+> 📚 **2026-08-29: THIRD-PARTY MOD ANALYSED — big new API knowledge in
+> `docs/game-api.md` Section 19.** "ScreenReaderMOD" (Galaxy Laboratory MM, BepInEx) was
+> temporarily installed in the game dir; decompiled to `reference-mods\` (gitignored —
+> not ours, never copy verbatim, API facts only; BepInEx files in the game dir conflict
+> with MelonLoader and can be deleted once user confirms). Verified-in-our-decompile
+> findings, each a candidate feature/refactor (user picks priorities after fishing):
+> - UNIVERSAL LIST HOOK: `UICanSelectedListItemPresenterBase.OnSelected(ListItemDataBase)`
+>   Harmony postfix fires for EVERY list-item selection game-wide (camp/shop/guild/
+>   picture-book/config/battle). Refines our "no hooks" rule (command-menu cursor moves
+>   still silent). Pattern: TryCast → pending flag → read 0.05–0.4s later; generic
+>   TMP-text fallback for unknown screens.
+> - CAMP STORY HINT: hook `UICampWindow.SetSpeechBalloon`; text at
+>   `UICampDotCharacterPresenter` child `ui_camp_speech_balloon_presenter/SpeechBalloon/Text`.
+> - MISSED DIALOGUE: `UIConversationWindow.SetConversationAutoMessage /
+>   SetConversationMessageFollowObject / ShowCenterMessage / ShowEntireMessage /
+>   ShowEventInformation` — messageID → `TextManager.GetMessage` (types 0/100/200).
+> - GUILD QUEST RECIPE: full field map (name/state/description/rewards/achievable
+>   members) in game-api.md §19 — enables redoing the quest screen properly.
 
 > 📌 **BUNNY PHASE IN PROGRESS (plan approved 2026-07-05 session 3, full plan file:
 > C:\Users\Jaco\.claude\plans\jazzy-marinating-acorn.md).** Per-travel-mode reachability
@@ -659,8 +897,8 @@
 > specialSkillItemDataList (specialID set, e.g. SCOUT), fresh-compute branch runs
 > (Scouting = Danger Radar 55; Compounding = Biology 235 + Herbology 70 + Mental
 > Science 226). Temp SpDiag diagnostics REMOVED, final build 0/0 deployed.
-> FindSkillRowOnScreen (name-verified list lookup) is the permanent fix. NOT YET
-> COMMITTED to git. Test L logs (18:02) were definitive: hover diagnostic showed
+> FindSkillRowOnScreen (name-verified list lookup) is the permanent fix.
+> Committed to master as 6135530 (local; not yet pushed to origin). Test L logs (18:02) were definitive: hover diagnostic showed
 > screen='Scouting' idx=8 but row name='Resilience' consumeSP=1 — the Enhance→Skill
 > screen has TWO Square-toggled tabs backed by SEPARATE lists (skills: itemDataList,
 > specialties: specialSkillItemDataList) and the mod always indexed itemDataList, so
@@ -3167,6 +3405,149 @@ Without this list, mod keys WILL conflict with game controls. -->
 
 ## In-Progress / Pending Test
 
+- **World map fishing spots + POI survey** (2026-07-11, REBUILT + DLL DEPLOYED) — PENDING TEST M2
+  - TEST M RESULT (2026-07-11 19:23–19:25 log): NO fishing spots on world map — ROOT CAUSE FOUND:
+    the world map has ZERO FieldFishingWaterPlace objects (`NAV:WM:SURVEY fishingSpots=0` right next to
+    Krosse). World-map fishing spots are painted into the game's NATIVE world grid
+    (`WorldGridData.fishingWaterPlaceID` per cell) — no scene objects to scan. A field map (MF_0006_01A)
+    found its spot fine, so the object scan stays correct for fields.
+  - FIX: world map now reads the game's fishing DATABASE instead:
+    `ParameterManager.GetFishingWaterPlaceParameterList(fm.currentFieldmapID)` →
+    ConstFishingWaterPlaceParameter (WaterPlaceID, Position, Size, IsPlacementFishingSpot).
+    BuildFishingSpots is now a dispatcher: CollectFieldFishingSpots (objects+NavMesh, unchanged behavior)
+    vs CollectWorldmapFishingSpots (database + `WorldmapPathfinder.TryGetNearestWalkableWorld` grid
+    shore-snap, ~50m, current travel mode); shared sort/region-filter/numbering tail.
+    If the per-map lookup is EMPTY, debug mode dumps the whole DB (`NAV:FISHING:DB` with each spot's
+    fieldmapID) so a wrong map-ID assumption shows as evidence.
+  - SURVEY RESULTS (Test M log, complete):
+    - Symbols: ONLY CITY/DUNGEON + 3 INVALID `ob_*` objects → Locations coverage already complete.
+    - `locationPoints=6` ON THE WORLD MAP at (-180,402), (785,-354), (-560,396), (-861,-417), (-496,-56),
+      (80,-220) — discovery landmarks, candidates for a Markers category on the world map (NOT YET ADDED —
+      discuss with user; BuildMarkers currently field-only).
+    - savePoints/stairs/doors/minimapAreas all 0 on world map.
+  - TEST M2 RESULT (19:33–19:35 log): list ✅ (30+ spots from DB, honest cross-landmass filtering,
+    "Fishing spot 1" near Krosse dist 47.5), auto-walk ✅ arrived 3× — but NO fishing prompt ever fired
+    (zero FieldPrompt lines) and no interact. TWO GAPS FOUND: (a) world-map arrival never applied
+    FacePosition (field-only code — player faced along path, not water; game only prompts when FACING
+    water); (b) center-snap target landed on a bank (Y=20.6 vs water 16.2) where the prompt can't fire.
+  - FIX ROUND 2 (BUILT + DEPLOYED) — PENDING TEST M3:
+    - Game-truth targeting: at walk start, `ComputeWorldmapFishingTarget` samples the water box perimeter,
+      snaps samples to walkable cells, and keeps only stands where the GAME's own probes say fishable:
+      `FieldManager.IsWorldmapFishingPoint(probe)` / `GetContactFishingWaterPlaceID(ref probe)` at the
+      game's `worldmapFishingFrontDistance` ahead (probes tried at stand + water height). Nearest verified
+      stand wins; falls back to the coarse shore point (never removes a target). Water box passed via
+      NavItem.TriggerBounds.
+    - World-map arrival now faces FacePosition before stopping (new FaceAutoWalkFacePosition; distance
+      arrival only — prompt arrival must NOT re-face or it could dismiss the prompt).
+    - Fishing prompt = arrival truth: world-map walk to an Interactable arrives THE MOMENT the fishing
+      prompt shows (FieldPromptHandler.FishPromptShowing), like locations with the enter prompt.
+    - Fishing prompt announced: FieldPromptHandler detects operation prompts whose action CONTAINS "fish"
+      (case-insensitive), speaks "Press {button} to {action}" (game's own words, enter-prompt F4 speech
+      toggle), logs it; hide-poll refactored (IsActionStillShowing shared by jump+fish).
+    - CAT_INTERACTABLE added to the world-map tight arrival radius set (1.3m like chests/saves).
+  - TEST M3 RESULT (2026-07-11 20:03–20:07 log): 3 distinct failures + 1 hidden success:
+    (a) From the M2 bank position, Fishing spot 1 refused: the stand search commits to the single
+    NEAREST fishable stand (a `distSq >= bestDistSq` prune skipped probing all others) and that stand
+    sat behind a live `Col_Obstacle` rock the route sweep honestly refused (grid says passable —
+    bake/live mismatch; re-plan only marks the exact hit waypoints so each round clipped the same
+    rock face). Walking toward Salva first made the search pick a DIFFERENT stand (-65,-102) → walk ✅.
+    (b) Fishing spot 3 stand verified on the OPPOSITE river bank (region 362) → honest "different
+    connected regions" refusal — stand search had no region awareness.
+    (c) Prompt NEVER announced even though the user fished successfully at 20:06:45 ("Caught: Krosse
+    Carp") — the game's fishing prompt is NATIVE UI: the UIFieldOperationPresenter.Set hook fired ZERO
+    times all session while the real prompt was on screen. Hook-based fish detection was dead code.
+    (d) List said "39 meters" while standing at the spot: list distance was to the coarse center-snap
+    point, not the shore the walk actually goes to.
+  - FIX ROUND 3 (BUILT + DEPLOYED 2026-07-11) — PENDING TEST M4:
+    - Fish prompt by POLLING (FieldPromptHandler.UpdateFishingContactPoll): per-frame
+      `FieldManager.GetContactFishingWaterPlaceID() > 0` = the exact game condition behind its own
+      prompt (native UI fires no hooks — matches the known camp-menu pattern). Edge-triggered announce
+      "You can fish here." (new Loc `fish_prompt`, button-neutral since there is no glyph to read;
+      enter-prompt F4 toggle). FishPromptShowing now actually works → walk-stop-on-prompt now live.
+      Removed dead hook path (FishAction, TryFindActionContaining, AnnounceFish(button,action)).
+      Dropped the bogus `GetContactFishingWaterPlaceID(ref probe)` stand probe (that overload reads
+      the PLAYER's contact, its ref param is an out hit-point — it never probed our point).
+    - Multi-candidate stand search (`ComputeWorldmapFishingStands`): returns ALL game-verified stands,
+      nearest-first, thinned to ≥16m apart (WmSweepEndpointExemptDist — closer stands share the failed
+      approach); prune removed so every shore cell is probed. AutoWalkTo tries up to 3 stands
+      (MaxFishingStandAttempts) before announcing unreachable, logging each refusal.
+    - Region-aware: stands in a different connected region than the player (far bank) are rejected
+      (WorldmapPathfinder.GetStartRegionIds/GetRegionId, fail-open on region 0/unknown).
+    - List honesty: Distance = player→nearest edge of the water box (was center-snap point; read
+      "39m" while standing at the shore). Build-time far-bank rescue: if the center snap lands in a
+      non-player region, Position re-picked as nearest player-side shore cell
+      (TryFindShoreOnPlayerSide) so the reachability filter can't hide same-side spots.
+    - Shared perimeter helpers: WaterBoxEdgeStep / ForEachWaterBoxEdgePoint / ForEachWaterBoxShoreCell
+      (walk-time search + build-time rescue use the same shore-cell enumeration).
+  - 🔴 TEST M4 RESULT (2026-08-29): FAILED — user: "failed miserably"; OPENING THE NAV MENU
+    ON THE WORLD MAP FROZE THE GAME with this build (task-manager kill).
+  - 🟡 M4 FREEZE DIAGNOSED + FIXED 2026-08-29 (same session; built clean, deployed, NOT committed):
+    Latest.log survived and showed the fishing list build slowing catastrophically on REMOTE spots
+    only: local spots = ms each; id=4 (500×600m box, other continent) = 15s; id=33 = 4s; log ends
+    mid-build after id=34 with more remote spots left → perceived freeze, not a crash/livelock.
+    Cause chain (multiplied): far-bank rescue TryFindShoreOnPlayerSide runs exactly when the shore
+    point's region ≠ player regions (= every other-continent spot) and samples the whole box
+    perimeter (~200 points on big boxes) × each ocean-facing sample ran the full FAILED ~50m snap in
+    TryGetNearestWalkableWorld × SnapToPassable scanned the whole (2r+1)² square per ring (~1.4M
+    iterations per failed snap). Fix: (1) SnapToPassable ring-walks only the ~8r ring cells (same
+    visit order, same result cell, all callers faster); (2) TryGetNearestWalkableWorld gained
+    maxSnapMeters (default 50m unchanged for all other callers); (3) ForEachWaterBoxShoreCell passes
+    new const ShoreSnapMaxMeters=6m — RESULT-IDENTICAL because the sampler already rejected snaps
+    wandering >6m (the 50m search was provably wasted work). No detection weakened. Retest = M5,
+    same checklist below; expect world-map nav menu to open in ~1s.
+  - ✅ M5 RESULT (2026-08-29): freeze GONE (full session 18:58–19:06, clean shutdown). BUT detection
+    broken: false "You can fish here" right at the Krosse exit (spot id=25 volume overlap), and
+    auto-walk "arrived" where cross did nothing — world map AND town. Both from the same signal:
+    GetContactFishingWaterPlaceID = volume contact, not "can fish"; it also drove the arrival stop.
+  - 🟡 FIX 2026-08-29 (user-proposed, deployed, NOT committed): FishPromptShowing now = the game's
+    fishing BUBBLE over the player's head (UIFieldIconSelector poll, sprite == FieldIconType.Fishing,
+    activeInHierarchy + canvasGroup alpha ≥ 0.5; selector via throttled FindObjectOfType incl.
+    inactive). Contact ID demoted to debug diagnostic: FISHDIAG log line on every state change with
+    bubble/contactID/visible-icon-names/player pos. UNVERIFIED assumptions the M6 log will confirm:
+    (a) bubble icon really appears via iconPresenterList (not a separate path), (b) sprite index 1 =
+    Fishing sprite (logged as fishingSpriteId at selector cache), (c) bubble appears in both town and
+    world map. If detection stays silent while the user SEES no fish but can fish → check FISHDIAG
+    icons=[] catalog for what sprites ARE visible.
+  - ✅ M6 RESULT (2026-08-29, full debug log 19:19–19:22): bubble detection WORKS. Town: auto-walk
+    arrived at pond stand (distXZ=1.27 of FishingWaterPlace trigger) → bubble 28ms later → announce;
+    user fished repeatedly. Krosse exit: contactID=25 but bubble=False → SILENT ✅. Found: (a) world
+    map list read "Fishing spot 1, 0 meters" (player inside spot 25's land-spanning AABB; real stand
+    83m); (b) game BLINKS the bubble → re-announce spam (= the user's suspected town false positive);
+    (c) the world-map fishing walk was CANCELLED silently by a nav-menu open 23m short of the
+    verified stand — walk logic itself was fine (2 battle interrupts resumed cleanly, waypoints=68).
+  - 🟡 FIXES 2026-08-29 (deployed, NOT committed): inside-box list distance falls back to
+    walk-target distance; bubble announce latch (re-announce only after moving >3m from announce
+    position); menu-open cancel now speaks "Walk to {label} cancelled." (Loc
+    nav_autowalk_cancelled_menu; NumPad 1/stick cancels stay silent).
+  - TEST M7 (user, F12 ON): (1) world map near Krosse: fishing spot 1 should read ~70m, not 0m;
+    (2) auto-walk to it and DON'T open the menu mid-walk (battles are fine — resume works): expect
+    arrival at the stand, bubble, "You can fish here.", cross starts fishing. If arrival is silent →
+    facing may not stick on world map (known unverified) — log will show FISHDIAG at the stand;
+    (3) town pond: stand still at spot ≥30s: exactly ONE announcement despite bubble blinks; walk
+    5m away and back: announces again; (4) open nav menu during any auto-walk: hear "Walk to X
+    cancelled." then the list. Then the old M4 checklist below still applies (edge distances, stand
+    retry, spot 3 far bank):
+  - TEST M4 checklist (kept for M6): (1) from anywhere near Krosse: nav list distances should now track
+    the water edge (standing at a spot reads ~2m); (2) walk to Fishing spot 1 from the bank position
+    that failed — should now retry the next stand and arrive; (3) on arrival EXPECT "You can fish
+    here." within ~1s — if silent, the arrival FACING is not sticking (transform.rotation may be
+    overridden on world map) → fix facing next; (4) Fishing spot 3 (across the river) should either
+    walk to a same-side stand or stay honestly refused; (5) prompt announce should also fire when
+    walking up to water manually, and clear silently when walking away.
+  - KNOWN LIMIT: if all ≤3 tried stands are wedge-blocked (rock between player and shore), refusal
+    still possible from pathological start positions (e.g. the M2 bank if only one stand exists there).
+    Re-plan wedge-marking is point-thin (rock wider than marks) — improving that is a separate,
+    discuss-first item (more rounds vs radius marking; do NOT blind-tweak).
+  - OPEN QUESTION for later: the "popup message" (water place info panel, UIFieldController.
+    ShowFishingWaterPlaceInformation) — if the game shows a spot-info panel and the user wants it read,
+    hook it next; the button prompt announce may already cover what they meant.
+  - Files: NavigationHandler.List.cs (world-map scan branch), NavigationHandler.Build.cs (dispatcher +
+    field collector), NavigationHandler.Build.Worldmap.cs (worldmap collector + far-bank rescue +
+    symbol survey), NavigationHandler.Worldmap.Pathfinding.cs (stand search + perimeter helpers),
+    NavigationHandler.AutoWalk.cs (multi-stand retry), NavigationHandler.Worldmap.cs (prompt arrival +
+    FaceAutoWalkFacePosition), FieldPromptHandler.cs (contact polling), WorldmapPathfinder.cs
+    (TryGetNearestWalkableWorld), Loc.cs (fish_prompt)
+
 - **Camp status sub-screen announcements** (`CampMenuHandler.cs`) ✓ TESTED
   - Hook-driven detection: both activeInHierarchy and root-menu-hidden approaches failed;
     now uses UICampStatusSelector.UpdatePresenter hook as trigger
@@ -3661,6 +4042,8 @@ Stale-open check helper consolidation. Key changes:
 - NumPad 4 / 6: Switch category in nav list
 - NumPad 1: Auto-walk to selected item / cancel auto-walk / stop following
 - F12: Toggle debug mode
+- NumPad 7 (camp menu open): Read story hint
+- NumPad 0 (Quick Recovery overlay): Read party status
 
 ### Gamepad
 - Hold L1: Open navigation list (field only, not in menus/battle)
@@ -3669,6 +4052,10 @@ Stale-open check helper consolidation. Key changes:
 - Left stick up (while L1 held): Auto-walk to highlighted item
 - Release L1: Close navigation list
 - L1 press during auto-walk: Cancel auto-walk and reopen nav list
+- L1+L3: Toggle mod settings menu
+- L1+R3: Read current Fol
+- L3 (camp menu open): Read story hint
+- L3 (Quick Recovery overlay): Read party status
 
 ## Architecture Notes
 

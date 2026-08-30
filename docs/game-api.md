@@ -673,8 +673,20 @@ ref Vector3 worldOffset)` — [CallerCount(3)]. Backed by `UIFieldIconSelector.S
 (several overloads, [CallerCount(1)]). `UIDefine.FieldIconType` has ONLY:
 - `LocationPoint` — discoverable map location sparkle (already handled via
   `UIFieldLocationPointPresenter.Set`, see Location Discovery in MEMORY).
-- `Fishing` — fishing-spot icon (fishing nav already handled).
+- `Fishing` — the fishing BUBBLE above the player's head: the game's authoritative
+  "press action button to fish here" signal. `FieldPromptHandler` detects it by polling
+  `UIFieldIconSelector.iconPresenterList` for a visible presenter whose `icon.sprite`
+  matches `spriteList[(int)FieldIconType.Fishing]` (visible = activeInHierarchy +
+  canvasGroup alpha ≥ 0.5). Cannot hook the Show path: `ShowFieldIcon` overloads all
+  carry `ref Vector3` (hook = native crash).
 `HideIcon(string)` / `HideIcon(Transform)` / `HideAllIcon()` — [CallerCount(0/0/2)].
+
+⚠️ **`FieldManager.GetContactFishingWaterPlaceID()` is NOT a "can fish" signal**
+(proven 2026-08-29): it reports contact with the fishing water-place VOLUME, an AABB
+that can span 200m+ of land — world-map spot id=25's volume overlaps the Krosse City
+exit, so the ID went non-zero the moment the player left town. Announcing or stopping
+auto-walk on it caused false "You can fish here" prompts and false fishing arrivals.
+Use the Fishing icon bubble (above) as the truth instead.
 
 ### NPC / player emotion bubbles — ShowEmotion (HOOKABLE)
 `UIFieldController.ShowEmotion(...)` overloads — [CallerCount(8)] (string name overload),
@@ -723,6 +735,88 @@ Related field classes (the ledge/jump machinery, separate from the UI prompt):
 the actual descent animation). The jump still requires a manual X press (confirmed in-game);
 the prompt appears when the player parks at the ledge.
 
+## 19. Universal Menu Hooks & Missed Text Sources (learned from ScreenReaderMOD analysis)
+
+Source: API research on Galaxy Laboratory MM's "ScreenReaderMOD" (BepInEx, decompiled to
+`reference-mods/` — gitignored, NOT ours, never copy code verbatim). All hook targets below
+verified present in our own `decompiled/` game source.
+
+### Universal list-selection hook (Harmony DOES fire here!)
+`UICanSelectedListItemPresenterBase.OnSelected(ListItemDataBase itemData)` — postfix fires for
+EVERY list-item selection game-wide: camp item/equip/skill/formation/operations lists, shop
+lists, quest (guild) lists, picture books, config menu, battle menu lists. This refines our
+"native menus fire no hooks" rule: cursor *movement* on native command menus still fires
+nothing, but list-item *selection focus* does fire this. Pattern that works: in the postfix,
+`TryCast<>` to the concrete presenter type to know which screen; store as "pending" + timestamp,
+then read/announce ~0.05–0.4s later from the main Update poll (lets the game finish populating
+the row). Generic fallback for unknown lists: read the TMP text from the selected GameObject
+(or its parent).
+
+**Implemented 2026-08-29 in `ListSelectionHandler.cs`:** suppression by concrete type name for
+all screens with dedicated handlers (+ camp/shop open gates for generic row types), generic
+GameText-children readout after 0.15s settle for everything else, debug log of every fire's
+type + decision. The 58 concrete subclasses of UICanSelectedListItemPresenterBase are listed
+by `grep ": UICanSelectedListItemPresenterBase" decompiled/`.
+
+Validated at the guild (Test G1, 2026-08-29): the guild counter's first command menu
+(Accept/Report) rows are `UIShopMenuListItemPresenter` — the same type as the shop's
+Buy/Sell root menu (which stays suppressed via the IsShopOpen gate; ShopHandler polls it).
+The generic fallback reads them cleanly ("Accept" / "Report").
+
+**Stale-wake discriminator:** opening the guild command menu wakes the quest selector with
+stale data (activeInHierarchy + populated currentDataList) WITHOUT input focus, and no
+OnSelected fires. Real focus (list entry, cursor move) always fires OnSelected for the row
+type. `ListSelectionHandler.WasRecentlySelected(typeName, window)` exposes this;
+GuildHandler.PollGuildQuests requires a recent `UIQuestListItemPresenter` selection before
+announcing — the pattern to reuse for any other selector that wakes stale.
+
+### Camp menu story hint (speech balloon)
+- Trigger: postfix on `UICampWindow.SetSpeechBalloon(List<UIDotCharacterData>, bool)` — fires
+  when the camp screen (re)builds the dot-character strip. Wait ~0.4s then read.
+- Text source: find active `UICampDotCharacterPresenter` objects; child transform path
+  `ui_camp_speech_balloon_presenter/SpeechBalloon/Text` → `TMP_Text` (or `GameText`) `.text` =
+  the current story objective/hint. Filter placeholders ("0000", "目的").
+- On field (no camp open): `UIDestinationPresenter` objects hold destination/story text.
+
+### On-screen dialogue we don't currently read (UIConversationWindow methods)
+These carry messageIDs for the floating/auto conversation bubbles and center-screen messages
+(likely the dialogue our mod misses). All hookable as postfix on `UIConversationWindow`:
+- `SetConversationAutoMessage(string messageID, string fieldObjectName, float stopTime, bool isPrevChoiceMessage)` — timed auto bubbles
+- `SetConversationMessageFollowObject(string messageID, string fieldObjectName)` — bubble following an object
+- `ShowCenterMessage(string messageID)` / `ShowEntireMessage(string messageID)` — center/full-screen text
+- `ShowEventInformation(string title, string description)` — event info panel
+Resolve messageID → text via `TextManager.GetMessage(id, MessageType)` trying types 0, 100, 200
+in order; if result == id (unresolved), suppress rather than speak the raw key.
+
+### Guild quest screen (working readout recipe)
+Selection arrives via the universal `OnSelected` hook, `TryCast<UIQuestListItemPresenter>`:
+- Name: `presenter.missionName` (TMP_Text) → fallback `UIQuestListItemData.missionName` →
+  fallback child GameObject "MissionName".
+- State: `presenter.statePresenter.stateMessage` (TMP_Text) → fallback child
+  "ui_mission_state_presenter" → fallback flags on `UIQuestListItemData`:
+  `isEnd` / `isReportable` / `isReceived`.
+- Description: `UIQuestDescriptionPresenter.questDescription` (find active instance).
+- Rewards: `UIQuestDescriptionPresenter.rewardElementPresenterList` →
+  `UIQuestRewardElementPresenter.rewardName` / `.rewardValue`.
+- Achievable members: `UIQuestSelector.canAchievedPlayerList` (List<PlayerID>).
+
+### Global TMP text tap (their catch-all, use sparingly)
+They postfix `TMP_Text.set_text` / `SetText` game-wide and filter by GameObject name/path
+keywords (dialog/conversation/popup/message/guide/description/footer...) with dedupe + dummy
+filters. Powerful catch-all for text we can't source, but noisy by design — prefer the typed
+hooks above; consider the TMP tap only as a targeted last resort (e.g. path-filtered to one
+window).
+
+### Other notable techniques (for future reference, not copied)
+- Camp menu footer description: `UICampMenuFooterPresenter.SetMenuDescription` +
+  MenuDescription TMP object under `ui_footer_presenter/LayoutParent/MenuDescription`.
+- Their beacons are pre-rendered panned WAV variants (`beacon_x_p{pitch}_pan{0-6}.wav`) played
+  via winmm — same conclusion we reached about IL2CPP audio.
+- NPC names: learned at talk-time and persisted to a JSON dictionary (they cannot resolve
+  charaNameID natively either — matches our TextManager finding).
+- Battle: `BattleManager.AddEnemy/OnDead/StartBattle/FinishBattle` patches for enemy
+  announcements and defeat notifications.
+
 ## Change History
 
 - **2026-02-22:** File created during setup
@@ -733,3 +827,4 @@ the prompt appears when the player parks at the ledge.
 - **2026-02-23:** Save/load menu analysis — UISaveLoadWindow, UISaveLoadSelector, UISaveLoadListItemPresenter, UISaveLoadListItemData documented. All slot info pre-formatted as strings in the data object.
 - **2026-02-23:** Dialogue, tutorial, and popup analysis — UIConversationPresenter, UITutorialInformationPresenter, UITutorialInformationData, UIDialogPresenter, UIDialogWindow documented.
 - **2026-06-13:** Field icons & notifications analysis (Section 18) — UIFieldController is the central field-notification controller. Key finding: the "X Jump" prompt is an "operation" (button guide), not a FieldIconType (which only has LocationPoint/Fishing). Best hook is `UIFieldOperationPresenter.Set` [CallerCount(7)] with readable `operationTextList`; `HideOperation`/`Hide` are [CallerCount(0)] (poll activeInHierarchy). Also catalogued: ShowEmotion (17 EmotionTypes), area/mode banners, and ~15 corner info toasts (item/money/EXP/level/skill/talent/member).
+- **2026-08-29:** Section 19 added — analysis of third-party ScreenReaderMOD (Galaxy Laboratory MM). Key findings: `UICanSelectedListItemPresenterBase.OnSelected` is a universal Harmony-hookable selection event; camp story hint via `UICampWindow.SetSpeechBalloon` + `UICampDotCharacterPresenter` balloon text; missed dialogue via `UIConversationWindow` auto/center/entire message methods (messageID → TextManager); full guild quest readout recipe.

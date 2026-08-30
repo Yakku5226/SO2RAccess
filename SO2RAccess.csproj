@@ -15,6 +15,7 @@
        mod DLL. -->
   <ItemGroup>
     <Compile Remove="decompiled\**" />
+    <Compile Remove="reference-mods\**" />
     <Compile Remove="templates\**" />
     <Compile Remove="tools\**" />
   </ItemGroup>
