@@ -68,10 +68,65 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// Game actions bound to the mod's modifier button (L2), suppressed while
+        /// the nav overlay is held so holding the modifier doesn't also trigger
+        /// its game function. Rebuilt from the LIVE bindings on each overlay open
+        /// (RebuildModifierSuppressSet), so it stays correct if the player
+        /// rebinds pad buttons in the game config.
+        /// </summary>
+        private static readonly System.Collections.Generic.HashSet<GameInputManager.InputAction>
+            _modifierSuppressSet = new System.Collections.Generic.HashSet<GameInputManager.InputAction>();
+
+        /// <summary>
+        /// Fills <see cref="_modifierSuppressSet"/> with every game action whose
+        /// live pad binding is the mod modifier (InputKey.L2). Falls back to the
+        /// statically likely L2 actions when the binding API is unavailable —
+        /// never leaves the set empty while the overlay is in use.
+        /// </summary>
+        private static void RebuildModifierSuppressSet()
+        {
+            _modifierSuppressSet.Clear();
+            try
+            {
+                var gim = GameInputManager.Instance;
+                if (gim != null)
+                {
+                    foreach (GameInputManager.InputAction action in
+                        Enum.GetValues(typeof(GameInputManager.InputAction)))
+                    {
+                        if (action == GameInputManager.InputAction.Invalid ||
+                            action == GameInputManager.InputAction.Max)
+                            continue;
+                        if (gim.GetBindInputKey(action) == Il2CppCommon.InputManager.InputKey.L2)
+                            _modifierSuppressSet.Add(action);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV modifier suppress rebuild failed: {ex.Message}");
+            }
+
+            if (_modifierSuppressSet.Count == 0)
+            {
+                // Binding API not ready — fall back to the actions L2 plausibly
+                // drives so the overlay never leaks the button to the game.
+                _modifierSuppressSet.Add(GameInputManager.InputAction.TriggerLeft2);
+                _modifierSuppressSet.Add(GameInputManager.InputAction.FieldWalk);
+                _modifierSuppressSet.Add(GameInputManager.InputAction.FieldCameraUp);
+                _modifierSuppressSet.Add(GameInputManager.InputAction.FieldCameraDown);
+            }
+
+            DebugLogger.LogState(
+                "NAV modifier suppress set: " + string.Join(", ", _modifierSuppressSet));
+        }
+
+        /// <summary>
         /// Shared input suppression logic for IsDown and IsRepeat prefixes.
         /// When the mod menu is open, blocks ALL game input actions.
         /// When only the gamepad nav overlay is active, blocks D-pad directions,
-        /// shortcut actions, and FieldCameraLeft (L1 camera).
+        /// shortcut actions, and whatever game actions live on the mod's L2
+        /// modifier (dynamic set, see RebuildModifierSuppressSet).
         /// </summary>
         private static bool SuppressNavInput(
             GameInputManager.InputAction inputAction, ref bool __result)
@@ -87,7 +142,6 @@ namespace SO2RAccess
 
             // Up=11, Down=12, Right=13, Left=14 — basic D-pad movement
             // ShortCutUp=39, ShortCutDown=40, ShortCutLeft=41, ShortCutRight=42 — field shortcuts
-            // FieldCameraLeft=56 — L1 camera panning
             if (inputAction == GameInputManager.InputAction.Up ||
                 inputAction == GameInputManager.InputAction.Down ||
                 inputAction == GameInputManager.InputAction.Left ||
@@ -96,7 +150,7 @@ namespace SO2RAccess
                 inputAction == GameInputManager.InputAction.ShortCutDown ||
                 inputAction == GameInputManager.InputAction.ShortCutLeft ||
                 inputAction == GameInputManager.InputAction.ShortCutRight ||
-                inputAction == GameInputManager.InputAction.FieldCameraLeft)
+                _modifierSuppressSet.Contains(inputAction))
             {
                 __result = false;
                 return false; // skip original

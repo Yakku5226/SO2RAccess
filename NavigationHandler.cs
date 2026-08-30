@@ -11,26 +11,26 @@ namespace SO2RAccess
     /// <summary>
     /// Field navigation system — Phase 2: audio navigation list + auto-walk.
     ///
-    /// KEYBOARD
-    /// NumPad 5 (first press) — scan the field, build a sorted list, announce first item.
-    /// NumPad 5 (second press) — close the list.
-    /// NumPad 8 / 2    — move up / down within the current category.
-    /// NumPad 4 / 6    — switch to the previous / next non-empty category.
-    /// NumPad 1        — start auto-walking to the currently highlighted item.
+    /// KEYBOARD (modeless — the list lives in the background, no open/close;
+    /// defaults in ModKeys.cs)
+    /// Left/right bracket — previous / next item within the current category.
+    /// Minus / equals     — previous / next non-empty category (also refreshes a stale list).
+    /// Backslash          — start auto-walking to the highlighted item, or cancel the walk.
+    /// Each key silently (re)builds the list when it is absent or from another map.
     ///
-    /// GAMEPAD
-    /// Hold L1         — scan and open the list while held (field only, not in menus/battle).
-    /// D-pad Up/Down   — switch category.
-    /// D-pad Left/Right— move to previous / next item within category.
-    /// L1 + LStick Up  — start auto-walking to the highlighted item.
-    /// Release L1      — close the list silently.
+    /// GAMEPAD (modifier = L2, ModKeys.NavModifier)
+    /// Hold L2          — scan and open the list while held (field only, not in menus/battle).
+    /// D-pad Up/Down    — switch category.
+    /// D-pad Left/Right — move to previous / next item within category.
+    /// L2 + LStick Up   — start auto-walking to the highlighted item.
+    /// Release L2       — close the list silently.
     ///
     /// AUTO-WALK
     /// On activation: closes the list, announces "Walking to [label].", then injects
     /// synthetic left stick input via GetLeftStick() postfix so the game's own movement
     /// pipeline handles physics, colliders, animations, triggers, and party AI.
     /// Announces "Arrived at [label]." on arrival (within 1.8 units).
-    /// NumPad 1 cancels while walking. L1 press also cancels and reopens the list.
+    /// Backslash cancels while walking. L2 press also cancels and reopens the list.
     ///
     /// Items are sorted by distance (closest first) within each category.
     /// Party members (distance less than 2 units) are filtered from the NPC list.
@@ -213,7 +213,7 @@ namespace SO2RAccess
         private Transform _autoWalkTransform;
         /// <summary>
         /// True once the player has reached the target and "Arrived" has been announced.
-        /// In proximity-lock mode the player stays glued to the NPC until NumPad 5 is pressed.
+        /// In proximity-lock mode the player stays glued to the NPC until the walk is cancelled.
         /// </summary>
         private bool _autoWalkArrived;
         /// <summary>
@@ -315,8 +315,8 @@ namespace SO2RAccess
         private const float MapExitBarrierMargin = 0.5f;
 
         /// <summary>
-        /// True while the gamepad L1 nav overlay is active. Static so Harmony prefixes
-        /// can read it to suppress game input (D-pad, FieldCameraLeft).
+        /// True while the gamepad nav overlay (held L2 modifier) is active. Static so
+        /// Harmony prefixes can read it to suppress game input (D-pad, L2 actions).
         /// </summary>
         private static bool _gamepadNavActive;
 
@@ -420,7 +420,7 @@ namespace SO2RAccess
         /// Applies Harmony patches:
         /// - GetLeftStick postfix (injects synthetic stick input during auto-walk)
         /// - GetFieldCameraRightStick postfix (rotates camera to follow walk direction)
-        /// - GameInputManager.IsDown prefix (suppresses D-pad/L1 camera when gamepad nav active)
+        /// - GameInputManager.IsDown prefix (suppresses D-pad/L2 actions when gamepad nav active)
         /// - GameInputManager.IsRepeat prefix (suppresses D-pad repeat)
         /// - GameInputManager.GetDPad prefix (suppresses D-pad analog)
         /// </summary>

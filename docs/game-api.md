@@ -91,14 +91,35 @@ Start, Select, Sort, R3, L3
 
 ## 3. Safe Mod Keys
 
-Keys confirmed NOT in the InputAction enum — safe to use for mod functions:
+The mod's defaults live in `ModKeys.cs` (single source of truth); the full
+user-facing table is in `docs/mod-bindings.md`.
 
-- **F1** — reserved for mod Help
-- **F10** — available
-- **F11** — available
-- **F12** — reserved for debug mode toggle
-- **NumPad keys** — all appear safe
-- **Note:** Game uses controller-mapped actions, not raw F-keys or NumPad
+How safety is verified (2026-08-30 rework): the old rule ("keys absent from the
+InputAction enum are safe") was too weak — keyboard bindings are player-
+rebindable and live in native data, not the enum. The authority is now the
+**live binding dump**: turning debug mode on (F12) logs every game action's
+current keyboard key (via `SystemConfigParameter.GetKeyboardKey`) and pad
+button (via `GameInputManager.GetBindInputKey`), plus a per-mod-key
+FREE/CLASHES verdict (`InputBindingDump.cs`). Check the dump before claiming a
+new key.
+
+Current defaults:
+
+- **F-keys** — F1 help, F2 dialogue voice, F3 Fol, F4 mod menu, F12 debug;
+  F5–F11 debug-only. Not used by the game's keyboard defaults.
+- **Minus / Equals / LeftBracket / RightBracket / Backslash** — modeless
+  navigation family (battle pause reuses minus/equals/brackets in its own
+  context). Chosen because no game default uses them (verify via dump).
+- **Quote/apostrophe** (camp menu: story hint), **P** (Quick Recovery: party
+  status) — context-gated. Dump verdict 2026-08-30: H clashed (game maps
+  keyboard H to its R3 action: backlog / battle target lock) → moved to Quote;
+  P verified FREE. Full dump recorded: game keyboard defaults use F (confirm),
+  C (cancel/dodge), WASD + arrows, Tab, Space, Q/E, R, T, Z/X, J, H,
+  Digit1–4, LeftShift/LeftCtrl/LeftAlt — most letters near WASD are taken.
+- **NumPad** — no longer used by the mod (numpadless keyboards must work).
+- **Gamepad** — mod modifier is **L2** (held: nav overlay; +L3 mod menu;
+  +R3 Fol). L1 belongs to the game (pickpocket on the field). L1/R1 are used
+  by the mod ONLY inside the battle pause menu, where they are free.
 
 ---
 
@@ -113,7 +134,7 @@ Keys confirmed NOT in the InputAction enum — safe to use for mod functions:
 bool IsDown(InputAction inputAction)          // held down this frame
 bool IsRelease(InputAction inputAction)       // released this frame
 bool IsRepeat(InputAction inputAction)        // repeated press
-InputKey GetBindInputKey(InputAction action)  // current bound key
+InputKey GetBindInputKey(InputAction action)  // current bound PAD button (InputKey is pad-shaped)
 InputKey GetDefaultBindInputKey(InputAction action)
 InputAction GetAliasInputAction(InputAction action)
 Vector2 GetRightStick()
@@ -123,6 +144,21 @@ bool IsMouseLeftClickDown()
 bool IsMouseRightClickDown()
 void SetInputTask(InputTask inputTask)        // set active input handler
 ```
+
+### Keyboard binding API (live, per action) — used by InputBindingDump
+
+**File:** `decompiled/Assembly-CSharp/Il2CppGame/SystemConfigParameter.cs`
+Access: `ParameterManager.Instance.SystemConfigParameter`
+
+```csharp
+Key  GetKeyboardKey(GameInputManager.InputAction a)        // LIVE keyboard binding (UnityEngine.InputSystem.Key)
+void SetKeyboardKey(GameInputManager.InputAction a, Key k) // rebind (future rebinder hook)
+void SwapKeyboardKey(GameInputManager.InputAction a, GameInputManager.InputAction b)
+```
+
+Notes: iterate only DEFINED InputAction enum members (the enum has gaps:
+61–63, 90–95, 103–127); wrap each native call in try/catch; both singletons
+can be null before a save is loaded.
 
 ---
 

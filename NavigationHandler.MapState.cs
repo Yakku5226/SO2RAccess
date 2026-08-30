@@ -145,6 +145,11 @@ namespace SO2RAccess
                 FieldmapID previous = _lastFieldmapID;
                 _lastFieldmapID = current;
 
+                // The background nav list belongs to the old map — drop it so
+                // the next modeless key rebuilds for this one (belt-and-braces
+                // with EnsureListReady's own map comparison).
+                InvalidateNavList();
+
                 // Skip INVALID transitions.
                 if (current == FieldmapID.INVALID)
                 {

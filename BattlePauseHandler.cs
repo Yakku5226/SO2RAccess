@@ -17,8 +17,8 @@ namespace SO2RAccess
     ///   Tier 0: Basic info (name, HP, MP, position) — auto on character select
     ///   Tier 1+: Weaknesses, resistances, status, equipment, cooking, music, leader
     ///
-    /// Tier cycling: D-pad up/down or NumPad 8/2 (no wrap).
-    /// Character cycling: D-pad left/right or NumPad 4/6 (wraps).
+    /// Tier cycling: L1/R1 (gamepad) or minus/equals (keyboard; no wrap).
+    /// Character cycling: game's own D-pad left/right, or brackets (keyboard; wraps).
     ///
     /// Detection: polling GameUIManager.IsShowingBattlePause() + currentCharacterIndex.
     /// Data capture: Harmony postfixes on UIBattlePauseCharacterPresenter hooks.
@@ -893,13 +893,13 @@ namespace SO2RAccess
 
         /// <summary>
         /// Cycles to the previous character (wraps from first to last).
-        /// Used for keyboard NumPad 4 and as a gamepad fallback.
+        /// Used for the keyboard character-cycle key and as a gamepad fallback.
         /// </summary>
         public void CycleCharacterLeft() => CycleCharacter(-1);
 
         /// <summary>
         /// Cycles to the next character (wraps from last to first).
-        /// Used for keyboard NumPad 6 and as a gamepad fallback.
+        /// Used for the keyboard character-cycle key and as a gamepad fallback.
         /// </summary>
         public void CycleCharacterRight() => CycleCharacter(+1);
 

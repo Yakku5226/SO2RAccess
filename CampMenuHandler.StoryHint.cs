@@ -12,9 +12,10 @@ namespace SO2RAccess
     /// UICampDotCharacterPresenter.speechBalloonPresenter.speechBalloonText, so it can
     /// be read live whenever the camp is open — no caching needed.
     ///
-    /// Trigger: L3 (left stick click, without L1) or NumPad 7 while the camp menu is
-    /// open. Plain L3 elsewhere stays the party-status readout (QuickRecoveryHandler,
-    /// which only listens while its own field overlay is open).
+    /// Trigger: L3 (left stick click, without the L2 mod modifier) or the story-hint
+    /// key (ModKeys.CampStoryHint) while the camp menu is open. Plain L3 elsewhere
+    /// stays the party-status readout (QuickRecoveryHandler, which only listens while
+    /// its own field overlay is open).
     /// </summary>
     public partial class CampMenuHandler
     {
@@ -29,17 +30,20 @@ namespace SO2RAccess
             try
             {
                 var kb = Keyboard.current;
-                bool fromKeyboard = kb != null && kb[Key.Numpad7].wasPressedThisFrame;
+                bool fromKeyboard = kb != null && kb[ModKeys.CampStoryHint].wasPressedThisFrame;
 
-                // Require L1 NOT held so L1+L3 stays the mod-menu toggle (Main).
+                // Require the mod modifier (L2) NOT held so modifier+L3 stays the
+                // mod-menu toggle (Main).
                 var gp = Gamepad.current;
                 bool fromGamepad = gp != null
-                    && gp.leftStickButton.wasPressedThisFrame
-                    && !gp.leftShoulder.isPressed;
+                    && ModKeys.ModMenuChord(gp).wasPressedThisFrame
+                    && !ModKeys.NavModifier(gp).isPressed;
 
                 if (!fromKeyboard && !fromGamepad) return;
 
-                DebugLogger.LogInput(fromKeyboard ? "NumPad7" : "L3", "CampStoryHint");
+                DebugLogger.LogInput(
+                    fromKeyboard ? ModKeys.DisplayName(ModAction.CampStoryHint) : "L3",
+                    "CampStoryHint");
                 AnnounceStoryHint();
             }
             catch (Exception ex)

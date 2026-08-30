@@ -198,6 +198,7 @@ namespace SO2RAccess
                         ? (EventNpcDisplayMode)data.EventNpcDisplay
                         : EventNpcDisplayMode.Both;
                     NpcAwarePathfindingEnabled = data.NpcAwarePathfindingEnabled;
+                    ApplyKeyBindings(data.KeyBindings);
                 }
                 MelonLogger.Msg("ModSettings: loaded.");
             }
@@ -240,7 +241,8 @@ namespace SO2RAccess
                     FishPromptSoundVolume = FishPromptSoundVolume,
                     WalkAssistEnabled = WalkAssistEnabled,
                     EventNpcDisplay = (int)EventNpcDisplay,
-                    NpcAwarePathfindingEnabled = NpcAwarePathfindingEnabled
+                    NpcAwarePathfindingEnabled = NpcAwarePathfindingEnabled,
+                    KeyBindings = CollectKeyBindingOverrides()
                 };
 
                 var options = new JsonSerializerOptions { WriteIndented = true };
@@ -251,6 +253,56 @@ namespace SO2RAccess
             {
                 MelonLogger.Warning($"ModSettings.Save failed: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Applies user key-binding overrides from the settings file to
+        /// <see cref="ModKeys"/>. Unknown action or key names (e.g. from an
+        /// older mod version) are logged and skipped, never fatal.
+        /// </summary>
+        private static void ApplyKeyBindings(System.Collections.Generic.Dictionary<string, string> saved)
+        {
+            if (saved == null || saved.Count == 0) return;
+
+            var overrides = new System.Collections.Generic.Dictionary<ModAction, UnityEngine.InputSystem.Key>();
+            foreach (var pair in saved)
+            {
+                if (!Enum.TryParse(pair.Key, out ModAction action))
+                {
+                    MelonLogger.Warning($"ModSettings: unknown key-binding action '{pair.Key}' skipped.");
+                    continue;
+                }
+                if (!Enum.TryParse(pair.Value, out UnityEngine.InputSystem.Key key) ||
+                    key == UnityEngine.InputSystem.Key.None)
+                {
+                    MelonLogger.Warning($"ModSettings: unknown key '{pair.Value}' for action '{pair.Key}' skipped.");
+                    continue;
+                }
+                overrides[action] = key;
+            }
+
+            if (overrides.Count > 0)
+            {
+                ModKeys.Apply(overrides);
+                MelonLogger.Msg($"ModSettings: applied {overrides.Count} key-binding override(s).");
+            }
+        }
+
+        /// <summary>
+        /// Collects current key bindings that differ from the shipped defaults,
+        /// as action-name → key-name strings for the settings file. Bindings
+        /// still at their default are not saved, so a future default change
+        /// reaches users who never rebound that action.
+        /// </summary>
+        private static System.Collections.Generic.Dictionary<string, string> CollectKeyBindingOverrides()
+        {
+            var overrides = new System.Collections.Generic.Dictionary<string, string>();
+            foreach (var pair in ModKeys.AllKeyboard)
+            {
+                if (pair.Value != ModKeys.GetDefault(pair.Key))
+                    overrides[pair.Key.ToString()] = pair.Value.ToString();
+            }
+            return overrides;
         }
 
         #endregion
@@ -282,6 +334,12 @@ namespace SO2RAccess
             public bool WalkAssistEnabled { get; set; } = true;
             public int EventNpcDisplay { get; set; } = (int)EventNpcDisplayMode.Both;
             public bool NpcAwarePathfindingEnabled { get; set; } = true;
+
+            /// <summary>
+            /// User key-binding overrides: mod action name → keyboard key name.
+            /// Only bindings that differ from the defaults appear here.
+            /// </summary>
+            public System.Collections.Generic.Dictionary<string, string> KeyBindings { get; set; }
         }
 
         #endregion

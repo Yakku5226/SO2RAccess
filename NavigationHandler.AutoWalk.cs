@@ -60,7 +60,8 @@ namespace SO2RAccess
         /// Starts auto-walking to the currently highlighted navigation item.
         /// Calculates a NavMesh path to the target and walks along waypoints via Update().
         /// Announces an error and aborts if no path can be found.
-        /// Called by NumPad 5.
+        /// Called by the walk key (ModKeys.NavAutoWalkToggle) and the gamepad
+        /// overlay's stick-up gesture.
         /// </summary>
         public void AutoWalkTo()
         {
@@ -311,8 +312,8 @@ namespace SO2RAccess
         /// Cancels an active auto-walk silently.
         /// Called by manual input, scene change, or when the field becomes busy.
         /// No announcement here — the "Arrived" message handles successful
-        /// completion and explicit cancel gestures (NumPad 1, stick) need no
-        /// confirmation. Exception: the nav-menu open paths announce the cancel
+        /// completion and movement-key cancel gestures (WASD, stick) need no
+        /// confirmation. Exception: the deliberate cancel paths announce the cancel
         /// themselves, because there the cancel is a side effect the player may
         /// not intend (see NavigationHandler.List.cs).
         /// </summary>

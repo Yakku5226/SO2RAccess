@@ -75,11 +75,29 @@ namespace SO2RAccess
         private static void InitializeStrings()
         {
             // General
-            Add("mod_loaded",   "SO2RAccess loaded. Press F1 for help.");
+            Add("mod_loaded",   "Welcome to SO2R Access.");
             Add("debug_on",     "Debug mode enabled.");
             Add("debug_off",    "Debug mode disabled.");
+
+            // Binding dump / clash check (runs when debug mode turns on)
+            Add("binddump_all_free",  "Mod key check: all keys free.");
+            Add("binddump_clashes",   "Mod key check: {0} keys clash with game bindings. See log for details.");
+            Add("binddump_not_ready", "Mod key check not ready. Load a save, then press F12 again.");
             Add("fol_amount",   "{0} Fol.");
-            Add("help",         "Keyboard: F1 Help. F3 read Fol. F4 Mod settings. NumPad 5 open or close navigation list. NumPad 8 and 2 move up and down. NumPad 4 and 6 change category. NumPad 1 walk to selected item or cancel walk. F12 toggle debug mode. Gamepad: hold L1 to open navigation, D-pad up and down for category, left and right for items. Push left stick up to walk. L1 plus L3 for mod settings. L1 plus R3 read Fol.");
+            // Key names are filled in live from ModKeys, so the help text stays
+            // correct after rebinding. Order of the placeholders:
+            // 0 help, 1 dialogue voice, 2 read Fol, 3 mod settings,
+            // 4/5 nav category prev/next, 6/7 nav item prev/next, 8 auto walk,
+            // 9/10 pause tier down/up, 11/12 pause character left/right,
+            // 13 story hint, 14 quick recovery status, 15 debug toggle.
+            Add("help",         "Keyboard: {0} help. {1} dialogue voice mode. {2} read Fol. {3} mod settings. " +
+                                "Navigation: {4} and {5} change category. {6} and {7} change item. " +
+                                "{8} walk to the selected item, or stop walking. " +
+                                "In battle pause: {9} and {10} change info level, {11} and {12} change character. " +
+                                "{13} in the camp menu: story hint. {14} in quick recovery: party status. {15} debug mode. " +
+                                "Gamepad: hold L2 for navigation. D-pad up and down change category, left and right change item. " +
+                                "Push left stick up to walk. L2 plus L3 mod settings. L2 plus R3 read Fol. " +
+                                "In battle pause: L1 and R1 change info level.");
 
             // Title menu
             Add("title_press_any_button",      "Title screen. Press any button to start.");
@@ -150,7 +168,6 @@ namespace SO2RAccess
             Add("nav_not_in_field",   "Not in a field area.");
             Add("nav_no_items",       "No items found.");
             Add("nav_open",           "Navigation. {0}. {1}, {2} meters.");
-            Add("nav_close",          "Navigation closed.");
             Add("nav_item",           "{0}, {1} meters.");
             Add("nav_category",       "{0}. {1}, {2} meters.");
             Add("nav_category_empty",   "{0}. None.");
@@ -158,9 +175,9 @@ namespace SO2RAccess
             Add("nav_autowalk_arrived",    "Arrived at {0}.");
             Add("nav_autowalk_arrived_exit","Arrived at {0}. Exit is to the {1}.");
             Add("nav_autowalk_entering",   "Entering {0}.");
-            Add("nav_autowalk_arrived_npc","Arrived at {0}. Press action button to interact. NumPad 1 or L1 to stop following.");
+            Add("nav_autowalk_arrived_npc","Arrived at {0}. Press action button to interact. Backslash or L2 to stop following.");
             Add("nav_autowalk_resuming", "Resuming walk to {0}.");
-            Add("nav_autowalk_cancelled_menu", "Walk to {0} cancelled.");
+            Add("nav_autowalk_cancelled", "Walk to {0} cancelled.");
             Add("nav_autowalk_arrived_no_fish_prompt",
                 "Arrived near {0}, but the fishing prompt is not showing. " +
                 "Try stepping toward the water.");
@@ -541,7 +558,7 @@ namespace SO2RAccess
             Add("gameover_retry",       "Retry");
             Add("gameover_title",       "Title");
 
-            // Mod settings menu (F4 / L1+L3)
+            // Mod settings menu (F4 / L2+L3)
             Add("mod_menu_open",                    "Mod settings menu.");
             Add("mod_menu_close",                   "Settings saved. Menu closed.");
             Add("mod_menu_item",                    "{0}: {1}. Item {2} of {3}.");
@@ -575,6 +592,45 @@ namespace SO2RAccess
             Add("mod_menu_event_npc_npclist",       "NPC list");
             Add("mod_menu_event_npc_events",        "Events list");
             Add("mod_menu_event_npc_both",          "Both lists");
+            Add("mod_menu_label_keybinds",          "Key bindings");
+            Add("mod_menu_submenu",                 "press Enter to open");
+            Add("mod_menu_use_enter",               "Press Enter to open.");
+
+            // Key-rebinding submenu (ModMenuHandler.Rebinding.cs)
+            Add("keybind_menu_open",         "Key bindings. Press Enter on an action to change its key. Escape discards changes.");
+            Add("keybind_command_item",      "{0}. Item {1} of {2}.");
+            Add("keybind_reset_item",        "Reset all keys to defaults");
+            Add("keybind_save_item",         "Save and go back");
+            Add("keybind_capture_prompt",    "Press the new key for {0}. Escape cancels.");
+            Add("keybind_capture_cancelled", "Cancelled. {0} stays {1}.");
+            Add("keybind_set",               "{0} is now {1}.");
+            Add("keybind_saved",             "Key bindings saved.");
+            Add("keybind_discarded",         "Key binding changes discarded.");
+            Add("keybind_reset_done",        "All keys reset to defaults. Not saved yet.");
+            Add("keybind_clash_game",        "Warning: {0} is also used by the game for {1}.");
+            Add("keybind_clash_mod",         "Warning: {0} is also bound to {1}.");
+            Add("keybind_clash_debug",       "Warning: {0} is reserved for debugging and will only work if debug mode is not active.");
+
+            // Spoken names of the rebindable mod actions (keys match the
+            // ModAction enum member names).
+            Add("keybind_action_Help",                 "Help");
+            Add("keybind_action_DialogueVoiceToggle",  "Dialogue voice toggle");
+            Add("keybind_action_ReadFol",              "Read Fol");
+            Add("keybind_action_ModMenu",              "Mod settings menu");
+            Add("keybind_action_DebugToggle",          "Debug mode toggle");
+            Add("keybind_action_NavCategoryPrev",      "Navigation, previous category");
+            Add("keybind_action_NavCategoryNext",      "Navigation, next category");
+            Add("keybind_action_NavItemPrev",          "Navigation, previous item");
+            Add("keybind_action_NavItemNext",          "Navigation, next item");
+            Add("keybind_action_NavAutoWalkToggle",    "Navigation, auto walk");
+            Add("keybind_action_PauseTierDown",        "Battle pause, tier down");
+            Add("keybind_action_PauseTierUp",          "Battle pause, tier up");
+            Add("keybind_action_PauseCharLeft",        "Battle pause, previous character");
+            Add("keybind_action_PauseCharRight",       "Battle pause, next character");
+            Add("keybind_action_CampStoryHint",        "Camp menu, story hint");
+            Add("keybind_action_QuickRecoveryStatus",  "Quick recovery, status readout");
+            // Debug-only hotkeys (F5 to F11) are not listed in the rebind menu,
+            // so they need no action labels.
 
             // Field prompts (button guide above the player / interactables)
             Add("jump_prompt",            "Press {0} to jump down.");
@@ -823,7 +879,7 @@ namespace SO2RAccess
             Add("collector_reward_locked",      "Not yet earned.");
 
             // Quick Heal / Quick Recovery field menu (D-pad Right)
-            Add("quickheal_heading",           "Quick Recovery. Recover party? {0}. Press NumPad 0 or L3 for party status.");
+            Add("quickheal_heading",           "Quick Recovery. Recover party? {0}. Press P or L3 for party status.");
             Add("quickheal_yes",               "Yes");
             Add("quickheal_no",                "No");
             Add("quickheal_status_hp",         "{0}, HP {1} of {2}");

@@ -65,7 +65,7 @@ namespace SO2RAccess
             WorldmapStreamingDiagnostics.Tick();
 
             // F6 — collision streaming trace toggle (debug only, world map)
-            if (kb[Key.F6].wasPressedThisFrame)
+            if (kb[ModKeys.Get(ModAction.DebugCollisionTrace)].wasPressedThisFrame)
             {
                 try
                 {
@@ -81,7 +81,7 @@ namespace SO2RAccess
             // F7 — world map: route auditor (plan + physics-validate every
             // nav-list route without walking). Field map: NavMesh carving
             // proof-of-concept (unchanged).
-            if (kb[Key.F7].wasPressedThisFrame)
+            if (kb[ModKeys.Get(ModAction.DebugRouteAuditor)].wasPressedThisFrame)
             {
                 try
                 {
@@ -98,7 +98,7 @@ namespace SO2RAccess
                 return true;
             }
             // F5 — scan L22/L23 obstacle parents near player (debug only, world map)
-            if (kb[Key.F5].wasPressedThisFrame)
+            if (kb[ModKeys.Get(ModAction.DebugObstacleScan)].wasPressedThisFrame)
             {
                 try
                 {
@@ -169,7 +169,7 @@ namespace SO2RAccess
                 return true;
             }
             // F8 — CharaWall boundary scan (debug only, world map)
-            if (kb[Key.F8].wasPressedThisFrame)
+            if (kb[ModKeys.Get(ModAction.DebugCharaWallScan)].wasPressedThisFrame)
             {
                 try
                 {
@@ -195,7 +195,7 @@ namespace SO2RAccess
                 return true;
             }
             // F9 — generate world map grid (debug only)
-            if (kb[Key.F9].wasPressedThisFrame)
+            if (kb[ModKeys.Get(ModAction.DebugGridBake)].wasPressedThisFrame)
             {
                 try
                 {
@@ -209,7 +209,7 @@ namespace SO2RAccess
                 return true;
             }
             // F10 — travel-mode masks + player collider diagnostics (debug only)
-            if (kb[Key.F10].wasPressedThisFrame)
+            if (kb[ModKeys.Get(ModAction.DebugTravelMask)].wasPressedThisFrame)
             {
                 try
                 {
@@ -224,7 +224,7 @@ namespace SO2RAccess
                 return true;
             }
             // F11 — diagnostics (world map or field map NavMesh islands)
-            if (kb[Key.F11].wasPressedThisFrame)
+            if (kb[ModKeys.Get(ModAction.DebugPathDiagnostics)].wasPressedThisFrame)
             {
                 try
                 {

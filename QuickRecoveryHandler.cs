@@ -11,7 +11,8 @@ namespace SO2RAccess
     /// <summary>
     /// Announces the field Quick Recovery ("quick heal") menu, opened by pressing
     /// Right on the D-pad. Reads the Yes/No confirmation cursor and, on demand
-    /// (NumPad 0), the party HP/MP status with pending recovery amounts. After the
+    /// (ModKeys.QuickRecoveryStatus or L3), the party HP/MP status with pending
+    /// recovery amounts. After the
     /// heal is confirmed it announces the result (who recovered, who spent MP casting).
     ///
     /// The game owns the D-pad Right key — this handler only detects the overlay
@@ -118,8 +119,8 @@ namespace SO2RAccess
 
         /// <summary>
         /// Polls the Quick Recovery overlay each frame: announces the heading on open,
-        /// the Yes/No choice on change, the party status when NumPad 0 is pressed, and
-        /// the recovery result once the heal executes.
+        /// the Yes/No choice on change, the party status when the status key is
+        /// pressed, and the recovery result once the heal executes.
         /// </summary>
         public void Update()
         {
@@ -200,18 +201,19 @@ namespace SO2RAccess
                 return;
             }
 
-            // On-demand party status — NumPad 0 (keyboard) or L3 / left-stick click (gamepad).
+            // On-demand party status — ModKeys.QuickRecoveryStatus (keyboard) or
+            // L3 / left-stick click (gamepad).
             try
             {
                 var kb = Keyboard.current;
-                bool fromKeyboard = kb != null && kb[Key.Numpad0].wasPressedThisFrame;
+                bool fromKeyboard = kb != null && kb[ModKeys.QuickRecoveryStatus].wasPressedThisFrame;
 
-                // Require L1 NOT held so plain L3 reads status while L1+L3 stays the
-                // mod-menu toggle handled in Main.
+                // Require the mod modifier (L2) NOT held so plain L3 reads status
+                // while modifier+L3 stays the mod-menu toggle handled in Main.
                 var gp = Gamepad.current;
                 bool fromGamepad = gp != null
-                    && gp.leftStickButton.wasPressedThisFrame
-                    && !gp.leftShoulder.isPressed;
+                    && ModKeys.ModMenuChord(gp).wasPressedThisFrame
+                    && !ModKeys.NavModifier(gp).isPressed;
 
                 if (fromKeyboard || fromGamepad)
                 {

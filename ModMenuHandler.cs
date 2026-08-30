@@ -6,10 +6,13 @@ using UnityEngine.InputSystem;
 namespace SO2RAccess
 {
     /// <summary>
-    /// Screen-reader-driven mod settings menu. Opened with F4 (keyboard)
-    /// or L1+L3 (gamepad). All navigation is purely audio — no game UI involved.
+    /// Screen-reader-driven mod settings menu. Opened with the mod-menu key
+    /// (ModKeys.ModMenu, default F4) or L2+L3 (gamepad). All navigation is
+    /// purely audio — no game UI involved. Menu navigation keys are fixed
+    /// (arrows, Enter, Escape) and never affected by rebinding.
+    /// The key-rebinding submenu lives in ModMenuHandler.Rebinding.cs.
     /// </summary>
-    public class ModMenuHandler
+    public partial class ModMenuHandler
     {
         #region Fields
 
@@ -22,6 +25,18 @@ namespace SO2RAccess
         /// </summary>
         public static bool SuppressAllGameInput { get; private set; }
 
+        /// <summary>Which screen of the menu is active.</summary>
+        private enum MenuScreen
+        {
+            /// <summary>The flat settings list.</summary>
+            Root,
+            /// <summary>The key-bindings submenu list.</summary>
+            Rebind,
+            /// <summary>Waiting for the user to press the new key for one action.</summary>
+            Capture
+        }
+
+        private MenuScreen _screen = MenuScreen.Root;
         private int _currentIndex;
         private List<ModMenuItem> _items;
 
@@ -39,6 +54,7 @@ namespace SO2RAccess
         {
             BuildItems();
             _currentIndex = 0;
+            _screen = MenuScreen.Root;
             _dpadRepeater.Reset();
             IsOpen = true;
             SuppressAllGameInput = true;
@@ -78,7 +94,19 @@ namespace SO2RAccess
         {
             if (!IsOpen) return false;
 
-            if (kb[Key.Escape].wasPressedThisFrame || kb[Key.F4].wasPressedThisFrame)
+            // Sub-screens have their own key handling (Rebinding partial).
+            if (_screen == MenuScreen.Capture)
+            {
+                ProcessCaptureKeyboard(kb);
+                return true;
+            }
+            if (_screen == MenuScreen.Rebind)
+            {
+                ProcessRebindKeyboard(kb);
+                return true;
+            }
+
+            if (kb[Key.Escape].wasPressedThisFrame || kb[ModKeys.ModMenu].wasPressedThisFrame)
             {
                 Close();
                 return true;
@@ -104,6 +132,11 @@ namespace SO2RAccess
                 ChangeValue(1);
                 return true;
             }
+            if (kb[Key.Enter].wasPressedThisFrame || kb[Key.NumpadEnter].wasPressedThisFrame)
+            {
+                ActivateCurrent();
+                return true;
+            }
 
             // Consume all other keys while menu is open to prevent pass-through.
             return true;
@@ -117,10 +150,29 @@ namespace SO2RAccess
         {
             if (!IsOpen) return false;
 
+            // Sub-screens have their own pad handling (Rebinding partial).
+            if (_screen == MenuScreen.Capture)
+            {
+                ProcessCaptureGamepad(gp);
+                return true;
+            }
+            if (_screen == MenuScreen.Rebind)
+            {
+                ProcessRebindGamepad(gp);
+                return true;
+            }
+
             // Circle / B button = close
             if (gp.buttonEast.wasPressedThisFrame)
             {
                 Close();
+                return true;
+            }
+
+            // Cross / A button = activate (submenus)
+            if (gp.buttonSouth.wasPressedThisFrame)
+            {
+                ActivateCurrent();
                 return true;
             }
 
@@ -168,11 +220,27 @@ namespace SO2RAccess
             if (_items == null || _items.Count == 0) return;
 
             var item = _items[_currentIndex];
+            if (item.Change == null)
+            {
+                // Submenu rows have no left/right value; point at Enter instead.
+                ScreenReader.Say(Loc.Get("mod_menu_use_enter"));
+                return;
+            }
             item.Change(delta);
 
             string label = Loc.Get(item.LabelKey);
             string value = item.GetValue();
             ScreenReader.Say(Loc.Get("mod_menu_changed", label, value));
+        }
+
+        /// <summary>
+        /// Runs the Enter action of the focused item, if it has one.
+        /// Items without one (plain settings) ignore Enter.
+        /// </summary>
+        private void ActivateCurrent()
+        {
+            if (_items == null || _items.Count == 0) return;
+            _items[_currentIndex].Activate?.Invoke();
         }
 
         private string FormatItem(int index)
@@ -356,6 +424,13 @@ namespace SO2RAccess
                         if (v < 0) v += 3;
                         ModSettings.EventNpcDisplay = (EventNpcDisplayMode)v;
                     }
+                },
+                // Key bindings submenu (ModMenuHandler.Rebinding.cs)
+                new ModMenuItem
+                {
+                    LabelKey = "mod_menu_label_keybinds",
+                    GetValue = () => Loc.Get("mod_menu_submenu"),
+                    Activate = OpenRebindScreen
                 }
             };
         }
@@ -387,7 +462,10 @@ namespace SO2RAccess
         {
             public string LabelKey;
             public Func<string> GetValue;
+            /// <summary>Left/right value change. Null for submenu rows.</summary>
             public Action<int> Change;
+            /// <summary>Enter action (opens a submenu). Null for plain settings.</summary>
+            public Action Activate;
         }
 
         #endregion

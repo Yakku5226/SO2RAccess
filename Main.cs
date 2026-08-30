@@ -13,7 +13,9 @@ using Il2CppGame;
 // Safe access begins in OnSceneWasLoaded() or when CheckGameReady() passes.
 
 [assembly: MelonInfo(typeof(SO2RAccess.Main), "SO2RAccess", "0.1.0", "Accessibility Mod")]
-[assembly: MelonGame("SquareEnix", "SO2R")]
+// Universal: no game-name check, so the mod loads on both the full game and the
+// demo (their internal product names may differ, but the game code is identical).
+[assembly: MelonGame]
 
 namespace SO2RAccess
 {
@@ -72,8 +74,8 @@ namespace SO2RAccess
         private ListSelectionHandler _listSelectionHandler;
         private DebugHotkeys _debugHotkeys;
 
-        // Gamepad nav overlay — L1 hold-to-open state.
-        private bool _gamepadL1Held;
+        // Gamepad nav overlay — mod modifier (L2) hold-to-open state.
+        private bool _gamepadModHeld;
         private readonly DpadRepeater _dpadRepeater = new DpadRepeater();
         private bool _stickUpWasActive;
         private float _gamepadDiagTimer;
@@ -294,9 +296,9 @@ namespace SO2RAccess
             if (kb == null) return false;
 
             // F4 — toggle mod settings menu
-            if (kb[Key.F4].wasPressedThisFrame && !_modMenuHandler.IsOpen)
+            if (kb[ModKeys.ModMenu].wasPressedThisFrame && !_modMenuHandler.IsOpen)
             {
-                DebugLogger.LogInput("F4", "ModMenuOpen");
+                DebugLogger.LogInput(ModKeys.DisplayName(ModAction.ModMenu), "ModMenuOpen");
                 _modMenuHandler.Open();
                 return true;
             }
@@ -305,29 +307,54 @@ namespace SO2RAccess
             if (_modMenuHandler.IsOpen)
                 return _modMenuHandler.ProcessKeyboard(kb);
 
-            // Debug-only investigation hotkeys (F5, F8–F11) — see DebugHotkeys.cs.
+            // Debug-only investigation hotkeys (F5–F11) — see DebugHotkeys.cs.
             if (DebugMode && _debugHotkeys.Process(kb))
                 return true;
 
             // F12 — toggle debug mode
-            if (kb[Key.F12].wasPressedThisFrame)
+            if (kb[ModKeys.DebugToggle].wasPressedThisFrame)
             {
                 DebugMode = !DebugMode;
                 ScreenReader.Say(Loc.Get(DebugMode ? "debug_on" : "debug_off"));
                 MelonLogger.Msg($"Debug mode {(DebugMode ? "enabled" : "disabled")}.");
+                if (DebugMode)
+                {
+                    // Dump the game's live bindings + mod key clash check each
+                    // time debug turns on, so the log always shows the current
+                    // key config (the player can rebind game keys in-game).
+                    InputBindingDump.DumpAll();
+                }
                 return true;
             }
 
             // F1 — help
-            if (kb[Key.F1].wasPressedThisFrame)
+            if (kb[ModKeys.Help].wasPressedThisFrame)
             {
-                DebugLogger.LogInput("F1", "Help");
-                ScreenReader.Say(Loc.Get("help"));
+                DebugLogger.LogInput(ModKeys.DisplayName(ModAction.Help), "Help");
+                // Key names come from the live binding table, so the help text
+                // stays correct after rebinding.
+                ScreenReader.Say(Loc.Get("help",
+                    ModKeys.DisplayName(ModAction.Help),
+                    ModKeys.DisplayName(ModAction.DialogueVoiceToggle),
+                    ModKeys.DisplayName(ModAction.ReadFol),
+                    ModKeys.DisplayName(ModAction.ModMenu),
+                    ModKeys.DisplayName(ModAction.NavCategoryPrev),
+                    ModKeys.DisplayName(ModAction.NavCategoryNext),
+                    ModKeys.DisplayName(ModAction.NavItemPrev),
+                    ModKeys.DisplayName(ModAction.NavItemNext),
+                    ModKeys.DisplayName(ModAction.NavAutoWalkToggle),
+                    ModKeys.DisplayName(ModAction.PauseTierDown),
+                    ModKeys.DisplayName(ModAction.PauseTierUp),
+                    ModKeys.DisplayName(ModAction.PauseCharLeft),
+                    ModKeys.DisplayName(ModAction.PauseCharRight),
+                    ModKeys.DisplayName(ModAction.CampStoryHint),
+                    ModKeys.DisplayName(ModAction.QuickRecoveryStatus),
+                    ModKeys.DisplayName(ModAction.DebugToggle)));
                 return true;
             }
 
             // F2 — toggle dialogue voice mode
-            if (kb[Key.F2].wasPressedThisFrame)
+            if (kb[ModKeys.DialogueVoiceToggle].wasPressedThisFrame)
             {
                 ModSettings.DialogueVoiceMode =
                     ModSettings.DialogueVoiceMode == DialogueVoiceMode.Full
@@ -343,92 +370,72 @@ namespace SO2RAccess
             }
 
             // F3 — read current Fol
-            if (kb[Key.F3].wasPressedThisFrame)
+            if (kb[ModKeys.ReadFol].wasPressedThisFrame)
             {
-                DebugLogger.LogInput("F3", "ReadFol");
+                DebugLogger.LogInput(ModKeys.DisplayName(ModAction.ReadFol), "ReadFol");
                 AnnounceFol();
                 return true;
             }
 
-            // Battle pause menu — tier/character cycling (takes priority over nav)
+            // Battle pause menu — tier/character cycling (takes priority over
+            // nav, which shares the same physical keys in a different context).
             if (_battlePauseHandler.IsPauseOpen)
             {
-                if (kb[Key.Numpad8].wasPressedThisFrame)
+                if (kb[ModKeys.PauseTierUp].wasPressedThisFrame)
                 {
-                    DebugLogger.LogInput("Numpad8", "PauseTierUp");
+                    DebugLogger.LogInput(ModKeys.DisplayName(ModAction.PauseTierUp), "PauseTierUp");
                     _battlePauseHandler.TierUp();
                     return true;
                 }
-                if (kb[Key.Numpad2].wasPressedThisFrame)
+                if (kb[ModKeys.PauseTierDown].wasPressedThisFrame)
                 {
-                    DebugLogger.LogInput("Numpad2", "PauseTierDown");
+                    DebugLogger.LogInput(ModKeys.DisplayName(ModAction.PauseTierDown), "PauseTierDown");
                     _battlePauseHandler.TierDown();
                     return true;
                 }
-                if (kb[Key.Numpad4].wasPressedThisFrame)
+                if (kb[ModKeys.PauseCharLeft].wasPressedThisFrame)
                 {
-                    DebugLogger.LogInput("Numpad4", "PauseCharLeft");
+                    DebugLogger.LogInput(ModKeys.DisplayName(ModAction.PauseCharLeft), "PauseCharLeft");
                     _battlePauseHandler.CycleCharacterLeft();
                     return true;
                 }
-                if (kb[Key.Numpad6].wasPressedThisFrame)
+                if (kb[ModKeys.PauseCharRight].wasPressedThisFrame)
                 {
-                    DebugLogger.LogInput("Numpad6", "PauseCharRight");
+                    DebugLogger.LogInput(ModKeys.DisplayName(ModAction.PauseCharRight), "PauseCharRight");
                     _battlePauseHandler.CycleCharacterRight();
                     return true;
                 }
                 return false;
             }
 
-            // NumPad 5 — toggle navigation list (also cancels auto-walk)
-            if (kb[Key.Numpad5].wasPressedThisFrame)
+            // Modeless navigation — always active on a free field. Each key
+            // ensures the background list is built (and fresh, for category
+            // keys) before acting; when the field is busy the handler returns
+            // false and the key passes through to the game untouched.
+            if (kb[ModKeys.NavCategoryPrev].wasPressedThisFrame)
             {
-                DebugLogger.LogInput("Numpad5", "NavToggle");
-                _navigationHandler.ToggleNavList();
-                return true;
+                DebugLogger.LogInput(ModKeys.DisplayName(ModAction.NavCategoryPrev), "NavCategoryPrev");
+                return _navigationHandler.ModelessCategoryPrev();
             }
-
-            // NumPad navigation — only active while the nav list is open
-            if (_navigationHandler.IsListOpen)
+            if (kb[ModKeys.NavCategoryNext].wasPressedThisFrame)
             {
-                if (kb[Key.Numpad8].wasPressedThisFrame)
-                {
-                    DebugLogger.LogInput("Numpad8", "NavUp");
-                    _navigationHandler.NavUp();
-                    return true;
-                }
-                if (kb[Key.Numpad2].wasPressedThisFrame)
-                {
-                    DebugLogger.LogInput("Numpad2", "NavDown");
-                    _navigationHandler.NavDown();
-                    return true;
-                }
-                if (kb[Key.Numpad4].wasPressedThisFrame)
-                {
-                    DebugLogger.LogInput("Numpad4", "NavCategoryPrev");
-                    _navigationHandler.NavCategoryPrev();
-                    return true;
-                }
-                if (kb[Key.Numpad6].wasPressedThisFrame)
-                {
-                    DebugLogger.LogInput("Numpad6", "NavCategoryNext");
-                    _navigationHandler.NavCategoryNext();
-                    return true;
-                }
-                if (kb[Key.Numpad1].wasPressedThisFrame)
-                {
-                    DebugLogger.LogInput("Numpad1", "AutoWalkTo");
-                    _navigationHandler.AutoWalkTo();
-                    return true;
-                }
+                DebugLogger.LogInput(ModKeys.DisplayName(ModAction.NavCategoryNext), "NavCategoryNext");
+                return _navigationHandler.ModelessCategoryNext();
             }
-
-            // NumPad 1 also cancels an active auto-walk
-            if (_navigationHandler.IsAutoWalking && kb[Key.Numpad1].wasPressedThisFrame)
+            if (kb[ModKeys.NavItemPrev].wasPressedThisFrame)
             {
-                DebugLogger.LogInput("Numpad1", "CancelAutoWalk");
-                _navigationHandler.CancelAutoWalk();
-                return true;
+                DebugLogger.LogInput(ModKeys.DisplayName(ModAction.NavItemPrev), "NavItemPrev");
+                return _navigationHandler.ModelessItemPrev();
+            }
+            if (kb[ModKeys.NavItemNext].wasPressedThisFrame)
+            {
+                DebugLogger.LogInput(ModKeys.DisplayName(ModAction.NavItemNext), "NavItemNext");
+                return _navigationHandler.ModelessItemNext();
+            }
+            if (kb[ModKeys.NavAutoWalkToggle].wasPressedThisFrame)
+            {
+                DebugLogger.LogInput(ModKeys.DisplayName(ModAction.NavAutoWalkToggle), "NavAutoWalkToggle");
+                return _navigationHandler.ModelessAutoWalkToggle();
             }
 
             // Movement keys cancel auto-walk silently — player takes manual control.
@@ -471,11 +478,13 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Processes gamepad L1 hold-to-open navigation overlay each frame.
-        /// L1 pressed: opens nav list (field only, not in menus/battle).
-        /// L1 held: D-pad Up/Down switches category, D-pad Left/Right switches item.
-        /// L1 held + Left stick up: starts auto-walk to highlighted item.
-        /// L1 released: closes nav list silently.
+        /// Processes the gamepad hold-to-open navigation overlay each frame.
+        /// The mod modifier is L2 (ModKeys.NavModifier) — L1 belongs to the
+        /// game (pickpocket, battle arts).
+        /// L2 pressed: opens nav list (field only, not in menus/battle).
+        /// L2 held: D-pad Up/Down switches category, D-pad Left/Right switches item.
+        /// L2 held + Left stick up: starts auto-walk to highlighted item.
+        /// L2 released: closes nav list silently.
         /// </summary>
         private void ProcessGamepad()
         {
@@ -483,9 +492,9 @@ namespace SO2RAccess
             if (gp == null)
             {
                 // No gamepad connected — ensure state is clean.
-                if (_gamepadL1Held)
+                if (_gamepadModHeld)
                 {
-                    _gamepadL1Held = false;
+                    _gamepadModHeld = false;
                     _navigationHandler.GamepadCloseNav();
                 }
 
@@ -509,28 +518,29 @@ namespace SO2RAccess
                 if (_gamepadDiagTimer <= 0f)
                 {
                     _gamepadDiagTimer = 2f;
-                    bool ls = gp.leftShoulder.isPressed;
+                    bool l1 = gp.leftShoulder.isPressed;
+                    bool l2 = ModKeys.NavModifier(gp).isPressed;
                     bool rs = gp.rightShoulder.isPressed;
                     bool du = gp.dpad.up.isPressed;
                     bool dd = gp.dpad.down.isPressed;
                     bool dl = gp.dpad.left.isPressed;
                     bool dr = gp.dpad.right.isPressed;
                     float ly = gp.leftStick.y.ReadValue();
-                    MelonLogger.Msg($"[GAMEPAD DIAG] L1={ls} R1={rs} DUp={du} DDown={dd} DLeft={dl} DRight={dr} LStickY={ly:F2} | _gamepadL1Held={_gamepadL1Held} navOpen={_navigationHandler.IsListOpen} autoWalk={_navigationHandler.IsAutoWalking}");
+                    MelonLogger.Msg($"[GAMEPAD DIAG] L1={l1} L2={l2} R1={rs} DUp={du} DDown={dd} DLeft={dl} DRight={dr} LStickY={ly:F2} | _gamepadModHeld={_gamepadModHeld} navOpen={_navigationHandler.IsListOpen} autoWalk={_navigationHandler.IsAutoWalking}");
                 }
             }
 
-            // Mod menu — L1+L3 to toggle, then consume all gamepad input while open.
-            if (gp.leftShoulder.isPressed && gp.leftStickButton.wasPressedThisFrame)
+            // Mod menu — L2+L3 to toggle, then consume all gamepad input while open.
+            if (ModKeys.NavModifier(gp).isPressed && ModKeys.ModMenuChord(gp).wasPressedThisFrame)
             {
-                DebugLogger.LogInput("L1+L3", "ModMenuToggle");
+                DebugLogger.LogInput(ModKeys.NavModifierName + "+L3", "ModMenuToggle");
                 _modMenuHandler.Toggle();
                 return;
             }
-            // L1+R3 — read current Fol
-            if (gp.leftShoulder.isPressed && gp.rightStickButton.wasPressedThisFrame)
+            // L2+R3 — read current Fol
+            if (ModKeys.NavModifier(gp).isPressed && ModKeys.ReadFolChord(gp).wasPressedThisFrame)
             {
-                DebugLogger.LogInput("L1+R3", "ReadFol");
+                DebugLogger.LogInput(ModKeys.NavModifierName + "+R3", "ReadFol");
                 AnnounceFol();
                 return;
             }
@@ -546,21 +556,21 @@ namespace SO2RAccess
             // L1/R1 are free during pause (nav overlay blocked by return).
             if (_battlePauseHandler.IsPauseOpen)
             {
-                if (gp.leftShoulder.wasPressedThisFrame)
+                if (ModKeys.PauseTierUpPad(gp).wasPressedThisFrame)
                 {
                     DebugLogger.LogInput("L1", "PauseTierUp");
                     _battlePauseHandler.TierUp();
                 }
-                else if (gp.rightShoulder.wasPressedThisFrame)
+                else if (ModKeys.PauseTierDownPad(gp).wasPressedThisFrame)
                 {
                     DebugLogger.LogInput("R1", "PauseTierDown");
                     _battlePauseHandler.TierDown();
                 }
-                return; // Don't process L1 nav overlay while pause is open
+                return; // Don't process the nav overlay while pause is open
             }
 
             // Left stick cancels auto-walk silently — player takes manual control.
-            if (_navigationHandler.IsAutoWalking && !gp.leftShoulder.isPressed)
+            if (_navigationHandler.IsAutoWalking && !ModKeys.NavModifier(gp).isPressed)
             {
                 float stickMag = gp.leftStick.ReadValue().magnitude;
                 if (stickMag > StickCancelThreshold)
@@ -571,38 +581,39 @@ namespace SO2RAccess
                 }
             }
 
-            bool l1Pressed = gp.leftShoulder.wasPressedThisFrame;
-            bool l1Held    = gp.leftShoulder.isPressed;
-            bool l1Released = gp.leftShoulder.wasReleasedThisFrame;
+            var modBtn = ModKeys.NavModifier(gp);
+            bool modPressed  = modBtn.wasPressedThisFrame;
+            bool modHeld     = modBtn.isPressed;
+            bool modReleased = modBtn.wasReleasedThisFrame;
 
-            // L1 just pressed — open nav overlay (only when field is free).
-            if (l1Pressed)
+            // Modifier just pressed — open nav overlay (only when field is free).
+            if (modPressed)
             {
-                // If camp menu (or other overlay) is open, let L1 pass through
-                // to the game without activating the nav overlay.
+                // If camp menu (or other overlay) is open, let the button pass
+                // through to the game without activating the nav overlay.
                 if (CampMenuHandler.IsCampOpen)
                     return;
 
-                _gamepadL1Held = true;
+                _gamepadModHeld = true;
                 _dpadRepeater.Reset();
                 _stickUpWasActive = false;
-                DebugLogger.LogInput("L1", "GamepadNavOpen");
+                DebugLogger.LogInput(ModKeys.NavModifierName, "GamepadNavOpen");
                 _navigationHandler.GamepadOpenNav();
                 return;
             }
 
-            // L1 just released — close nav overlay.
-            if (l1Released && _gamepadL1Held)
+            // Modifier just released — close nav overlay.
+            if (modReleased && _gamepadModHeld)
             {
-                _gamepadL1Held = false;
+                _gamepadModHeld = false;
                 _dpadRepeater.Reset();
-                DebugLogger.LogInput("L1 release", "GamepadNavClose");
+                DebugLogger.LogInput(ModKeys.NavModifierName + " release", "GamepadNavClose");
                 _navigationHandler.GamepadCloseNav();
                 return;
             }
 
-            // L1 held — process D-pad navigation and left stick auto-walk.
-            if (!_gamepadL1Held || !l1Held) return;
+            // Modifier held — process D-pad navigation and left stick auto-walk.
+            if (!_gamepadModHeld || !modHeld) return;
             if (!_navigationHandler.IsListOpen) return;
 
             // --- D-pad navigation with auto-repeat ---
@@ -621,8 +632,8 @@ namespace SO2RAccess
                 DebugLogger.LogInput("LStickUp", "GamepadAutoWalk");
                 _navigationHandler.AutoWalkTo();
                 // AutoWalkTo closes the list and starts walking.
-                // _gamepadL1Held stays true so input suppression continues
-                // until L1 is released (prevents accidental camera/movement).
+                // _gamepadModHeld stays true so input suppression continues
+                // until L2 is released (prevents accidental camera/movement).
             }
             _stickUpWasActive = stickUp;
         }
