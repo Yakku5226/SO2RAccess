@@ -37,6 +37,26 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> 🚀 **FIRST PUBLIC RELEASE PUBLISHED (2026-08-30, session 5): v0.1.0 on
+> GitHub** — https://github.com/Yakku5226/SO2RAccess/releases/tag/v0.1.0
+> - Release build (`dotnet build -c Release`, 0 warnings) tagged v0.1.0 on
+>   master d7e170c; tag + commit pushed.
+> - Zip asset `SO2RAccess-0.1.0.zip` contains: SO2RAccess.dll (Release),
+>   Tolk.dll, nvdaControllerClient64.dll, README.md, LICENSE,
+>   KNOWN_ISSUES.md, and Sounds\ (the 7 TESTED wavs from the game's
+>   UserData\SO2RAccess\Sounds — incl. Jump.wav and the user's own dodge.wav,
+>   shipped as Dodge.wav — plus the sound license listing).
+> - Sound credits corrected first (commit d7e170c): dodge + jump sounds are
+>   Yakku's own work (user confirmed); andersmmg triple-beep credit removed
+>   (that sound no longer ships); typo fix in the license listing.
+> - Versioning convention (user-set): 0.x until everything tested at least
+>   once; middle number = major updates, third = tiny updates. MelonInfo
+>   version stays "0.1.0" (already matched).
+> - NEXT SESSION (user-set): localization/community translation support —
+>   move Loc.cs strings to an external en.json template + language file
+>   loader + fallback to embedded English + TRANSLATING.md for the
+>   community. (Guild menu + reference-mod items: user says already done.)
+>
 > ✅ **REBINDING MENU: TEST R1 PASSED (2026-08-30, session 3 — user: "The
 > keybindings menu works"). COMMITTED + PUSHED 2026-08-30 (see below).**
 >
