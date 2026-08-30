@@ -12,7 +12,7 @@ using Il2CppGame;
 // Accessing game code before the game is fully loaded will crash.
 // Safe access begins in OnSceneWasLoaded() or when CheckGameReady() passes.
 
-[assembly: MelonInfo(typeof(SO2RAccess.Main), "SO2RAccess", "0.1.0", "Accessibility Mod")]
+[assembly: MelonInfo(typeof(SO2RAccess.Main), "SO2RAccess", "0.2.0", "Accessibility Mod")]
 // Universal: no game-name check, so the mod loads on both the full game and the
 // demo (their internal product names may differ, but the game code is identical).
 [assembly: MelonGame]
@@ -72,6 +72,7 @@ namespace SO2RAccess
         private FieldPromptHandler _fieldPromptHandler;
         private FishCollectorHandler _fishCollectorHandler;
         private ListSelectionHandler _listSelectionHandler;
+        private LanguageHandler _languageHandler;
         private DebugHotkeys _debugHotkeys;
 
         // Gamepad nav overlay — mod modifier (L2) hold-to-open state.
@@ -163,6 +164,7 @@ namespace SO2RAccess
             _fieldPromptHandler = new FieldPromptHandler();
             _fishCollectorHandler = new FishCollectorHandler();
             _listSelectionHandler = new ListSelectionHandler();
+            _languageHandler = new LanguageHandler();
             _debugHotkeys = new DebugHotkeys(_navigationHandler);
         }
 
@@ -269,6 +271,7 @@ namespace SO2RAccess
             _fieldPromptHandler.ApplyPatches(_harmony);
             _quickRecoveryHandler.ApplyPatches(_harmony);
             _listSelectionHandler.ApplyPatches(_harmony);
+            _languageHandler.ApplyPatches(_harmony);
         }
 
         /// <summary>
@@ -667,6 +670,7 @@ namespace SO2RAccess
 
         private void UpdateHandlers()
         {
+            _languageHandler.Update();
             _navigationHandler.Update();
             _campMenuHandler.Update();
             _shopHandler.Update();
