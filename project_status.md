@@ -12,7 +12,7 @@
 - **Game directory:** E:\Program Files\Steam\steamapps\common\STAR OCEAN THE SECOND STORY R
 - **User experience level:** Little/None
 - **User game familiarity:** Somewhat
-- **Languages:** English only
+- **Languages:** English built in; community translations via JSON files in UserData\SO2RAccess\lang (since 0.2.0, see TRANSLATING.md)
 
 ## Setup Progress
 
@@ -27,7 +27,7 @@
 - [x] Game launched once with MelonLoader (log + IL2CPP stubs generated)
 - [x] Game code decompiled to `decompiled/Assembly-CSharp/`
 - [ ] Tutorial texts extracted (if applicable)
-- [x] Multilingual support decided (English only)
+- [x] Multilingual support decided (English built in + community translation files, v0.2.0)
 - [x] Project directory set up (SO2RAccess.csproj, Main.cs, ScreenReader.cs, DebugLogger.cs, Loc.cs)
 - [ ] CLAUDE.md updated with project-specific values
 - [x] First build successful (SO2RAccess.dll copied to Mods folder)
@@ -37,6 +37,57 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> 🌍 **LOCALIZATION / COMMUNITY TRANSLATION SUPPORT BUILT (2026-08-30,
+> session 6) — PENDING IN-GAME TESTS (L1 below). Version bumped to 0.2.0.**
+> - All 628 spoken strings moved OUT of Loc.cs into `lang\en.json` (flat
+>   key→text JSON; the ~90 `//` section comments preserved as `_section_*`
+>   marker keys the loader skips). Export was done by a throwaway tool that
+>   compiled Loc.cs itself — round-trip verified byte-exact, then deleted.
+> - `lang\en.json` is an EmbeddedResource in the DLL (the permanent English
+>   fallback) and is re-extracted to `UserData\SO2RAccess\lang\en.json` on
+>   EVERY launch as the translators' reference template (en.json is always
+>   overwritten by design; other files in lang\ are never touched).
+> - Loc.cs rewritten (910 → ~150 lines): per-key lookup = active translation
+>   → embedded English → key itself. New API: SetLanguage(code), ActiveCode,
+>   AvailableCodes(). New LocLoader.cs owns all file/resource IO (parse,
+>   template extraction, `language_name` peeking, game-enum→code map:
+>   ja en ko zh-Hant zh-Hans fr it de es).
+> - New Language setting (settings.json `"Language"`, default `"auto"`).
+>   New LanguageHandler.cs: one-shot startup auto-detect reads
+>   `ParameterManager.Instance.SystemConfigParameter.TextLanguage` after
+>   game-ready (game singletons unsafe earlier); Harmony postfix on
+>   `TextManager.OnChangeLanguage(Language)` (by-value enum, hook-safe)
+>   follows mid-session language changes; in auto mode a missing language
+>   file falls back to English. All load failures logged with reasons.
+> - F4 menu: new "Speech language" row (before Key bindings) cycling
+>   Automatic + English + every `*.json` in lang\; applies instantly.
+> - Docs: new TRANSLATING.md (translator guide: placeholder rules incl. the
+>   16-placeholder help string, UTF-8, missing-key fallback, naming/auto
+>   codes); README Translations section; docs/localization-guide.md marked
+>   SUPERSEDED (described the old hardcoded-dictionaries design).
+> - 🟡 **PENDING TESTS L1 (user, in-game):**
+>   1. Startup speaks "Welcome to SO2R Access." unchanged; F1 help reads
+>      with all key names filled in (proves export fidelity).
+>   2. `UserData\SO2RAccess\lang\en.json` exists after launch; Latest.log
+>      has `[LOC]` lines (embedded loaded + template refreshed).
+>   3. Test language: `copy en.json xx.json` in the lang folder, edit
+>      `language_name` to "Test" and `mod_loaded` to "Test language
+>      loaded."; F4 → Speech language → Test → menu re-announces from the
+>      file; close menu (saves); restart → startup speaks the test string.
+>   4. Delete a few keys from xx.json → those lines speak English; log
+>      shows the missing-key count.
+>   5. Break xx.json (delete a closing brace) → mod stays English, no
+>      crash, parse reason in log.
+>   6. Auto-detect: set Speech language to Automatic; with game language
+>      French and no fr.json → stays English (log explains); rename
+>      xx.json → fr.json, restart → auto-loads it.
+>   7. Live switch: on Automatic, change the game's text language in the
+>      game config mid-session → mod announces "Speech language: …"
+>      without restart (tests the OnChangeLanguage hook; if it never
+>      fires, fallback plan = slow polling in LanguageHandler.Update).
+>   8. Regression sweep: F12 debug, F3 Fol, F2 dialogue mode, nav keys,
+>      keybind submenu (composed keybind_action_* keys) all still speak.
+>
 > 🚀 **FIRST PUBLIC RELEASE PUBLISHED (2026-08-30, session 5): v0.1.0 on
 > GitHub** — https://github.com/Yakku5226/SO2RAccess/releases/tag/v0.1.0
 > - Release build (`dotnet build -c Release`, 0 warnings) tagged v0.1.0 on

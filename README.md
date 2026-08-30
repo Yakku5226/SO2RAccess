@@ -13,7 +13,7 @@ The mod is built on [MelonLoader](https://melonwiki.xyz/) and uses the [Tolk](ht
 - Battle accessibility — target announcements, enemy proximity cues, dodge notifications, and status readouts during real-time battles.
 - Fishing support — navigate to fishing spots and get an audio cue the moment you can cast.
 - Audio cues — distinct sounds for events like a nearby enemy, a dodge window, save points, private actions, and bonus gauge progress. Sound and speech output can be toggled independently.
-- Localization-ready — all spoken strings go through a localization layer, so translations can be added without code changes.
+- Community translations — all spoken text lives in a plain JSON file; anyone can translate the mod without code changes, and the mod can follow the game's own language setting automatically. See [TRANSLATING.md](TRANSLATING.md).
 
 ## Requirements
 
@@ -104,6 +104,12 @@ Moving the left stick (without L2) quietly stops an auto-walk. In the mod
 settings menu the D-pad navigates and changes values, Cross/A opens a
 submenu or activates an item, and Circle/B goes back or closes. Key
 rebinding itself is keyboard-only — the gamepad layout is fixed.
+
+## Translations
+
+The mod speaks English out of the box, and community translations are plain JSON files — no code changes needed. To use one, drop the translation file (for example `de.json`) into `UserData\SO2RAccess\lang` inside the game directory, then pick the language in the mod settings menu (F4) under Speech language, or leave it on Automatic to follow the game's own text language. Any text a translation does not cover falls back to English automatically.
+
+To create a translation yourself, see [TRANSLATING.md](TRANSLATING.md) — it walks through copying the always-current English template the mod places in that same lang folder.
 
 ## Known issues
 

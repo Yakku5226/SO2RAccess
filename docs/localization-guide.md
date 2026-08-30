@@ -1,5 +1,7 @@
 # Localization Guide for Accessibility Mods
 
+SUPERSEDED (v0.2.0): SO2RAccess no longer uses the per-language hardcoded dictionaries this guide describes. Strings now live in an external JSON file (`lang\en.json`, embedded in the DLL and regenerated as a template in `UserData\SO2RAccess\lang`), loaded by `Loc.cs` / `LocLoader.cs`, with game-language auto-detection in `LanguageHandler.cs`. For creating translations see `TRANSLATING.md` in the repo root. This guide is kept as historical reference only.
+
 This guide describes how to implement multi-language localization for accessibility mods. The method was successfully tested in the Pet Idle Accessibility Mod and can be adapted for different game engines.
 
 ---
