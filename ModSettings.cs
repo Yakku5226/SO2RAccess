@@ -141,6 +141,15 @@ namespace SO2RAccess
         /// </summary>
         public static bool NpcAwarePathfindingEnabled { get; set; } = true;
 
+        /// <summary>
+        /// Speech language: "auto" follows the game's text language, "en" is
+        /// the embedded English, any other code loads
+        /// UserData\SO2RAccess\lang\[code].json. A string rather than an enum
+        /// so community translations for languages the game does not have
+        /// (e.g. "ru") work too; validated by file existence at load time.
+        /// </summary>
+        public static string Language { get; set; } = "auto";
+
         #endregion
 
         #region Persistence
@@ -198,6 +207,7 @@ namespace SO2RAccess
                         ? (EventNpcDisplayMode)data.EventNpcDisplay
                         : EventNpcDisplayMode.Both;
                     NpcAwarePathfindingEnabled = data.NpcAwarePathfindingEnabled;
+                    Language = string.IsNullOrWhiteSpace(data.Language) ? "auto" : data.Language.Trim();
                     ApplyKeyBindings(data.KeyBindings);
                 }
                 MelonLogger.Msg("ModSettings: loaded.");
@@ -242,6 +252,7 @@ namespace SO2RAccess
                     WalkAssistEnabled = WalkAssistEnabled,
                     EventNpcDisplay = (int)EventNpcDisplay,
                     NpcAwarePathfindingEnabled = NpcAwarePathfindingEnabled,
+                    Language = Language,
                     KeyBindings = CollectKeyBindingOverrides()
                 };
 
@@ -334,6 +345,7 @@ namespace SO2RAccess
             public bool WalkAssistEnabled { get; set; } = true;
             public int EventNpcDisplay { get; set; } = (int)EventNpcDisplayMode.Both;
             public bool NpcAwarePathfindingEnabled { get; set; } = true;
+            public string Language { get; set; } = "auto";
 
             /// <summary>
             /// User key-binding overrides: mod action name → keyboard key name.

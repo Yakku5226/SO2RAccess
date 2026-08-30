@@ -37,6 +37,13 @@
     <EmbeddedResource Include="grids\*.grid.gz" />
   </ItemGroup>
 
+  <!-- English string table, compiled into the DLL as the localization
+       fallback and re-extracted to UserData\SO2RAccess\lang\en.json on every
+       launch as the translators' reference template (see TRANSLATING.md). -->
+  <ItemGroup>
+    <EmbeddedResource Include="lang\*.json" />
+  </ItemGroup>
+
   <!-- MelonLoader (net6 runtime) -->
   <ItemGroup>
     <Reference Include="MelonLoader">
