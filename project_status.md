@@ -37,6 +37,25 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> 🌐 **FOUR STARTER TRANSLATIONS CREATED (2026-08-30, session 6, after L1
+> passed): fr.json, de.json, sv.json, pt.json in the project's lang\ folder**
+> — full machine-assisted first drafts of all 724 keys each (AI-translated;
+> community will refine). Verified programmatically: valid UTF-8 JSON, same
+> key set and order as en.json, every {n} placeholder intact in every string
+> (incl. the 16-placeholder help text). Portuguese is Brazilian-flavored
+> (largest player base), Swedish/Portuguese can't be auto-selected (game has
+> no such text language) — manual pick via F4 only; fr/de auto-select works.
+> - csproj changed: `lang\*.json` EmbeddedResource narrowed to `lang\en.json`
+>   only, so bundled translations stay LOOSE files (players/community can
+>   edit without a rebuild) and the DLL doesn't bloat. Build clean after.
+> - All four copied to the game's UserData\SO2RAccess\lang for testing
+>   (old test fr.json overwritten — it was a renamed English copy).
+> - README Translations section now mentions the bundled starter files.
+> - 📦 RELEASE NOTE: next release zip must include a `lang\` folder with
+>   fr/de/sv/pt.json (en.json not needed — embedded + auto-extracted).
+> - ✅ TESTED 2026-08-30 (user: "Tested and works") → committed, pushed,
+>   and released as v0.2.0.
+>
 > 🌍 **LOCALIZATION / COMMUNITY TRANSLATION SUPPORT BUILT (2026-08-30,
 > session 6) — PENDING IN-GAME TESTS (L1 below). Version bumped to 0.2.0.**
 > - All 628 spoken strings moved OUT of Loc.cs into `lang\en.json` (flat
