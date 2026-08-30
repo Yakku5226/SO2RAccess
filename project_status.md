@@ -137,15 +137,17 @@
 >    spot X...") UNCHANGED — only the bubble prompt readout became a sound.
 >    Sounds/ added to .gitignore (bubble_big.wav must never be committed;
 >    older tracked WAVs from the initial commit left as-is).
->    G7 ATTEMPT 1 (2026-08-30): sound did NOT play — log line "bubble_big.wav
->    must be PCM format": the user's WAV was 32-bit IEEE FLOAT (format 3);
->    AudioCuePlayer (like winmm) needs integer PCM. Speech fallback worked as
->    designed. FIXED by converting the ASSET (not the code): both copies
->    (E:\StarOcean\Sounds + game UserData) rewritten as 16-bit PCM mono
->    44.1kHz (44142 bytes); header verified format=1, plays via SoundPlayer.
->    No rebuild needed. RETEST G7: stand at a fishing spot → bubble sound
->    instead of speech; re-arm by walking >3m away and back; mod menu has the
->    2 new entries. THEN: user wants to COMMIT the whole pile.
+>    G7 ATTEMPT 1 (2026-08-30): sound did NOT play — the user's WAV was
+>    32-bit IEEE FLOAT; AudioCuePlayer needs integer PCM. Speech fallback
+>    worked as designed. Fixed by converting the ASSET to 16-bit PCM in both
+>    locations. ✅ RETEST G7 PASSED (user: "Works perfectly").
+>
+> ✅ **ENTIRE PILE COMMITTED + PUSHED 2026-08-30** (origin/master a1408e9):
+> three commits — c9b2e5b menus & speech (list hook, guild, story hint,
+> missed dialogue, fish-prompt sound), e2bb9f7 navigation (fishing complete +
+> walking-NPC fixes), a1408e9 docs & build. Working tree clean.
+> STILL OPEN: TEST G4 (missed-dialogue hooks armed but no bubble has
+> triggered yet in play — watch for newly spoken ambient/center-screen text).
 > ⚠️ UNCOMMITTED WORK PILE (commit together when user says go): entire fishing
 > build (M4–M10 fixes: perf, bubble detection, creep, resume bounds, routing,
 > distances, cancel speech), Welsh specialty SP fix (validated), csproj
