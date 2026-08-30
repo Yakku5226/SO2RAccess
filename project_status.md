@@ -38,8 +38,7 @@
 **Phase:** Phase 3 — Feature Implementation
 
 > ✅ **REBINDING MENU: TEST R1 PASSED (2026-08-30, session 3 — user: "The
-> keybindings menu works"). NOT YET COMMITTED — joins the pile (scheme rework +
-> battle strategy-menu fix + README/LICENSE docs) when the user says go.**
+> keybindings menu works"). COMMITTED + PUSHED 2026-08-30 (see below).**
 >
 > ✅ **FINALISATION TWEAKS (same day, DLL deployed, user: "Looks good"):**
 > - Debug hotkeys F5–F11 REMOVED from the rebind list (BuildRebindRows skips
@@ -60,12 +59,18 @@
 > and the free demo regardless of their internal product names (game code is
 > identical; the reference BepInEx mod works on both for the same reason —
 > BepInEx has no game-name gate at all). README Requirements updated. Built and
-> deployed. NOT committed — joins the pile.
+> deployed.
 >
-> ➡️ **NEXT:** user may have more changes, then COMMIT + PUSH
-> the whole pile: input scheme rework + battle strategy-menu fix +
-> README/LICENSE docs + rebinding menu + finalisation tweaks + demo
-> compatibility.
+> ✅ **ENTIRE PILE COMMITTED + PUSHED 2026-08-30 (origin/master 6c18e90,
+> tree clean).** Four commits: 6a6884e battle strategy quick list
+> (PHASE_OPERATION), 900b32d input scheme rework + ModKeys + rebinding
+> menu + universal MelonGame (demo support), b4c3ee0 nav data (grid
+> growth + 68 new traversals), 6c18e90 docs (README, LICENSE, sound
+> license listing, CLAUDE.md rule, status).
+>
+> ➡️ **NEXT:** open items — G4 missed-dialogue hooks still inconclusive
+> (watch during story scenes); bonus gauge deferred until the user has
+> experimented with it.
 >
 > What was built:
 > - New "Key bindings" item at the BOTTOM of the mod settings menu (F4). Enter
