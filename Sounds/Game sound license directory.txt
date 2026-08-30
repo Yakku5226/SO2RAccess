@@ -1,6 +1,8 @@
 Game sound license directory:
 
-Triple beep sound used for dodge notification created by andersmmg  - https://freesound.org/people/andersmmg/sounds/511491/
+Dodge notification sound (Dodge.wav) created by Yakku for this mod.
+
+Jump prompt sound (Jump.wav) created by Yakku for this mod.
 
 Menu Beep used for save sound created by CogFireStudios -- https://freesound.org/s/531511/ -- License: Creative Commons 0
 
@@ -10,4 +12,4 @@ Mobile Phone Notification Sound used for private action notification by TheArbuz
 
 Menu Beep.wav used for Bonus Gauge fill by DrMrSir -- https://freesound.org/s/529560/ -- License: Attribution 4.0
 
-bubble_big.wav used for fushing spot arrival by cdonahueucsd -- https://freesound.org/s/337133/ -- License: Attribution 4.0
+bubble_big.wav used for fishing spot arrival by cdonahueucsd -- https://freesound.org/s/337133/ -- License: Attribution 4.0

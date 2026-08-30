@@ -128,7 +128,7 @@ See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for current limitations and quirks.
 
 The notification sounds are sourced from [Freesound](https://freesound.org/) under Creative Commons licenses. The full listing also ships with the mod in `Sounds\Game sound license directory.txt`.
 
-- Triple beep (dodge notification) by **andersmmg** — <https://freesound.org/people/andersmmg/sounds/511491/>
+- Dodge notification and jump prompt sounds by **Yakku** — made for this mod
 - Menu Beep (save sound) by **CogFireStudios** — <https://freesound.org/s/531511/> — License: Creative Commons 0
 - Dangerous City (enemy approach) by **pholosho_seloane** — <https://freesound.org/s/548162/> — License: Creative Commons 0
 - Mobile Phone Notification Sound (private action notification) by **TheArbuzikYT** — <https://freesound.org/s/840284/> — License: Creative Commons 0
