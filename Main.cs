@@ -69,6 +69,7 @@ namespace SO2RAccess
         private QuickRecoveryHandler _quickRecoveryHandler;
         private FieldPromptHandler _fieldPromptHandler;
         private FishCollectorHandler _fishCollectorHandler;
+        private ListSelectionHandler _listSelectionHandler;
         private DebugHotkeys _debugHotkeys;
 
         // Gamepad nav overlay — L1 hold-to-open state.
@@ -116,6 +117,9 @@ namespace SO2RAccess
             string jumpWavPath = Path.Combine(soundsDir, "Jump.wav");
             AudioCuePlayer.LoadJumpSound(jumpWavPath);
 
+            string fishPromptWavPath = Path.Combine(soundsDir, "bubble_big.wav");
+            AudioCuePlayer.LoadFishPromptSound(fishPromptWavPath);
+
             Loc.Initialize();
             InitializeHandlers();
             MelonCoroutines.Start(AnnounceStartupDelayed());
@@ -156,6 +160,7 @@ namespace SO2RAccess
             _quickRecoveryHandler = new QuickRecoveryHandler();
             _fieldPromptHandler = new FieldPromptHandler();
             _fishCollectorHandler = new FishCollectorHandler();
+            _listSelectionHandler = new ListSelectionHandler();
             _debugHotkeys = new DebugHotkeys(_navigationHandler);
         }
 
@@ -231,6 +236,7 @@ namespace SO2RAccess
             _pickpocketHandler?.OnSceneChanged();
             _quickRecoveryHandler?.OnSceneChanged();
             _fishCollectorHandler?.OnSceneChanged();
+            _listSelectionHandler?.OnSceneChanged();
 
             // Apply patches once — safe to call on every scene load, handlers guard against duplicates.
             _titleHandler.ApplyPatches(_harmony);
@@ -260,6 +266,7 @@ namespace SO2RAccess
             _dialogueChoiceHandler.ApplyPatches(_harmony);
             _fieldPromptHandler.ApplyPatches(_harmony);
             _quickRecoveryHandler.ApplyPatches(_harmony);
+            _listSelectionHandler.ApplyPatches(_harmony);
         }
 
         /// <summary>
@@ -669,6 +676,7 @@ namespace SO2RAccess
             _quickRecoveryHandler.Update();
             _fieldPromptHandler.Update();
             _fishCollectorHandler.Update();
+            _listSelectionHandler.Update();
         }
 
         #endregion

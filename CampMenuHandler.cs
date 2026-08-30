@@ -151,6 +151,7 @@ namespace SO2RAccess
             UpdateFishPictureBook();
             UpdateLocationPictureBook();
             UpdatePlayerData();
+            UpdateStoryHint();
         }
 
         /// <summary>

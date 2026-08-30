@@ -205,6 +205,18 @@ namespace SO2RAccess
                 return;
             }
 
+            // Opening the guild's command menu (Accept/Report) wakes the quest selector
+            // with STALE data from the previous visit — active in hierarchy and populated,
+            // but without input focus. Real focus (entering the list, moving the cursor)
+            // always fires UIQuestListItemPresenter.OnSelected (universal hook), so
+            // require a recent selection event before announcing anything; index shifts
+            // from background list rebuilds stay silent too.
+            if (!ListSelectionHandler.WasRecentlySelected(
+                    nameof(UIQuestListItemPresenter), 1.0f))
+            {
+                return;
+            }
+
             try
             {
                 if (_questListBase == null)

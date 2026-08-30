@@ -67,6 +67,17 @@ namespace SO2RAccess
         private static float _jumpSoundCachedVolume = -1f;
         private static bool _jumpSoundLoaded;
 
+        // File-based fishing-prompt cue — played when the "you can fish" bubble
+        // appears, replacing the spoken "You can fish here."
+        private static byte[] _fishPromptSoundRawWav;
+        private static int _fishPromptSoundDataOffset;
+        private static int _fishPromptSoundDataLength;
+        private static short _fishPromptSoundBitsPerSample;
+        private static IntPtr _fishPromptSoundPtr = IntPtr.Zero;
+        private static int _fishPromptSoundPtrSize;
+        private static float _fishPromptSoundCachedVolume = -1f;
+        private static bool _fishPromptSoundLoaded;
+
         // File-based save sound — stores the raw WAV file bytes and the
         // byte offset of the PCM data region within it. Volume adjustment
         // creates a copy with scaled samples rather than rebuilding the
@@ -239,6 +250,88 @@ namespace SO2RAccess
             catch (Exception ex)
             {
                 DebugLogger.LogState($"AudioCuePlayer.PlayJumpCue failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Loads a WAV file from disk for the fishing-prompt cue.
+        /// </summary>
+        public static void LoadFishPromptSound(string path)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    MelonLogger.Warning($"AudioCuePlayer: fishing-prompt sound not found: {path}");
+                    return;
+                }
+
+                if (!TryParseWav(path, out byte[] fileBytes, out int dataOffset,
+                        out int dataLength, out short bitsPerSample))
+                    return;
+
+                _fishPromptSoundRawWav = fileBytes;
+                _fishPromptSoundDataOffset = dataOffset;
+                _fishPromptSoundDataLength = dataLength;
+                _fishPromptSoundBitsPerSample = bitsPerSample;
+                _fishPromptSoundCachedVolume = -1f;
+                _fishPromptSoundLoaded = true;
+
+                int sampleCount = dataLength / (bitsPerSample / 8);
+                MelonLogger.Msg($"AudioCuePlayer: fishing-prompt sound loaded ({fileBytes.Length} bytes, {sampleCount} samples, {bitsPerSample}-bit).");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"AudioCuePlayer.LoadFishPromptSound failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// True when the fishing-prompt cue WAV was loaded and parsed successfully.
+        /// The caller falls back to speech when this is false — the prompt must
+        /// never go silent just because the file is missing.
+        /// </summary>
+        public static bool IsFishPromptSoundLoaded => _fishPromptSoundLoaded;
+
+        /// <summary>
+        /// Plays the fishing-prompt cue at the current ModSettings volume.
+        /// </summary>
+        public static void PlayFishPromptCue()
+        {
+            if (!_fishPromptSoundLoaded || _fishPromptSoundRawWav == null)
+                return;
+
+            try
+            {
+                float volume = ModSettings.FishPromptSoundVolume;
+                if (volume < 0.001f) return;
+
+                if (Math.Abs(volume - _fishPromptSoundCachedVolume) > 0.001f)
+                {
+                    byte[] adjusted = (byte[])_fishPromptSoundRawWav.Clone();
+                    ScalePcmSamples(adjusted, _fishPromptSoundDataOffset,
+                        _fishPromptSoundDataLength, _fishPromptSoundBitsPerSample, volume);
+
+                    if (_fishPromptSoundPtr != IntPtr.Zero)
+                        Marshal.FreeHGlobal(_fishPromptSoundPtr);
+
+                    _fishPromptSoundPtrSize = adjusted.Length;
+                    _fishPromptSoundPtr = Marshal.AllocHGlobal(_fishPromptSoundPtrSize);
+                    Marshal.Copy(adjusted, 0, _fishPromptSoundPtr, _fishPromptSoundPtrSize);
+                    _fishPromptSoundCachedVolume = volume;
+
+                    DebugLogger.LogState($"Fishing-prompt WAV built: {_fishPromptSoundPtrSize} bytes at volume {volume:F2}");
+                }
+
+                if (_fishPromptSoundPtr != IntPtr.Zero)
+                {
+                    PlaySoundPtr(_fishPromptSoundPtr, IntPtr.Zero,
+                        SND_MEMORY | SND_ASYNC | SND_NODEFAULT);
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"AudioCuePlayer.PlayFishPromptCue failed: {ex.Message}");
             }
         }
 

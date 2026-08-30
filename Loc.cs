@@ -160,6 +160,10 @@ namespace SO2RAccess
             Add("nav_autowalk_entering",   "Entering {0}.");
             Add("nav_autowalk_arrived_npc","Arrived at {0}. Press action button to interact. NumPad 1 or L1 to stop following.");
             Add("nav_autowalk_resuming", "Resuming walk to {0}.");
+            Add("nav_autowalk_cancelled_menu", "Walk to {0} cancelled.");
+            Add("nav_autowalk_arrived_no_fish_prompt",
+                "Arrived near {0}, but the fishing prompt is not showing. " +
+                "Try stepping toward the water.");
             Add("nav_autowalk_unreachable","Cannot reach {0}.");
             Add("nav_autowalk_route_exits","Cannot reach {0} without leaving the area. No safe route found.");
             Add("nav_autowalk_no_land_route","No walkable route to {0} from here. It may lie beyond mountains or water, or the way may lead through another location or a dungeon.");
@@ -253,6 +257,8 @@ namespace SO2RAccess
 
             // Camp menu — root
             Add("camp_menu_screen",           "Camp menu.");
+            Add("camp_story_hint",            "Story hint: {0}");
+            Add("camp_story_hint_none",       "No story hint available.");
             Add("camp_menu_item",             "{0}, {1} of {2}.");
             Add("camp_menu_item_unavailable", "{0}, unavailable, {1} of {2}.");
 
@@ -561,6 +567,8 @@ namespace SO2RAccess
             Add("mod_menu_label_jump_sound",        "Jump prompt sound");
             Add("mod_menu_label_jump_speech",       "Jump prompt speech");
             Add("mod_menu_label_enter_speech",      "Enter prompt speech");
+            Add("mod_menu_label_fish_sound",        "Fishing prompt sound");
+            Add("mod_menu_label_fish_volume",       "Fishing prompt sound volume");
             Add("mod_menu_label_walk_assist",       "Walk assist");
             Add("mod_menu_label_npc_aware_path",    "NPC-aware pathfinding");
             Add("mod_menu_label_event_npc_display", "Event NPCs in nav list");
@@ -573,6 +581,9 @@ namespace SO2RAccess
             Add("jump_prompt_no_button",  "Jump down available.");
             Add("enter_prompt",           "Press {0} to {1}.");
             Add("enter_prompt_no_button", "{0} available.");
+            // Fishing contact is detected by polling game state, not by reading the
+            // prompt UI, so there is no button glyph to echo — keep it button-neutral.
+            Add("fish_prompt",            "You can fish here.");
             // Echo wrapper for label-operation prompts — the game text it carries is already
             // localized, so this is a pass-through that future translators can re-shape.
             Add("enter_prompt_echo",      "{0}");

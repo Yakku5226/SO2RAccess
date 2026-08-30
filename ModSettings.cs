@@ -109,6 +109,16 @@ namespace SO2RAccess
         public static bool EnterPromptSpeechEnabled { get; set; } = true;
 
         /// <summary>
+        /// Whether the fishing-prompt bubble sound plays when the "you can fish"
+        /// bubble appears. The sound replaces the spoken "You can fish here.";
+        /// speech is used only as a fallback when the sound file is missing.
+        /// </summary>
+        public static bool FishPromptSoundEnabled { get; set; } = true;
+
+        /// <summary>Volume of the fishing-prompt bubble sound (0.0 to 1.0).</summary>
+        public static float FishPromptSoundVolume { get; set; } = 0.8f;
+
+        /// <summary>
         /// Whether the soft spatial-awareness walk assist is enabled. When on, the
         /// auto-walk heading is gently nudged around nearby NPCs/clutter so the
         /// player gets stuck less often. The nudge is hard-capped in angle and
@@ -181,6 +191,8 @@ namespace SO2RAccess
                     JumpPromptSoundVolume = Math.Clamp(data.JumpPromptSoundVolume, 0f, 1f);
                     JumpPromptSpeechEnabled = data.JumpPromptSpeechEnabled;
                     EnterPromptSpeechEnabled = data.EnterPromptSpeechEnabled;
+                    FishPromptSoundEnabled = data.FishPromptSoundEnabled;
+                    FishPromptSoundVolume = Math.Clamp(data.FishPromptSoundVolume, 0f, 1f);
                     WalkAssistEnabled = data.WalkAssistEnabled;
                     EventNpcDisplay = Enum.IsDefined(typeof(EventNpcDisplayMode), data.EventNpcDisplay)
                         ? (EventNpcDisplayMode)data.EventNpcDisplay
@@ -224,6 +236,8 @@ namespace SO2RAccess
                     JumpPromptSoundVolume = JumpPromptSoundVolume,
                     JumpPromptSpeechEnabled = JumpPromptSpeechEnabled,
                     EnterPromptSpeechEnabled = EnterPromptSpeechEnabled,
+                    FishPromptSoundEnabled = FishPromptSoundEnabled,
+                    FishPromptSoundVolume = FishPromptSoundVolume,
                     WalkAssistEnabled = WalkAssistEnabled,
                     EventNpcDisplay = (int)EventNpcDisplay,
                     NpcAwarePathfindingEnabled = NpcAwarePathfindingEnabled
@@ -263,6 +277,8 @@ namespace SO2RAccess
             public float JumpPromptSoundVolume { get; set; } = 0.8f;
             public bool JumpPromptSpeechEnabled { get; set; } = true;
             public bool EnterPromptSpeechEnabled { get; set; } = true;
+            public bool FishPromptSoundEnabled { get; set; } = true;
+            public float FishPromptSoundVolume { get; set; } = 0.8f;
             public bool WalkAssistEnabled { get; set; } = true;
             public int EventNpcDisplay { get; set; } = (int)EventNpcDisplayMode.Both;
             public bool NpcAwarePathfindingEnabled { get; set; } = true;

@@ -317,6 +317,20 @@ namespace SO2RAccess
                     GetValue = () => Loc.Get(ModSettings.EnterPromptSpeechEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.EnterPromptSpeechEnabled = !ModSettings.EnterPromptSpeechEnabled; }
                 },
+                // Fishing prompt bubble sound toggle
+                new ModMenuItem
+                {
+                    LabelKey = "mod_menu_label_fish_sound",
+                    GetValue = () => Loc.Get(ModSettings.FishPromptSoundEnabled ? "mod_menu_on" : "mod_menu_off"),
+                    Change = _ => { ModSettings.FishPromptSoundEnabled = !ModSettings.FishPromptSoundEnabled; }
+                },
+                // Fishing prompt bubble sound volume
+                new ModMenuItem
+                {
+                    LabelKey = "mod_menu_label_fish_volume",
+                    GetValue = () => $"{(int)(ModSettings.FishPromptSoundVolume * 100)}%",
+                    Change = delta => { ModSettings.FishPromptSoundVolume = ClampVolume(ModSettings.FishPromptSoundVolume + delta * 0.1f); }
+                },
                 // Walk assist (soft obstacle steering during auto-walk) toggle
                 new ModMenuItem
                 {

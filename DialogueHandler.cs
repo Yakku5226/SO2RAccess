@@ -32,7 +32,7 @@ namespace SO2RAccess
     ///                            across play sessions.
     ///   NavigationHandler reads both maps in ResolveNpcName.
     /// </summary>
-    public class DialogueHandler
+    public partial class DialogueHandler
     {
         #region Fields
 
@@ -104,6 +104,8 @@ namespace SO2RAccess
                     postfix: new HarmonyMethod(typeof(DialogueHandler),
                         nameof(ConversationPresenter_SetMessage_Postfix))
                 );
+
+                ApplyWindowMessagePatches(harmony);
 
                 _patchesApplied = true;
                 DebugLogger.LogState("DialogueHandler: patches applied.");
