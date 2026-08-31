@@ -202,12 +202,13 @@ namespace SO2RAccess
             SortAndFilterUnreachable(paItems, playerPos);
             SortAndFilterUnreachable(eventNpcItems, playerPos);
 
-            // Number any NPCs that still carry the generic "NPC" label.
+            // Number any NPCs that still carry the generic NPC label.
             int npcNum = 1;
+            string genericNpcLabel = Loc.Get("nav_npc_cat_generic");
             for (int i = 0; i < npcItems.Count; i++)
             {
                 var item = npcItems[i];
-                if (item.Label == "NPC")
+                if (item.Label == genericNpcLabel)
                 {
                     item.Label = Loc.Get("nav_npc_n", npcNum++);
                     npcItems[i] = item;
@@ -339,8 +340,8 @@ namespace SO2RAccess
         /// </summary>
         private static string QualifyNpcName(string displayName, string category)
         {
-            if (category == "NPC") return displayName;
-            return $"{category} ({displayName})";
+            if (category == Loc.Get("nav_npc_cat_generic")) return displayName;
+            return Loc.Get("nav_npc_qualified", category, displayName);
         }
 
         /// <summary>

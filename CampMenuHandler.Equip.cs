@@ -23,9 +23,6 @@ namespace SO2RAccess
         private static int _equipSlotLastIndex = -1;
         private static bool _equipSlotWasActive = false;
 
-        // Equip slot category names (index → friendly name), populated from EquipPositionList.
-        private static string[] _equipSlotCategoryNames = null;
-
         // Equip item list — used by the hook to read currentIndex and total count.
         private static UIListSelectorBase _equipItemListBase = null;
         private static bool _equipItemListActive = false;
@@ -36,18 +33,28 @@ namespace SO2RAccess
         private static string _cachedElementalAnnouncement = null;
 
         /// <summary>
-        /// Populates _equipSlotCategoryNames with the friendly names for each equipment slot.
+        /// Loc keys for the equipment slot categories, indexed by slot position.
         /// EquipType enum order: Weapon=0, Armor=1, Shield=2, Helmet=3, Greeve=4,
         /// Accessory1=5, Accessory2=6 — matches the slot list display order.
+        /// The game renders only icons for these slots (no on-screen text to reuse),
+        /// so the labels are the mod's own and come from the translation files.
         /// </summary>
-        private static void CacheEquipSlotCategories()
+        private static readonly string[] _equipSlotCategoryKeys =
         {
-            _equipSlotCategoryNames = new[]
-            {
-                "Weapon", "Armor", "Shield", "Helmet",
-                "Greaves", "Accessory 1", "Accessory 2"
-            };
-            DebugLogger.LogState("CampEquip: slot categories initialized.");
+            "camp_equip_slot_weapon", "camp_equip_slot_armor", "camp_equip_slot_shield",
+            "camp_equip_slot_helmet", "camp_equip_slot_greaves",
+            "camp_equip_slot_accessory1", "camp_equip_slot_accessory2"
+        };
+
+        /// <summary>
+        /// Localized name for an equipment slot. Resolved through Loc on every call
+        /// so a live language switch is picked up immediately (no cached strings).
+        /// </summary>
+        private static string GetEquipSlotCategory(int idx)
+        {
+            if (idx >= 0 && idx < _equipSlotCategoryKeys.Length)
+                return Loc.Get(_equipSlotCategoryKeys[idx]);
+            return Loc.Get("camp_equip_slot_n", idx + 1);
         }
 
         /// <summary>
@@ -90,9 +97,6 @@ namespace SO2RAccess
                     // On genuine first entry, cache sub-selectors.
                     if (_equipState.WasActive)
                     {
-                        if (_equipSlotCategoryNames == null)
-                            CacheEquipSlotCategories();
-
                         if (_equipSlotListBase == null)
                         {
                             var slotSel = _equipSelector.equipListSelector;
@@ -143,7 +147,6 @@ namespace SO2RAccess
                 _equipSlotWasActive = false;
                 _equipItemListBase = null;
                 _equipItemListActive = false;
-                _equipSlotCategoryNames = null;
                 _cachedElementalAnnouncement = null;
             }
         }
@@ -204,10 +207,8 @@ namespace SO2RAccess
                 string name = item.itemName ?? "";
                 bool available = item.canDecision;
 
-                // Look up the category name (e.g., "Weapon", "Armor") for this slot index.
-                string category = (_equipSlotCategoryNames != null && idx < _equipSlotCategoryNames.Length)
-                    ? _equipSlotCategoryNames[idx]
-                    : $"Slot {idx + 1}";
+                // Look up the localized category name (e.g., "Weapon") for this slot index.
+                string category = GetEquipSlotCategory(idx);
 
                 DebugLogger.LogGameValue("CampEquip.slot",
                     $"category='{category}' name='{name}' available={available} ({idx + 1}/{total})");

@@ -14,10 +14,10 @@ namespace SO2RAccess
         private void UpdateICActionList()
         {
             // Train and Scout have dedicated selectors with their own detection.
-            // Gate on _icActiveSkillCategory (set by the creation hook) and handle
+            // Gate on _icActiveSkillId (set by the creation hook) and handle
             // them before generic focus tracking so they never interfere.
-            if (_icActiveSkillCategory == "Train" && PollTrainSwitchSelector()) return;
-            if (_icActiveSkillCategory == "Scouting" && PollScoutActionSelector()) return;
+            if (_icActiveSkillId == SpecialSkillID.TRAINING && PollTrainSwitchSelector()) return;
+            if (_icActiveSkillId == SpecialSkillID.SCOUT && PollScoutActionSelector()) return;
 
             // Replication and Remaking show an item picker (itemListSelector) first, not
             // the generic action list — handle them before generic focus tracking. When

@@ -160,12 +160,28 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(UICampSkillLearningSelector).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UISkillLearningInformationPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UISkillLearningListItemData).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampMenuItemPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICampMenuItemData).TypeHandle);
 
                 harmony.Patch(
                     AccessTools.Method(typeof(UICampWindow),
                         nameof(UICampWindow.Open)),
                     postfix: new HarmonyMethod(typeof(CampMenuHandler),
                         nameof(CampWindow_Open_Postfix))
+                );
+
+                // UICampMenuItemPresenter.UpdateShow fires from managed code whenever a
+                // root menu row (or System sub-menu row — same type) is populated with
+                // its data. Captures the rendered localized label per CampMenuItem enum
+                // value BEFORE any announcement. Cursor movement on this menu is native
+                // and fires nothing (OnSelected included — verified in the 2026-08-31
+                // log), so population time is the only reliable managed capture point.
+                harmony.Patch(
+                    AccessTools.Method(typeof(UICampMenuItemPresenter),
+                        nameof(UICampMenuItemPresenter.UpdateShow),
+                        new Type[] { typeof(ListItemDataBase) }),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(CampMenuItemPresenter_UpdateShow_Postfix))
                 );
 
                 // UIItemInformationPresenter.Set has two overloads — patch the one that

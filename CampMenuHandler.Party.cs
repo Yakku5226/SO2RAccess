@@ -172,10 +172,10 @@ namespace SO2RAccess
 
                 string role = charData.characterPosition switch
                 {
-                    UIDefine.CharacterPosition.Leader => "Leader",
-                    UIDefine.CharacterPosition.Battle => "Battle",
-                    UIDefine.CharacterPosition.Sub    => "Reserve",
-                    UIDefine.CharacterPosition.Assist => "Assist",
+                    UIDefine.CharacterPosition.Leader => Loc.Get("camp_party_role_leader"),
+                    UIDefine.CharacterPosition.Battle => Loc.Get("camp_party_role_battle"),
+                    UIDefine.CharacterPosition.Sub    => Loc.Get("camp_party_role_reserve"),
+                    UIDefine.CharacterPosition.Assist => Loc.Get("camp_party_role_assist"),
                     _                                 => charData.positionText ?? ""
                 };
 

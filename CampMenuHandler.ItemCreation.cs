@@ -50,8 +50,11 @@ namespace SO2RAccess
         private static readonly SubScreenState _icActionState = new SubScreenState();
         private static int _icLastCharTab = -1;
 
-        // --- Screen 2a: Active skill category (set by creation hook to gate polling) ---
-        private static string _icActiveSkillCategory;
+        // --- Screen 2a: Active special skill (set by creation hook to gate polling) ---
+        // SpecialSkillID enum, NOT the on-screen category name: data.categoryName is
+        // localized by the game, so comparing it against English literals silently
+        // breaks every non-English language. Enum values are language-independent.
+        private static SpecialSkillID _icActiveSkillId = SpecialSkillID.INVALID;
 
         // --- Screen 2a: Train switch selector (toggle ON/OFF per party member) ---
         private static UICampSpecialSkillSwitchSelector _icTrainSwitchSelector;
@@ -147,7 +150,7 @@ namespace SO2RAccess
             _icActiveSelector = null;
             _icActionListBase = null;
             _icLastCharTab = -1;
-            _icActiveSkillCategory = null;
+            _icActiveSkillId = SpecialSkillID.INVALID;
             _icTrainSwitchSelector = null;
             _icTrainSwitchLastIndex = -1;
             _icScoutSelector = window.scoutSelector;
@@ -560,18 +563,21 @@ namespace SO2RAccess
             // Skills with no creation items expose a category/action list instead
             // (Master Chef, Blacksmith, Music, Survival). The generic action poller reads
             // those rows (name + needs + position); Train and Scouting have dedicated
-            // pollers gated on _icActiveSkillCategory. So just record the category here and
+            // pollers gated on _icActiveSkillId. So just record the skill ID here and
             // let those handle navigation — don't announce or set hookFired.
             var creationListCheck = data.dataList;
             if (creationListCheck == null || creationListCheck.Count == 0)
             {
-                _icActiveSkillCategory = data.categoryName;
-                DebugLogger.LogState($"CampIC: creation hook (no items): {data.categoryName ?? "?"}, activeSkill={_icActiveSkillCategory}");
+                // Identify the skill by its language-independent ID, read from the
+                // skill selection selector (the cursor is on the skill whose screen
+                // just opened). data.categoryName is localized — never compare it.
+                _icActiveSkillId = ReadCurrentSpecialSkillId();
+                DebugLogger.LogState($"CampIC: creation hook (no items): '{data.categoryName ?? "?"}', activeSkillId={_icActiveSkillId}");
                 return;
             }
 
             _icCreationHookFired = true;
-            _icActiveSkillCategory = null; // Regular creation skill, clear special category.
+            _icActiveSkillId = SpecialSkillID.INVALID; // Regular creation skill, clear special category.
 
             var sb = new StringBuilder();
 
@@ -681,6 +687,32 @@ namespace SO2RAccess
         #endregion
 
         #region Helpers
+
+        /// <summary>
+        /// Language-independent ID of the special skill the cursor is on in the
+        /// skill selection screen. Used to gate the Train/Scout dedicated pollers —
+        /// on-screen category names are localized and must never be compared.
+        /// Returns INVALID (gates stay closed, generic poller takes over) when the
+        /// selector is not readable.
+        /// </summary>
+        private static SpecialSkillID ReadCurrentSpecialSkillId()
+        {
+            try
+            {
+                var selectSkillSel = _campWindow?.selectSpecialSkillSelector;
+                if (selectSkillSel == null)
+                {
+                    DebugLogger.LogState("CampIC: ReadCurrentSpecialSkillId — selectSpecialSkillSelector is null.");
+                    return SpecialSkillID.INVALID;
+                }
+                return selectSkillSel.GetCurrentSelectedSpecialSkillID();
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"CampIC: ReadCurrentSpecialSkillId failed: {ex.Message}");
+                return SpecialSkillID.INVALID;
+            }
+        }
 
         /// <summary>
         /// Replaces punctuation-only item names (e.g. "????") with "Unknown"

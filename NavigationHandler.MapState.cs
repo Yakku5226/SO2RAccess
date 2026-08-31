@@ -369,22 +369,25 @@ namespace SO2RAccess
             };
         }
 
+        // Localized NPC category label. Callers that need to detect the generic
+        // fallback compare against Loc.Get("nav_npc_cat_generic") — never a literal,
+        // so the comparison stays consistent in every language.
         private static string GetNpcCategory(NpcType type)
         {
-            return type switch
+            return Loc.Get(type switch
             {
-                NpcType.INN            => "Innkeeper",
-                NpcType.SHOP_EQUIPMENT => "Equipment shop",
-                NpcType.SHOP_ITEM      => "Item shop",
-                NpcType.SHOP_FOOD      => "Food shop",
-                NpcType.GUILD          => "Guild",
-                NpcType.FISH_COLLECTOR => "Collector",
-                NpcType.FACILITY       => "Facility",
-                NpcType.CHECK          => "Switch",
-                NpcType.BED            => "Bed",
-                NpcType.PSYNARD        => "Psynard",
-                _                      => "NPC"
-            };
+                NpcType.INN            => "nav_npc_cat_innkeeper",
+                NpcType.SHOP_EQUIPMENT => "nav_npc_cat_equipment_shop",
+                NpcType.SHOP_ITEM      => "nav_npc_cat_item_shop",
+                NpcType.SHOP_FOOD      => "nav_npc_cat_food_shop",
+                NpcType.GUILD          => "nav_npc_cat_guild",
+                NpcType.FISH_COLLECTOR => "nav_npc_cat_collector",
+                NpcType.FACILITY       => "nav_npc_cat_facility",
+                NpcType.CHECK          => "nav_npc_cat_switch",
+                NpcType.BED            => "nav_npc_cat_bed",
+                NpcType.PSYNARD        => "nav_npc_cat_psynard",
+                _                      => "nav_npc_cat_generic"
+            });
         }
 
         private static Il2CppSystem.Collections.Generic.List<ConstNpcParameter> TryGetNpcParams(

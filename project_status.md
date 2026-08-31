@@ -37,6 +37,64 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> 🇨🇳 **SIMPLIFIED CHINESE TRANSLATION ADDED (2026-08-31) — PENDING TEST.**
+> `lang\zh-Hans.json` (special user request for next release): full AI first
+> draft of all 748 keys, validated (key parity + every placeholder intact,
+> same script as the other four). File name matches the auto-detect mapping
+> (game text language 4 → zh-Hans), so picking 简体中文 in the game config
+> switches mod speech automatically — the log's earlier "No translation file
+> for 'zh-Hans'" fallback is now covered. language_name = 简体中文 (spoken by
+> the F4 speech-language row). Copied to the game's UserData lang folder.
+> No rebuild needed (loose file; only en.json is embedded).
+> - 📦 RELEASE NOTE: next zip's lang\ folder = fr/de/sv/pt/zh-Hans.json.
+> - TEST: set game text language to 简体中文 → mod should announce the
+>   switch and speak Chinese; F4 speech-language row should say 简体中文.
+
+> 🔧 **CONFIG MENU PREFIX FIX (2026-08-31) — PENDING TEST.** User report:
+> every config category was announced with a leading "Config" word. Cause:
+> the `config_menu_item` string itself was "Config, {1} of {2}: {0}". Fixed
+> to "{0}, {1} of {2}" in all six lang files (en/fr/de/sv/pt/XX), rebuilt
+> (embedded en.json refreshed), and re-copied fr/de/sv/pt to the game's
+> UserData\SO2RAccess\lang. Test: open config, arrow through categories —
+> should hear only the option name plus position.
+>
+> 🐞 **CAMP/NAV LOCALIZATION — FIX ROUND 2 (2026-08-31) — PENDING TEST.**
+> Round 1's camp-root fix FAILED in test: the log proved
+> `UICampMenuItemPresenter` NEVER fires the universal OnSelected hook (camp
+> root cursor movement is fully native), so the label cache stayed empty and
+> every announcement fell back to the English enum name (`spoken='Equip'` in
+> the log). Round 2 replaces the capture point:
+> - Camp root labels now captured by a postfix on
+>   `UICampMenuItemPresenter.UpdateShow(ListItemDataBase)` — fires from
+>   managed code when the game POPULATES each row (menu build), before any
+>   announcement. Also covers the second-level menus that flow through the
+>   same selector/data type (System: Save/Load/Config/ReturnToTitle; Database
+>   children; Enhance children; Operation children) — these were the "many
+>   sub menus" also reading English. Debug log line: "CampMenu.UpdateShow:
+>   cached 'X' = 'label'".
+> - SWEEP DONE (whole repo, two patterns: announced enum-ToString/hardcoded
+>   literals, and gates comparing localized game text):
+>   1. IC Train/Scout gates compared `data.categoryName` (LOCALIZED!) to
+>      "Train"/"Scouting" — those sub-screens were silently DEAD in French.
+>      Now `_icActiveSkillId` (SpecialSkillID enum) read via
+>      `selectSpecialSkillSelector.GetCurrentSelectedSpecialSkillID()`.
+>   2. Party formation roles Leader/Battle/Reserve/Assist → Loc keys
+>      `camp_party_role_*`.
+>   3. Nav NPC categories (Innkeeper/Equipment shop/...) → Loc keys
+>      `nav_npc_cat_*` + `nav_npc_qualified`; generic-"NPC" comparisons now
+>      compare against Loc.Get("nav_npc_cat_generic").
+>   Clean per sweep: elemental resistances, Train ON/OFF speech, Database
+>   locked entries (all already Loc'd); `_lastRootMenuItemName` gates use
+>   enum names (language-safe); remaining literals are debug-only.
+> - Lang files now 748 keys, all six in parity, build clean, DLL + fr/de/sv/pt
+>   deployed to the game.
+> - TEST (French): camp root + System/Database/Enhance/Operation sub-menus
+>   French; equip slots "Arme:"; party formation roles French; IC Train and
+>   Scout screens SPEAK AT ALL (they were silent); field nav NPC categories
+>   French. Regression check in English: camp root, IC Train/Scout, nav NPCs.
+> - Equip slot categories + camp equip Loc keys from round 1 unchanged
+>   (that part worked).
+>
 > 🌐 **FOUR STARTER TRANSLATIONS CREATED (2026-08-30, session 6, after L1
 > passed): fr.json, de.json, sv.json, pt.json in the project's lang\ folder**
 > — full machine-assisted first drafts of all 724 keys each (AI-translated;

@@ -2,6 +2,7 @@ using HarmonyLib;
 using Il2CppGame;
 using MelonLoader;
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
 namespace SO2RAccess
@@ -89,7 +90,18 @@ namespace SO2RAccess
         private static UICampWindow _campWindow = null;
 
         // Tracks which root menu item is highlighted (for sub-screen detection).
+        // Holds the CampMenuItem ENUM identifier ("Equip", "BattleSkill", ...), which is
+        // stable across game languages — never compare against on-screen text here.
         private static string _lastRootMenuItemName = "";
+
+        // Localized on-screen labels for root menu items, keyed by CampMenuItem enum
+        // value. UICampMenuItemData carries no display text (only the enum), and the
+        // enum identifiers are English-only — the row's rendered GameText is the only
+        // language-correct source. Captured from the universal OnSelected hook
+        // (ListSelectionHandler), which re-fires on every focus, so a live language
+        // switch refreshes each entry before its row is announced.
+        private static readonly Dictionary<int, string> _rootMenuLabels =
+            new Dictionary<int, string>();
 
         #endregion
 
@@ -221,13 +233,19 @@ namespace SO2RAccess
                 _lastRootMenuItemName = name;
                 bool available = item.canDecisioned;
 
+                // Speak the localized on-screen label; the enum identifier is the
+                // English-only fallback if the row's OnSelected has not fired yet.
+                string spokenName = _rootMenuLabels.TryGetValue((int)item.menuItem, out string label)
+                    ? label
+                    : name;
+
                 DebugLogger.LogGameValue("CampMenu.item",
-                    $"{name} available={available} ({idx + 1}/{total})");
+                    $"{name} spoken='{spokenName}' available={available} ({idx + 1}/{total})");
 
                 if (available)
-                    ScreenReader.Say(Loc.Get("camp_menu_item", name, idx + 1, total));
+                    ScreenReader.Say(Loc.Get("camp_menu_item", spokenName, idx + 1, total));
                 else
-                    ScreenReader.Say(Loc.Get("camp_menu_item_unavailable", name, idx + 1, total));
+                    ScreenReader.Say(Loc.Get("camp_menu_item_unavailable", spokenName, idx + 1, total));
             }
             catch (Exception ex)
             {
@@ -244,6 +262,45 @@ namespace SO2RAccess
         #region Helpers
 
         private static string StripTags(string text) => TextUtil.StripTags(text);
+
+        /// <summary>
+        /// Postfix for UICampMenuItemPresenter.UpdateShow(ListItemDataBase).
+        /// Fires from managed code whenever the game populates a root menu row (or a
+        /// System sub-menu row — same presenter type) with its data. Caches the row's
+        /// rendered (localized) label, keyed by its CampMenuItem enum value, so the
+        /// root menu poll announces the on-screen text instead of the English enum
+        /// identifier. Population happens on menu build — before any announcement —
+        /// and a language change rebuilds the menu, refreshing the cache.
+        /// </summary>
+        private static void CampMenuItemPresenter_UpdateShow_Postfix(
+            UICampMenuItemPresenter __instance, ListItemDataBase itemData)
+        {
+            try
+            {
+                if (__instance == null) return;
+                var data = itemData?.TryCast<UICampMenuItemData>();
+                if (data == null)
+                {
+                    DebugLogger.LogState("CampMenu.UpdateShow: data cast failed, label not cached.");
+                    return;
+                }
+
+                var tmp = __instance.gameText?.TryCast<Il2CppTMPro.TMP_Text>();
+                string label = StripTags(tmp?.text);
+                if (string.IsNullOrWhiteSpace(label))
+                {
+                    DebugLogger.LogState($"CampMenu.UpdateShow: no text on row '{data.menuItem}'.");
+                    return;
+                }
+
+                _rootMenuLabels[(int)data.menuItem] = label;
+                DebugLogger.LogState($"CampMenu.UpdateShow: cached '{data.menuItem}' = '{label}'.");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"CampMenu.UpdateShow_Postfix: {ex.Message}");
+            }
+        }
 
         /// <summary>
         /// If the game object is already active (stale from previous session),

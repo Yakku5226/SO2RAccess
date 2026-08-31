@@ -38,12 +38,26 @@ The mod is built on [MelonLoader](https://melonwiki.xyz/) and uses the [Tolk](ht
    - Copy `SO2RAccess.dll` into the game's `Mods` folder.
    - Copy `Tolk.dll` and `nvdaControllerClient64.dll` into the main game folder (the one containing the game's `.exe`).
    - Copy the `Sounds` folder to `UserData\SO2RAccess\Sounds` inside the game directory, so that the `.wav` files end up directly in that folder.
-   - Optional: copy the `lang` folder to `UserData\SO2RAccess\lang` if you want the bundled starter translations (French, German, Swedish, Portuguese). Skip it to play in English.
+   - Optional: copy the `lang` folder to `UserData\SO2RAccess\lang` if you want the bundled starter translations (French, German, Swedish, Portuguese, Simplified Chinese). Skip it to play in English.
 
 4. Play.
    Start your screen reader, then start the game. The mod announces itself once it has loaded. If you hear nothing, check the MelonLoader console/log for errors — the most common cause is `Tolk.dll` not being in the game folder.
 
 All navigation data is built into `SO2RAccess.dll` — there is nothing extra to install. The mod creates a few files of its own in `UserData` as you play (settings, learned NPC names, and navigation data).
+
+## Updating to a new release
+
+You do not need to reinstall MelonLoader or repeat the full installation — updating only replaces the files that came from the mod download:
+
+1. Quit the game.
+2. Download the new release and unpack it.
+3. Copy `SO2RAccess.dll` into the game's `Mods` folder, replacing the old file. This is the only step that is always required.
+4. Copy the `lang` folder to `UserData\SO2RAccess\lang` again, replacing the old files. New versions usually add new spoken text, and a translation from an older release would read those new lines in English until it is updated. Skip this step only if you have edited a translation file yourself and want to keep your changes. The English template (`en.json`) never needs copying — the mod regenerates it automatically every time the game starts.
+5. Only if the release notes mention new or changed sounds: copy the `Sounds` folder to `UserData\SO2RAccess\Sounds` again. Likewise, `Tolk.dll` and `nvdaControllerClient64.dll` almost never change between releases — copying them again is harmless but normally unnecessary.
+
+Your personal data is safe during an update. Settings, key bindings, learned NPC names, and navigation data live in their own files under `UserData\SO2RAccess` and are not part of the release download, so replacing the files above never touches them.
+
+After updating, start the game: the mod announces itself as usual, and the MelonLoader console/log lists the SO2RAccess version that loaded, so you can confirm the new version is active.
 
 ## Controls
 
@@ -110,7 +124,7 @@ rebinding itself is keyboard-only — the gamepad layout is fixed.
 
 The mod speaks English out of the box, and community translations are plain JSON files — no code changes needed. To use one, drop the translation file (for example `de.json`) into `UserData\SO2RAccess\lang` inside the game directory, then pick the language in the mod settings menu (F4) under Speech language, or leave it on Automatic to follow the game's own text language. Any text a translation does not cover falls back to English automatically.
 
-Starter translations for French (`fr.json`), German (`de.json`), Swedish (`sv.json`), and Portuguese (`pt.json`) ship with the mod. They are machine-assisted first drafts — corrections and improvements from native speakers are very welcome; open an issue or pull request on GitHub.
+Starter translations for French (`fr.json`), German (`de.json`), Swedish (`sv.json`), Portuguese (`pt.json`), and Simplified Chinese (`zh-Hans.json`) ship with the mod. They are machine-assisted first drafts — corrections and improvements from native speakers are very welcome; open an issue or pull request on GitHub.
 
 To create a translation yourself, see [TRANSLATING.md](TRANSLATING.md) — it walks through copying the always-current English template the mod places in that same lang folder.
 

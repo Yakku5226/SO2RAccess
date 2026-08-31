@@ -843,6 +843,37 @@ filters. Powerful catch-all for text we can't source, but noisy by design — pr
 hooks above; consider the TMP tap only as a targeted last resort (e.g. path-filtered to one
 window).
 
+### Localized menu labels — read the rendered text, not the data (2026-08-31)
+`UICampMenuItemData` carries NO display text — only the `UIDefine.CampMenuItem` enum.
+`menuItem.ToString()` is the English-only C# identifier and must never be spoken. The
+localized label lives on the row presenter: `UICampMenuItemPresenter.gameText` (a GameText /
+TMP_Text) holds the on-screen text the game already localized. General rule (how the
+reference mod works in every language): when a data object has no text field, read the
+presenter's rendered text components — the game has done the localization for you.
+
+⚠ CAPTURE POINT MATTERS: `UICampMenuItemPresenter` NEVER fires the universal OnSelected
+hook — camp root cursor movement is fully native (log-verified 2026-08-31; a first fix
+built on OnSelected silently never ran). The working capture point is a postfix on
+`UICampMenuItemPresenter.UpdateShow(ListItemDataBase)`, which fires from managed code when
+the game POPULATES the row (menu build) — before any announcement. Cache the label keyed by
+the CampMenuItem enum value. The same selector/data/presenter types also serve the camp's
+second-level menus (System, Database children, Enhance children, Operation children), so
+one hook localizes them all. Enum identifiers remain correct for internal gating
+(`_lastRootMenuItemName`) — they are language-independent.
+
+Counter-example: equip slot rows (`UIEquipListItemPresenter`) render only an icon + item
+name, no slot label — invented labels like "Weapon"/"Accessory 1" must come from the mod's
+own Loc files (`camp_equip_slot_*`).
+
+### Localization gate rule (2026-08-31 sweep)
+NEVER gate logic on text the game supplies (it is localized): the IC Train/Scout pollers
+were gated on `data.categoryName == "Train"/"Scouting"` and went silently dead in French.
+Language-safe identity for special skills: `UICampSelectSpecialSkillSelector.
+GetCurrentSelectedSpecialSkillID()` → `SpecialSkillID` enum (TRAINING, SCOUT, ...);
+per-skill selectors also expose `UICampSpecialSkillSelectorBase.CurrentSpecialSkill`.
+Mod-internal label comparisons must compare against the same `Loc.Get(key)` expression,
+never a literal (see nav generic-NPC numbering).
+
 ### Other notable techniques (for future reference, not copied)
 - Camp menu footer description: `UICampMenuFooterPresenter.SetMenuDescription` +
   MenuDescription TMP object under `ui_footer_presenter/LayoutParent/MenuDescription`.
