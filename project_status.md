@@ -37,7 +37,18 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
-> 🇨🇳 **SIMPLIFIED CHINESE TRANSLATION ADDED (2026-08-31) — PENDING TEST.**
+> 🚀 **v0.3.0 RELEASED (2026-08-31):**
+> https://github.com/Yakku5226/SO2RAccess/releases/tag/v0.3.0
+> Commit 7c7a402 (localization overhaul + zh-Hans + README update section),
+> tag v0.3.0, pushed. Zip = SO2RAccess-0.3.0\ layout, asset SO2RAccess.zip
+> (same contents as 0.2.0 plus lang\zh-Hans.json; Release build, 0 warnings).
+> Camp/config localization fixes were log-verified in French before release
+> ("It looks much better now"); zh-Hans itself is a fresh draft — first
+> in-game Chinese report will come from users. lang\XX.json remains
+> untracked on purpose (local test file, not shipped).
+>
+> 🇨🇳 **SIMPLIFIED CHINESE TRANSLATION ADDED (2026-08-31) — shipped in
+> v0.3.0, first draft untested in game.**
 > `lang\zh-Hans.json` (special user request for next release): full AI first
 > draft of all 748 keys, validated (key parity + every placeholder intact,
 > same script as the other four). File name matches the auto-detect mapping
