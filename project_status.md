@@ -37,9 +37,17 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
-> 🚀 **v0.3.1 RELEASED (2026-09-01):** cutscene subtitles + config/title double-read
-> fixes. Point release (fixes plus one contained feature), version number set by the
-> user — not 0.4.0. See the three round entries below for the full story.
+> 🚀 **v0.3.1 RELEASED (2026-09-01):**
+> https://github.com/Yakku5226/SO2RAccess/releases/tag/v0.3.1
+> Commit 4ea8b22 on master, tag v0.3.1, both pushed. Release build (0 warnings).
+> Zip = `SO2RAccess-0.3.1\` root folder, asset named `SO2RAccess.zip` (23 MB).
+> Contents: SO2RAccess.dll (Release), Tolk.dll, nvdaControllerClient64.dll,
+> README.md, LICENSE, KNOWN_ISSUES.md, Sounds\ (7 wavs + license listing,
+> unchanged), lang\ (fr/de/sv/pt/zh-Hans — en.json stays embedded).
+> Cutscene subtitles + config/title double-read fixes. **Point release, 0.3.1 not
+> 0.4.0 — user's call: "you are too quick with those version numbers."** Middle
+> number is for major updates; a contained feature plus fixes is a third-number
+> bump. See the three round entries below for the full story.
 
 > 🎬 **ROUND 3 (2026-09-01) — SUBTITLE SOURCE FOUND, POLLING BUILT. ✅ CONFIRMED
 > WORKING (user: "seems to work as intended"), SHIPPED IN v0.3.1.**
