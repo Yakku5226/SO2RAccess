@@ -874,6 +874,49 @@ per-skill selectors also expose `UICampSpecialSkillSelectorBase.CurrentSpecialSk
 Mod-internal label comparisons must compare against the same `Loc.Get(key)` expression,
 never a literal (see nav generic-NPC numbering).
 
+### Captions & cutscene subtitles (2026-09-01) — the text layer we were missing
+Captions are a SEPARATE system from the dialogue box (`UIConversationPresenter`).
+They cover the subtitle line under pre-rendered movies and the caption balloons
+events place above characters. Nothing read them before `SubtitleHandler`.
+
+Chain (all in `Il2CppGame`):
+- `MovieCaptionClip` / `MovieCaptionBehaviour` — Timeline clips carrying `messageID`,
+  `voiceType`, `voiceLang`. `OnBehaviourPlay` pushes the line, `OnBehaviourPause` clears it.
+- `UICaptionController` — `ShowCaption(string caption, string messageID)`,
+  `ShowCaption(string caption, Vector2 anchoredPosition, string messageID)`,
+  `HideCaption(messageID)`, `HideMovieCaption()`, `HideAll()`.
+- `UICaptionSelector` — `ShowCaption(message, anchoredPosition, messageID, isSubTitles)`,
+  `ShowMovieCaption(message, anchoredPosition)`; holds `captionPresenter`,
+  `movieCaptionPresenter`, `captionPresenterList`, plus `CreateCaptionPresenter()`.
+- `UICaptionPresenter` — `SetCaption(string caption, bool isSubtitles)`, field `caption`
+  (`GameText`) and `isSubtitles`.
+
+**THE CAPTION METHODS DO NOT FIRE HARMONY HOOKS (log-proven 2026-09-01).** All four
+patches attach ("4/4 caption patches applied") and NONE of them fired during a movie,
+while the subtitle text was demonstrably on screen. They are small forwarding methods,
+so the native build inlines them and the standalone copies Harmony patches are never
+called — the same reason camp/shop menus are polled. Do not "fix" this by hooking
+harder; anything upstream (`ShowCaption`, `ShowMovieCaption`) is inlined too.
+
+**Working recipe — poll the presenter's own GameText:**
+- `FindObjectsOfType<UICaptionSelector>(true)` — **includeInactive matters**: the caption
+  UI root sits inactive between movies, so an active-only scan finds the selector a
+  second AFTER the first subtitle has come and gone.
+- Per selector read `movieCaptionPresenter`, `captionPresenter`, and every entry of
+  `captionPresenterList` (event captions are created on demand and appended there).
+- Per presenter read `caption` (a `GameText`, which derives from `TextMeshProUGUI`) and
+  speak it when the string CHANGES. Gate on `gameObject.activeInHierarchy` — for
+  captions this really is the show/hide signal (unlike most SO2R overlays, which stay
+  active while hidden), so leftover text in a hidden presenter is never read.
+
+Observed live (opening movie `ev_0100000_c`), subtitle lines ~6 s apart at:
+`System/UIManager/uiRoot/Endroll/UICaptionController/UICaptionSelector/ui_movie_caption_presenter/Caption`
+— note the **Endroll** UI root hosts the opening movie's captions, not just the credits.
+
+`GameMovieManager.Instance` exposes `IsPlaying`, `IsPlayingOnUI`, `State` (MovieState),
+`messageFileName`, `CurrentVoiceType`, `CurrentLanguage` — a reliable "a movie is running"
+gate for diagnostics.
+
 ### Other notable techniques (for future reference, not copied)
 - Camp menu footer description: `UICampMenuFooterPresenter.SetMenuDescription` +
   MenuDescription TMP object under `ui_footer_presenter/LayoutParent/MenuDescription`.
@@ -895,3 +938,5 @@ never a literal (see nav generic-NPC numbering).
 - **2026-02-23:** Dialogue, tutorial, and popup analysis — UIConversationPresenter, UITutorialInformationPresenter, UITutorialInformationData, UIDialogPresenter, UIDialogWindow documented.
 - **2026-06-13:** Field icons & notifications analysis (Section 18) — UIFieldController is the central field-notification controller. Key finding: the "X Jump" prompt is an "operation" (button guide), not a FieldIconType (which only has LocationPoint/Fishing). Best hook is `UIFieldOperationPresenter.Set` [CallerCount(7)] with readable `operationTextList`; `HideOperation`/`Hide` are [CallerCount(0)] (poll activeInHierarchy). Also catalogued: ShowEmotion (17 EmotionTypes), area/mode banners, and ~15 corner info toasts (item/money/EXP/level/skill/talent/member).
 - **2026-08-29:** Section 19 added — analysis of third-party ScreenReaderMOD (Galaxy Laboratory MM). Key findings: `UICanSelectedListItemPresenterBase.OnSelected` is a universal Harmony-hookable selection event; camp story hint via `UICampWindow.SetSpeechBalloon` + `UICampDotCharacterPresenter` balloon text; missed dialogue via `UIConversationWindow` auto/center/entire message methods (messageID → TextManager); full guild quest readout recipe.
+- **2026-09-01:** Captions & cutscene subtitles (Section 19) — `UICaptionPresenter.SetCaption(string, bool)` is the single funnel for movie subtitles and event caption balloons; separate system from `UIConversationPresenter`. Also noted: the config category list is built from generic `UICommonListItemPresenter` rows, so the universal OnSelected net must be suppressed while `UIConfigWindow.IsOpened` (was double-speaking every config category).
+- **2026-09-01 (later):** Caption hooks proven dead — `UICaptionPresenter.SetCaption` and the `ShowCaption`/`ShowMovieCaption` methods above it are inlined natively, so Harmony postfixes attach but never fire. Subtitles must be POLLED off `UICaptionPresenter.caption` (GameText); selectors found with `FindObjectsOfType<UICaptionSelector>(true)` — includeInactive required. Opening-movie captions live under the **Endroll** UI root.

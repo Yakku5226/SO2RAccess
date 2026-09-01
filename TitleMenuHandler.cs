@@ -92,7 +92,9 @@ namespace SO2RAccess
         {
             if (_instance == null) return;
 
-            // Reset so the first item is always announced when the menu opens.
+            // Reset so the focused item is always announced when the menu opens.
+            // A successful announcement puts the real index back; if it bails out
+            // (no name yet), -1 stands and the next OnInput speaks the row instead.
             _instance._lastAnnouncedIndex = -1;
             _instance.AnnounceCurrentItem(__instance);
         }
@@ -132,6 +134,12 @@ namespace SO2RAccess
 
             string name = item.itemName ?? "";
             if (string.IsNullOrEmpty(name)) return;
+
+            // Record what was actually announced, so the OnInput hook that follows a
+            // Show() does not repeat it. Closing a sub-screen (config, load, ...)
+            // re-shows the title menu with the cursor already on the row the player
+            // left from, and OnInput then fires for that same unchanged row.
+            _lastAnnouncedIndex = idx;
 
             bool available = item.canDecision;
             DebugLogger.LogGameValue("TitleMenu.item", $"{name} ({idx + 1}/{count}) available={available}");

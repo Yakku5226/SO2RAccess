@@ -37,6 +37,163 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> 🚀 **v0.3.1 RELEASED (2026-09-01):** cutscene subtitles + config/title double-read
+> fixes. Point release (fixes plus one contained feature), version number set by the
+> user — not 0.4.0. See the three round entries below for the full story.
+
+> 🎬 **ROUND 3 (2026-09-01) — SUBTITLE SOURCE FOUND, POLLING BUILT. ✅ CONFIRMED
+> WORKING (user: "seems to work as intended"), SHIPPED IN v0.3.1.**
+> Log 26-9-1_20-5-12 reconciles exactly: 17 caption lines polled during the opening
+> movie, 4 suppressed while the user had the toggle off, 13 spoken, 0 duplicate
+> drops, 0 errors. Every announcement tagged `[poll]` — NONE `[hook]`, confirming
+> the inlining diagnosis is real and not a one-off. Multi-line captions arrive whole
+> (embedded newlines, not truncated). Toggle verified in both directions mid-movie.
+> Tracer cleanup landed too: 17 MovieText lines instead of 1315, log 47 KB vs 389 KB.
+> Config double-read CONFIRMED FIXED by user ("works correctly again") — rounds
+> 2a/2b done, no further work there.
+> - ⚠️ NOT YET SEEN FIRING: in-engine event caption balloons (`captionPresenter` /
+>   `captionPresenterList`). The opening movie only exercises `movieCaptionPresenter`.
+>   Same polling path, so it should work — but it is untested. Watch for it.
+>
+> **The diagnostics paid off.** Log 26-9-1_19-56-24:
+> - `SubtitleHandler: 4/4 caption patches applied` — every hook attached.
+> - A movie really played: `Movie tracer: movie started (file='ev_0100000_c'
+>   state=Playing voice=NEW lang=Japanese onUI=True)`.
+> - **ZERO `Caption.*` hook lines** — not one of the four fired.
+> - But the tracer caught the subtitles on screen, ~6 s apart:
+>   `uiRoot/Endroll/UICaptionController/UICaptionSelector/ui_movie_caption_presenter/Caption`
+>   = 'Space:' / 'the realm of infinite possibility.' / 'It has long inspired the
+>   dreams of billions.'
+>
+> **Conclusion: the caption methods are inlined natively.** The patches attach to
+> standalone copies the game never calls — same situation as camp/shop menus. Hooking
+> harder cannot work; anything upstream is inlined too.
+>
+> **Fix — poll the presenter's own GameText** (`SubtitleHandler.PollCaptions`, every
+> frame):
+> - `FindObjectsOfType<UICaptionSelector>(true)` — **includeInactive is required**:
+>   the caption root sits inactive between movies, and an active-only scan would only
+>   find it up to a second AFTER the first subtitle had gone.
+> - Per selector: `movieCaptionPresenter`, `captionPresenter`, and every entry of
+>   `captionPresenterList` (event captions are appended there on demand).
+> - Per presenter: read `caption` (GameText → TMP_Text) and speak on CHANGE. Gated on
+>   `gameObject.activeInHierarchy`, which for captions really is the show/hide signal
+>   (proven by the trace), so stale hidden text is never read.
+> - Dead presenters are pruned each frame so a reused native pointer cannot silence a
+>   new line.
+> - Hooks KEPT (they cost nothing, still log, and would take over if a future game
+>   build stops inlining). Both paths funnel through `AnnounceCaption`, whose repeat
+>   filter makes double-speech impossible. New log lines: `Caption.poll`,
+>   `Caption.spoken [poll|hook]`.
+> - Automatic movie tracer narrowed to caption paths only — unfiltered it logged
+>   ~1300 hidden-menu lines. The full sweep stays on the Semicolon key, on demand.
+>
+> **TEST:** watch the opening movie (or any cutscene) with subtitles on. Expect each
+> line spoken as it appears. Debug mode optional now; if anything is off, the
+> `Caption.poll` / `Caption.spoken` lines tell the story. Also worth checking: an
+> in-engine event with caption balloons, and that the F4 "Cutscene subtitles" toggle
+> still silences it.
+
+> 🔁 **ROUND 2 (2026-09-01, after first test) — config fixes CONFIRMED by user.**
+> User report: config still doubled ONCE when opening; "Config" spoken twice when
+> backing out; subtitles silent. Log 26-9-1_19-44-22 checked — three distinct causes.
+>
+> **2a. Config first row still doubled — FIXED.** The suppression worked for every
+> row EXCEPT the first (log: 19:45:07.656 "pending generic read", then both voices).
+> Cause: `UIConfigWindow.IsOpened` is still FALSE while the window plays its opening
+> transition, so the gate said "not config" for the first row only. Two fixes, both
+> needed: (a) `ConfigMenuHandler.MarkActive()` stamps a timestamp in every config
+> postfix and `IsConfigOpen` now returns true for 1.5 s after any config activity,
+> covering the transition gap; (b) `ListSelectionHandler` re-checks screen ownership
+> in `Update()` right before speaking, not only when the event fires — the gate is
+> now the shared `GetScreenOwnerReason()` helper (camp/shop/config, one place).
+>
+> **2b. "Config" twice when backing out — FIXED (TitleMenuHandler).** Unrelated to
+> the config work; a latent bug the config trip exposed. `TitleMenu_Show_Postfix`
+> set `_lastAnnouncedIndex = -1` then announced, but `AnnounceCurrentItem` never
+> recorded the index it spoke. Closing a sub-screen re-shows the title menu with the
+> cursor on the row you left from, OnInput fires for that unchanged row, -1 != 3, so
+> it spoke again 313 ms later. `AnnounceCurrentItem` now records the index it
+> announced. Affects every title sub-screen exit (config, load, license), not just
+> config.
+>
+> **2c. Subtitles — NO EVIDENCE EITHER WAY, diagnostics added.** The test log
+> contains NO cutscene at all (session ended on the field ~30 s after loading), so
+> nothing proves the hook does or does not fire. Also: `SubtitleHandler` logged its
+> patch result through DebugLogger, which is silent at scene-load time — a failed
+> hook looked exactly like a working one. Now:
+> - Patch attachment logs via `MelonLogger.Msg` → "SubtitleHandler: N/4 caption
+>   patches applied", with a named warning per hook that fails. CHECK THIS LINE
+>   FIRST in the next log.
+> - Each hook attaches independently (`TryPatch`), so one bad signature no longer
+>   costs the rest.
+> - Trace hooks added upstream: `UICaptionController.ShowCaption`,
+>   `UICaptionSelector.ShowCaption`, `UICaptionSelector.ShowMovieCaption` — logs
+>   `Caption.controller` / `Caption.selector` / `Caption.movie`, so we see which
+>   layer a caption reaches even if it never gets to `SetCaption`. The `Vector2`
+>   anchors are simply not declared on the postfixes (Harmony passes only what a
+>   patch asks for), so no struct is marshalled.
+> - **Movie text tracer** (debug mode only): while `GameMovieManager.IsPlaying`,
+>   every visible TMP text is logged once with its full GameObject path
+>   (`MovieText` lines), plus a movie-start line naming the message file, state,
+>   voice type and language.
+> - **NEW DEBUG HOTKEY — Semicolon** (`ModAction.DebugTextDump`, DebugOnly context,
+>   so it is dead unless F12 debug mode is on). Dumps EVERY visible on-screen text
+>   with its object path, anywhere. This is the fallback if the cutscene turns out
+>   not to be a GameMovieManager movie. Verified free against the binding dump;
+>   auto-excluded from the rebinding menu (DebugOnly actions are skipped) and it
+>   inherits the existing "reserved for debugging" clash warning.
+> - Loc key `debug_text_dump` added to all six lang files (now 750 keys each,
+>   parity verified; fr/de/sv/pt/zh-Hans re-copied to the game's UserData lang).
+>
+> **NEXT TEST — please do all three:**
+> 1. Config: open from title AND from camp, arrow through categories, back out.
+>    Every row once; "Config" once on the way back.
+> 2. Turn debug mode ON (F12) BEFORE a cutscene, then watch one.
+> 3. During the cutscene, press Semicolon a few times while text is on screen.
+> Then send the log. The `SubtitleHandler: N/4` line, any `Caption.*` lines, and the
+> `TextDump` / `MovieText` lines together will say exactly where subtitles live.
+
+> 🗣️ **CUTSCENE SUBTITLES + CONFIG DOUBLE-READ FIX (2026-09-01) — round 1.**
+> Two changes, both built (0 warnings / 0 errors, DLL deployed).
+>
+> **1. Config menu double output — FIXED.** User report: every config category
+> was spoken twice. Log proof (26-9-1_19-32-9.log): ConfigMenuHandler speaks
+> "Audio Settings, 1 of 7", then ~150 ms later the universal OnSelected net
+> speaks "Audio Settings" again — the config category list is built from
+> generic `UICommonListItemPresenter` rows, which were not in
+> ListSelectionHandler's covered-types set. Fix follows the existing camp/shop
+> pattern: new `ConfigMenuHandler.IsConfigOpen` (UiFinder-cached
+> `UIConfigWindow` + `IsOpened`), checked in `OnSelected_Postfix`; suppression
+> is logged. Reset on scene change from Main.
+> - TEST: open Config from the title screen AND from camp, arrow through the
+>   categories — each should be spoken exactly ONCE, with its position.
+>
+> **2. Cutscene subtitles — NEW (`SubtitleHandler.cs`).** Captions are a
+> separate text layer from the dialogue box (`UIConversationPresenter`) and
+> nothing read them, so cutscene subtitles were silent. Hook:
+> `UICaptionPresenter.SetCaption(string caption, bool isSubtitles)` — the
+> funnel both `UICaptionController.ShowCaption` and
+> `UICaptionSelector.ShowMovieCaption` reach, with the text already resolved
+> from its messageID and localized. Empty text = the game clearing a caption
+> (ignored, not a fault). Identical text within 1 s is treated as a repeat.
+> New lines interrupt, matching how a subtitle replaces the previous one on
+> screen. `UICaptionController.ShowCaption(string, string)` is patched for
+> DEBUG LOGGING ONLY, so a caption that never reaches SetCaption shows up in
+> the log instead of going silently missing. The `Vector2` anchor overloads
+> are deliberately NOT patched (their text lands in SetCaption anyway).
+> - New mod-menu toggle (F4): "Cutscene subtitles", default ON, persisted as
+>   `SubtitlesEnabled` in settings.json. Label added to all six lang files
+>   (now 749 keys each, parity verified); fr/de/sv/pt/zh-Hans re-copied to
+>   the game's UserData\SO2RAccess\lang.
+> - TEST (debug mode F12 on, so the log records what fires): watch a movie
+>   cutscene — subtitle lines should be read as they appear. Then check the
+>   log for `Caption.set` / `Caption.show` lines. Also confirm the F4 menu
+>   row toggles on/off and that turning it off silences the readout.
+> - WATCH FOR: captions used somewhere unexpected (battle shouts, narration)
+>   causing spam, or a caption line doubling with the dialogue box. The log
+>   lines will show it.
+
 > 🚀 **v0.3.0 RELEASED (2026-08-31):**
 > https://github.com/Yakku5226/SO2RAccess/releases/tag/v0.3.0
 > Commit 7c7a402 (localization overhaul + zh-Hans + README update section),

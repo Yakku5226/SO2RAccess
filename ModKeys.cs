@@ -43,6 +43,7 @@ namespace SO2RAccess
         DebugGridBake,         // F9
         DebugTravelMask,       // F10
         DebugPathDiagnostics,  // F11
+        DebugTextDump,         // Semicolon — dump every visible on-screen text
     }
 
     /// <summary>
@@ -114,6 +115,7 @@ namespace SO2RAccess
             { ModAction.DebugGridBake,        Key.F9 },
             { ModAction.DebugTravelMask,      Key.F10 },
             { ModAction.DebugPathDiagnostics, Key.F11 },
+            { ModAction.DebugTextDump,        Key.Semicolon },
         };
 
         private static readonly Dictionary<ModAction, ModKeyContext> _contexts = new Dictionary<ModAction, ModKeyContext>
@@ -145,6 +147,7 @@ namespace SO2RAccess
             { ModAction.DebugGridBake,        ModKeyContext.DebugOnly },
             { ModAction.DebugTravelMask,      ModKeyContext.DebugOnly },
             { ModAction.DebugPathDiagnostics, ModKeyContext.DebugOnly },
+            { ModAction.DebugTextDump,        ModKeyContext.DebugOnly },
         };
 
         /// <summary>

@@ -254,6 +254,22 @@ namespace SO2RAccess
                 }
                 return true;
             }
+
+            // Semicolon — dump every visible on-screen text with its object path.
+            // Works anywhere, so a cutscene whose text the caption hooks never see
+            // can still be located: press it while the text is on screen.
+            if (kb[ModKeys.Get(ModAction.DebugTextDump)].wasPressedThisFrame)
+            {
+                try
+                {
+                    SubtitleHandler.DumpVisibleText();
+                }
+                catch (Exception ex)
+                {
+                    MelonLogger.Msg($"Text dump error: {ex.Message}");
+                }
+                return true;
+            }
             return false;
         }
 

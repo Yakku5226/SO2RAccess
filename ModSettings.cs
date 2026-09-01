@@ -119,6 +119,14 @@ namespace SO2RAccess
         public static float FishPromptSoundVolume { get; set; } = 0.8f;
 
         /// <summary>
+        /// Whether on-screen captions and cutscene subtitles are read aloud.
+        /// Covers the movie subtitle line and the caption balloons events place
+        /// above characters — the text layer that is separate from the dialogue
+        /// box. See <see cref="SubtitleHandler"/>.
+        /// </summary>
+        public static bool SubtitlesEnabled { get; set; } = true;
+
+        /// <summary>
         /// Whether the soft spatial-awareness walk assist is enabled. When on, the
         /// auto-walk heading is gently nudged around nearby NPCs/clutter so the
         /// player gets stuck less often. The nudge is hard-capped in angle and
@@ -202,6 +210,7 @@ namespace SO2RAccess
                     EnterPromptSpeechEnabled = data.EnterPromptSpeechEnabled;
                     FishPromptSoundEnabled = data.FishPromptSoundEnabled;
                     FishPromptSoundVolume = Math.Clamp(data.FishPromptSoundVolume, 0f, 1f);
+                    SubtitlesEnabled = data.SubtitlesEnabled;
                     WalkAssistEnabled = data.WalkAssistEnabled;
                     EventNpcDisplay = Enum.IsDefined(typeof(EventNpcDisplayMode), data.EventNpcDisplay)
                         ? (EventNpcDisplayMode)data.EventNpcDisplay
@@ -249,6 +258,7 @@ namespace SO2RAccess
                     EnterPromptSpeechEnabled = EnterPromptSpeechEnabled,
                     FishPromptSoundEnabled = FishPromptSoundEnabled,
                     FishPromptSoundVolume = FishPromptSoundVolume,
+                    SubtitlesEnabled = SubtitlesEnabled,
                     WalkAssistEnabled = WalkAssistEnabled,
                     EventNpcDisplay = (int)EventNpcDisplay,
                     NpcAwarePathfindingEnabled = NpcAwarePathfindingEnabled,
@@ -342,6 +352,7 @@ namespace SO2RAccess
             public bool EnterPromptSpeechEnabled { get; set; } = true;
             public bool FishPromptSoundEnabled { get; set; } = true;
             public float FishPromptSoundVolume { get; set; } = 0.8f;
+            public bool SubtitlesEnabled { get; set; } = true;
             public bool WalkAssistEnabled { get; set; } = true;
             public int EventNpcDisplay { get; set; } = (int)EventNpcDisplayMode.Both;
             public bool NpcAwarePathfindingEnabled { get; set; } = true;

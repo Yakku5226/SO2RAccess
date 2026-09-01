@@ -4,6 +4,7 @@ using MelonLoader;
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using UnityEngine;
 
 namespace SO2RAccess
 {
@@ -28,6 +29,57 @@ namespace SO2RAccess
         // so we fall back to reading presenter.label.text for those.
         private static readonly Dictionary<IntPtr, string> _labelCache =
             new Dictionary<IntPtr, string>();
+
+        // Lazily found config window — used only by the IsConfigOpen state query.
+        private static UIConfigWindow _configWindow;
+        private static float _nextConfigFindTime = 0f;
+
+        // Time of this handler's last announcement. UIConfigWindow.IsOpened is still
+        // false while the window plays its opening transition, so the very first row
+        // would slip past the IsConfigOpen gate — this timestamp covers that gap.
+        private static float _lastActivityTime = -999f;
+
+        /// <summary>How long after an announcement config still counts as owning the screen.</summary>
+        private const float ActivityWindow = 1.5f;
+
+        #endregion
+
+        #region Public State
+
+        /// <summary>
+        /// True while the config screen owns input — both the title-screen config
+        /// and the in-game one opened from camp.
+        ///
+        /// The config category list is built from generic
+        /// <c>UICommonListItemPresenter</c> rows, so the universal
+        /// <see cref="ListSelectionHandler"/> safety net would announce every
+        /// category a second time after this handler's own patch already spoke it
+        /// (with position). That handler asks here to stay silent while config owns
+        /// the screen.
+        ///
+        /// Two signals, because neither alone is enough: the window's own
+        /// <c>IsOpened</c> covers steady state but is still false during the opening
+        /// transition, and the recent-announcement stamp covers exactly that gap.
+        /// </summary>
+        public static bool IsConfigOpen
+        {
+            get
+            {
+                if (Time.unscaledTime - _lastActivityTime < ActivityWindow) return true;
+
+                return UiFinder.TryGetActiveOverlay(
+                    ref _configWindow, ref _nextConfigFindTime,
+                    w => w != null && w.gameObject != null && w.IsOpened);
+            }
+        }
+
+        /// <summary>Drops the cached window reference when the scene changes.</summary>
+        public static void OnSceneChanged()
+        {
+            _configWindow = null;
+            _nextConfigFindTime = 0f;
+            _lastActivityTime = -999f;
+        }
 
         #endregion
 
@@ -102,9 +154,20 @@ namespace SO2RAccess
 
         #region Harmony Patch Methods — Config Category Menu
 
+        /// <summary>
+        /// Records that the config screen is alive right now. Called from every
+        /// config patch, including ones that end up announcing nothing — the point
+        /// is screen ownership, not speech. See <see cref="IsConfigOpen"/>.
+        /// </summary>
+        private static void MarkActive()
+        {
+            _lastActivityTime = Time.unscaledTime;
+        }
+
         // Postfix for UIConfigMenuSelector.Show()
         private static void ConfigMenu_Show_Postfix(UIConfigMenuSelector __instance)
         {
+            MarkActive();
             try { AnnounceConfigMenuItem(__instance); }
             catch (Exception ex) { MelonLogger.Warning($"ConfigMenu_Show_Postfix: {ex.Message}"); }
         }
@@ -112,6 +175,7 @@ namespace SO2RAccess
         // Postfix for UIConfigMenuSelector.OnMoveCursor()
         private static void ConfigMenu_OnMoveCursor_Postfix(UIConfigMenuSelector __instance)
         {
+            MarkActive();
             try { AnnounceConfigMenuItem(__instance); }
             catch (Exception ex) { MelonLogger.Warning($"ConfigMenu_OnMoveCursor_Postfix: {ex.Message}"); }
         }
@@ -147,6 +211,7 @@ namespace SO2RAccess
         // Postfix for UIConfigGroupSelectorBase.MoveCursor(int)
         private static void ConfigGroup_MoveCursor_Postfix(UIConfigGroupSelectorBase __instance)
         {
+            MarkActive();
             try { AnnounceGroupItem(__instance); }
             catch (Exception ex) { MelonLogger.Warning($"ConfigGroup_MoveCursor_Postfix: {ex.Message}"); }
         }
@@ -196,6 +261,7 @@ namespace SO2RAccess
         // Fires when the user presses left/right to change a setting value.
         private static void ConfigItem_OnMoveCursor_Postfix(UIConfigGroupSelectItemSelector __instance)
         {
+            MarkActive();
             try
             {
                 if (__instance == null) return;

@@ -187,16 +187,10 @@ namespace SO2RAccess
                     return;
                 }
 
-                // Camp and shop sub-lists are polled by their own handlers even when the
-                // row type is generic — never compete with them on their screens.
-                if (CampMenuHandler.IsCampOpen)
+                string reason = GetScreenOwnerReason();
+                if (reason != null)
                 {
-                    DebugLogger.LogState($"ListSelection: {typeName} suppressed (camp open).");
-                    return;
-                }
-                if (ShopHandler.IsShopOpen)
-                {
-                    DebugLogger.LogState($"ListSelection: {typeName} suppressed (shop open).");
+                    DebugLogger.LogState($"ListSelection: {typeName} suppressed ({reason}).");
                     return;
                 }
 
@@ -209,6 +203,26 @@ namespace SO2RAccess
             {
                 DebugLogger.LogState($"ListSelection.OnSelected_Postfix: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Names the dedicated handler that currently owns the screen, or null when
+        /// the universal net is free to speak. Camp, shop and config poll their own
+        /// lists even where the row type is generic, so the net must never compete
+        /// with them there.
+        ///
+        /// Checked twice per row — once when the selection event fires, and again
+        /// just before speaking. A screen that is still playing its opening
+        /// transition may not claim ownership yet at event time but does by the time
+        /// the delayed read comes around, and that gap is exactly where the config
+        /// menu's first row used to double up.
+        /// </summary>
+        private static string GetScreenOwnerReason()
+        {
+            if (CampMenuHandler.IsCampOpen) return "camp open";
+            if (ShopHandler.IsShopOpen) return "shop open";
+            if (ConfigMenuHandler.IsConfigOpen) return "config open";
+            return null;
         }
 
         #endregion
@@ -233,6 +247,15 @@ namespace SO2RAccess
                 if (presenter.gameObject == null || !presenter.gameObject.activeInHierarchy)
                 {
                     DebugLogger.LogState($"ListSelection: {typeName} dropped (row no longer visible).");
+                    return;
+                }
+
+                // Re-check: a screen mid-opening may only have claimed ownership since
+                // the selection event fired.
+                string reason = GetScreenOwnerReason();
+                if (reason != null)
+                {
+                    DebugLogger.LogState($"ListSelection: {typeName} dropped ({reason} by read time).");
                     return;
                 }
 

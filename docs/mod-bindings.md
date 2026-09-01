@@ -60,7 +60,7 @@ These menu keys are fixed — rebinding never changes them.
 ### Key bindings submenu (last item of the settings menu)
 
 - Up and Down arrows — previous / next action (all mod actions except the
-  debug-only F5–F11 hotkeys, then "Reset all keys to defaults" and
+  debug-only hotkeys (F5–F11 and Semicolon), then "Reset all keys to defaults" and
   "Save and go back")
 - Enter on an action — capture mode: the next key pressed becomes the
   pending binding; Escape cancels the capture
@@ -71,7 +71,7 @@ These menu keys are fixed — rebinding never changes them.
 Clash warnings are passive: a captured key that the game also uses (checked
 against the live binding dump) or that another mod action holds in an
 overlapping context is announced as a warning but still accepted. Capturing
-F5–F11 warns that the key is reserved for debugging and only works while
+a debug-only key warns that it is reserved for debugging and only works while
 debug mode is off — it is still accepted. Gamepad
 in the submenu: D-pad navigates, Cross/A activates, Circle/B discards and
 goes back; pad buttons cannot be captured — rebinding is keyboard-only.
@@ -80,8 +80,9 @@ goes back; pad buttons cannot be captured — rebinding is keyboard-only.
 
 F5 obstacle scan, F6 collision streaming trace, F7 route auditor,
 F8 CharaWall scan, F9 grid bake, F10 travel mask diagnostics,
-F11 pathfinding diagnostics. These keys are fixed — they do not appear in
-the key bindings submenu.
+F11 pathfinding diagnostics, Semicolon on-screen text dump (logs every visible
+text with its object path — use it to find text the mod is not reading).
+These keys are fixed — they do not appear in the key bindings submenu.
 
 ## Gamepad
 

@@ -385,6 +385,13 @@ namespace SO2RAccess
                     GetValue = () => Loc.Get(ModSettings.EnterPromptSpeechEnabled ? "mod_menu_on" : "mod_menu_off"),
                     Change = _ => { ModSettings.EnterPromptSpeechEnabled = !ModSettings.EnterPromptSpeechEnabled; }
                 },
+                // Cutscene subtitle / caption reading toggle
+                new ModMenuItem
+                {
+                    LabelKey = "mod_menu_label_subtitles",
+                    GetValue = () => Loc.Get(ModSettings.SubtitlesEnabled ? "mod_menu_on" : "mod_menu_off"),
+                    Change = _ => { ModSettings.SubtitlesEnabled = !ModSettings.SubtitlesEnabled; }
+                },
                 // Fishing prompt bubble sound toggle
                 new ModMenuItem
                 {

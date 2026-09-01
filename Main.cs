@@ -12,7 +12,7 @@ using Il2CppGame;
 // Accessing game code before the game is fully loaded will crash.
 // Safe access begins in OnSceneWasLoaded() or when CheckGameReady() passes.
 
-[assembly: MelonInfo(typeof(SO2RAccess.Main), "SO2RAccess", "0.3.0", "Accessibility Mod")]
+[assembly: MelonInfo(typeof(SO2RAccess.Main), "SO2RAccess", "0.3.1", "Accessibility Mod")]
 // Universal: no game-name check, so the mod loads on both the full game and the
 // demo (their internal product names may differ, but the game code is identical).
 [assembly: MelonGame]
@@ -47,6 +47,7 @@ namespace SO2RAccess
         private NewGameSettingsHandler _newGameSettingsHandler;
         private LoadGameHandler _loadGameHandler;
         private DialogueHandler _dialogueHandler;
+        private SubtitleHandler _subtitleHandler;
         private NotificationHandler _notificationHandler;
         private NavigationHandler _navigationHandler;
         private CampMenuHandler _campMenuHandler;
@@ -139,6 +140,7 @@ namespace SO2RAccess
             _newGameSettingsHandler = new NewGameSettingsHandler();
             _loadGameHandler = new LoadGameHandler();
             _dialogueHandler = new DialogueHandler();
+            _subtitleHandler = new SubtitleHandler();
             _notificationHandler = new NotificationHandler();
             _navigationHandler = new NavigationHandler();
             _campMenuHandler = new CampMenuHandler();
@@ -241,6 +243,8 @@ namespace SO2RAccess
             _quickRecoveryHandler?.OnSceneChanged();
             _fishCollectorHandler?.OnSceneChanged();
             _listSelectionHandler?.OnSceneChanged();
+            _subtitleHandler?.OnSceneChanged();
+            ConfigMenuHandler.OnSceneChanged();
 
             // Apply patches once — safe to call on every scene load, handlers guard against duplicates.
             _titleHandler.ApplyPatches(_harmony);
@@ -251,6 +255,7 @@ namespace SO2RAccess
             _newGameSettingsHandler.ApplyPatches(_harmony);
             _loadGameHandler.ApplyPatches(_harmony);
             _dialogueHandler.ApplyPatches(_harmony);
+            _subtitleHandler.ApplyPatches(_harmony);
             _notificationHandler.ApplyPatches(_harmony);
             _navigationHandler.ApplyPatches(_harmony);
             _campMenuHandler.ApplyPatches(_harmony);
@@ -692,6 +697,7 @@ namespace SO2RAccess
             _fieldPromptHandler.Update();
             _fishCollectorHandler.Update();
             _listSelectionHandler.Update();
+            _subtitleHandler.Update();
         }
 
         #endregion

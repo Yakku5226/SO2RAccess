@@ -8,6 +8,7 @@ The mod is built on [MelonLoader](https://melonwiki.xyz/) and uses the [Tolk](ht
 
 - Full menu narration — the camp menu and all of its sub-screens (items, equipment, battle skills, status, formation, tactics, item creation, specialties, operations, missions), shops, guilds, save screens, and the game-over menu.
 - Dialogue readout — conversation text is read aloud, including unvoiced lines the game only shows on screen.
+- Cutscene subtitles — the subtitle line under movie cutscenes and the caption text events show above characters are read as they appear. Can be turned off in the mod settings menu (F4).
 - Field navigation — a navigation menu lists nearby NPCs, exits, treasure chests, save points, and interactable objects; pick one and the mod walks you there automatically.
 - World map navigation — pathfinding auto-walk to towns, dungeons, and fishing spots across the world map, with honest feedback when a destination cannot be reached on foot.
 - Battle accessibility — target announcements, enemy proximity cues, dodge notifications, and status readouts during real-time battles.
