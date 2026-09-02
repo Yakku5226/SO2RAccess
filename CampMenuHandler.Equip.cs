@@ -90,6 +90,7 @@ namespace SO2RAccess
                         _equipSlotListBase = null;
                         _equipItemListBase = null;
                         _cachedElementalAnnouncement = null;
+                        _equipCharTab.Reset();
                     });
 
                 if (!shouldPoll)
@@ -120,7 +121,16 @@ namespace SO2RAccess
                 // When the item list is open, item announcements are handled by the hook.
                 // Only poll the slot list while the item list is not shown.
                 if (!_equipItemListActive)
+                {
+                    // L1/R1 switch which party member's equipment is on screen. Only the
+                    // slot list carries the character tabs — the item picker does not —
+                    // so the switch is detected here and the slot is forced to re-read,
+                    // since it now shows the new character's gear.
+                    if (TrackCharacterTab(_equipCharTab, _equipSelector.currentPlayerID))
+                        _equipSlotLastIndex = -1;
+
                     UpdateEquipSlotList();
+                }
 
                 // Announce elemental resistances on Triangle press.
                 // The panel's gameObject and CanvasGroup are NOT reliable visibility
@@ -213,12 +223,16 @@ namespace SO2RAccess
                 DebugLogger.LogGameValue("CampEquip.slot",
                     $"category='{category}' name='{name}' available={available} ({idx + 1}/{total})");
 
+                string line;
                 if (string.IsNullOrEmpty(name))
-                    ScreenReader.Say(Loc.Get("camp_equip_slot_empty", category, idx + 1, total));
+                    line = Loc.Get("camp_equip_slot_empty", category, idx + 1, total);
                 else if (available)
-                    ScreenReader.Say(Loc.Get("camp_equip_slot", category, name, idx + 1, total));
+                    line = Loc.Get("camp_equip_slot", category, name, idx + 1, total);
                 else
-                    ScreenReader.Say(Loc.Get("camp_equip_slot_unavailable", category, name, idx + 1, total));
+                    line = Loc.Get("camp_equip_slot_unavailable", category, name, idx + 1, total);
+
+                // Prefixes the character's name when this re-read follows an L1/R1 switch.
+                ScreenReader.Say(_equipCharTab.Decorate(line));
             }
             catch (Exception ex)
             {

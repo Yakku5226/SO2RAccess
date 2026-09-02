@@ -6,7 +6,7 @@ The mod is built on [MelonLoader](https://melonwiki.xyz/) and uses the [Tolk](ht
 
 ## Features
 
-- Full menu narration — the camp menu and all of its sub-screens (items, equipment, battle skills, status, formation, tactics, item creation, specialties, operations, missions), shops, guilds, save screens, and the game-over menu.
+- Full menu narration — the camp menu and all of its sub-screens (items, equipment, battle skills, status, formation, tactics, item creation, specialties, operations, missions), shops, guilds, save screens, and the game-over menu. Where a screen has tabs along the top, cycling them with L1/R1 announces the party member or item category you land on, together with the row under the cursor.
 - Dialogue readout — conversation text is read aloud, including unvoiced lines the game only shows on screen.
 - Cutscene subtitles — the subtitle line under movie cutscenes and the caption text events show above characters are read as they appear. Can be turned off in the mod settings menu (F4).
 - Field navigation — a navigation menu lists nearby NPCs, exits, treasure chests, save points, and interactable objects; pick one and the mod walks you there automatically.
@@ -86,11 +86,18 @@ In the battle pause menu the same four navigation keys change what you hear:
 Minus and Equals switch the amount of detail (info tier), and the
 brackets switch between characters.
 
-In the mod settings menu: Up and Down arrows move between settings,
-Left and Right arrows change the value, Enter opens a submenu, and
-Escape or F4 closes and saves.
+The mod settings menu opens on a short list of three submenus — Sound and
+announcements, Language and speech, and Key bindings. Up and Down arrows move
+between rows, Enter opens the highlighted submenu, and inside a submenu the
+Left and Right arrows change a setting's value. Escape goes back one level and
+saves; F4 closes the whole menu from anywhere.
 
-The last item, Key bindings, opens a submenu where every mod key can be
+In Sound and announcements, Space plays the sound the highlighted row controls,
+at its current volume, so you can set a level by ear without leaving the menu.
+It plays even when that sound is switched off. Rows that carry no sound of
+their own (the spoken announcements) say so instead.
+
+Key bindings opens a submenu where every mod key can be
 changed: arrows move through the actions, Enter on an action asks for the
 new key — the next key you press becomes the binding. If the new key is already
 used by the game or by another mod action, you hear a warning but the key is
@@ -100,7 +107,7 @@ action gives a warning that the key will only work while debug mode is off.
 Changes only take effect when you activate Save and go back
 at the bottom of the list; Escape leaves the submenu and discards them.
 There is also a Reset all keys to defaults item. The menu's own keys
-(arrows, Enter, Escape) always stay the same and cannot be rebound.
+(arrows, Enter, Space, Escape) always stay the same and cannot be rebound.
 
 ### Gamepad
 
@@ -118,12 +125,13 @@ The mod lives on L2 — hold it like a shift key.
 
 Moving the left stick (without L2) quietly stops an auto-walk. In the mod
 settings menu the D-pad navigates and changes values, Cross/A opens a
-submenu or activates an item, and Circle/B goes back or closes. Key
+submenu or activates an item, Square/X plays the highlighted row's sound,
+and Circle/B goes back one level or closes. Key
 rebinding itself is keyboard-only — the gamepad layout is fixed.
 
 ## Translations
 
-The mod speaks English out of the box, and community translations are plain JSON files — no code changes needed. To use one, drop the translation file (for example `de.json`) into `UserData\SO2RAccess\lang` inside the game directory, then pick the language in the mod settings menu (F4) under Speech language, or leave it on Automatic to follow the game's own text language. Any text a translation does not cover falls back to English automatically.
+The mod speaks English out of the box, and community translations are plain JSON files — no code changes needed. To use one, drop the translation file (for example `de.json`) into `UserData\SO2RAccess\lang` inside the game directory, then pick the language in the mod settings menu (F4) under Language and speech, Speech language, or leave it on Automatic to follow the game's own text language. Any text a translation does not cover falls back to English automatically.
 
 Starter translations for French (`fr.json`), German (`de.json`), Swedish (`sv.json`), Portuguese (`pt.json`), and Simplified Chinese (`zh-Hans.json`) ship with the mod. They are machine-assisted first drafts — corrections and improvements from native speakers are very welcome; open an issue or pull request on GitHub.
 

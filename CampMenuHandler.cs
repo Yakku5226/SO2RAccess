@@ -164,6 +164,12 @@ namespace SO2RAccess
             UpdateLocationPictureBook();
             UpdatePlayerData();
             UpdateStoryHint();
+
+            // Last, after every screen has had its chance to claim them: speak the
+            // battle skill readout and any L1/R1 tab label that was parked for a row
+            // announcement which never came, so nothing is dropped in silence.
+            FlushPendingBattleSkillInfo();
+            TickTabSwitchAnnouncers();
         }
 
         /// <summary>

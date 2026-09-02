@@ -93,6 +93,18 @@ namespace SO2RAccess
         private static float _saveSoundCachedVolume = -1f;
         private static bool _saveSoundLoaded;
 
+        /// <summary>Whether the dodge warning WAV loaded successfully.</summary>
+        public static bool IsDodgeSoundLoaded => _dodgeSoundLoaded;
+
+        /// <summary>Whether the jump-prompt WAV loaded successfully.</summary>
+        public static bool IsJumpSoundLoaded => _jumpSoundLoaded;
+
+        /// <summary>Whether the save WAV loaded successfully.</summary>
+        public static bool IsSaveSoundLoaded => _saveSoundLoaded;
+
+        /// <summary>Whether the private action WAV loaded successfully.</summary>
+        public static bool IsPrivateActionSoundLoaded => _paSoundLoaded;
+
         /// <summary>
         /// Marks the player as initialized. Call once at mod startup.
         /// </summary>
@@ -618,6 +630,14 @@ namespace SO2RAccess
                 _gaugeFillSoundPtr = IntPtr.Zero;
             }
             _gaugeFillSoundLoaded = false;
+
+            _fishPromptSoundRawWav = null;
+            if (_fishPromptSoundPtr != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(_fishPromptSoundPtr);
+                _fishPromptSoundPtr = IntPtr.Zero;
+            }
+            _fishPromptSoundLoaded = false;
 
             _initialized = false;
         }

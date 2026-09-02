@@ -373,7 +373,7 @@ namespace SO2RAccess
                 try { charName = ParameterManager.Instance?.GetCharacterFirstName(_skillPendingPlayer); }
                 catch { /* ignore */ }
                 if (!string.IsNullOrEmpty(charName))
-                    text = charName + ". " + text;
+                    text = Loc.Get("camp_character_prefix", charName, text);
             }
 
             ScreenReader.Say(text);

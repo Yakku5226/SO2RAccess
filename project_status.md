@@ -37,6 +37,236 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> 🔁 **ROUND 2 (2026-09-02) — FOUR BUGS FOUND IN THE LOG AND FIXED. ✅ TESTED
+> AND CONFIRMED.** Log 26-9-2_20-17-0 was decisive on every one.
+> User's verdict on round 1: "Looks good but for one or two oddities."
+>
+> **1. Item categories were named WRONG — every single one.** Not just the stray
+> "Category changed." on the first switch: `itemTabLabel.currentText` is a
+> `UICommonSelectTextPresenter` mid-animation and holds the PREVIOUS category.
+> Proven by pairing each announced name with the item list that arrived with it —
+> "Weapons" came with Tuna Sashimi, "Armor" with a Longsword, "Accessories" with
+> Holey Armor+, "Food" with Primavera. Shift the names one step and all ten
+> switches line up perfectly. The first switch of a visit had no previous name to
+> give, which is exactly where the "Category changed." the user heard came from.
+> ➡ Now read from `itemTabPresenter.itemTabDataList[(int)currentCategory].tabName`
+> — a static table, one entry per Category enum value, so the name always belongs
+> to the category the poll just detected. The table is dumped to the log once per
+> visit to the Items screen (`CampItem.tabTable`) so the mapping stays checkable.
+>
+> **2. `UIItemTabPresenter.SetTabName` never fires — patch removed.** CallerCount
+> 2 said it was hookable; it applied and did not fire once. Inlined into its
+> callers like the caption methods. `UpdateTabName` is CallerCount 0. No hook on
+> that presenter at all now.
+>
+> **3. Root Special Arts/Spells had TWO speakers for one cursor move.** The slot
+> list and the skill information panel both describe the same row.
+> `UIBattleSkillInformationPresenter.Set` (the rich readout: MP, type, element,
+> range, description, level) fires ~14 ms BEFORE the slot poll — so the rich line
+> was started and then cut off by the shorter "L1Button: Knuckle Burst. 1 of 3."
+> The user heard the full details only on the entries where the slot index
+> happened not to change, which is exactly the inconsistency they described.
+> Round 1 made it worse by forcing the slot to re-read on a character switch.
+> ➡ On that screen the hook now CACHES its text and the slot poll speaks both as
+> one sentence: "Claude. L1Button, 1 of 3: Knuckle Burst. MP: 22. Type: Shield
+> break. …" A cached readout the poll never claims (re-entering the screen on the
+> row you left) is spoken alone a quarter-second later rather than dropped.
+>
+> **4. Phantom character name on entry.** Both Equipment and the assignment
+> screen greeted the user with a name. A camp sub-screen reports
+> `PlayerID.INVALID` (enum value 0) until the game populates it — up to a second
+> after the mod starts polling — and seeding the tracker on that turned the first
+> real character into a switch. New shared `TrackCharacterTab` ignores INVALID.
+>
+> **Confirmed working from the same log, unchanged:** Improve → Combat Skill
+> ("Rena. Guardbreak. Level: 0 of 10. BP: 1071 / 30. …" — name merged into the
+> full readout, exactly as designed) and Equipment's slot readouts.
+>
+> **Localization.** All six lang files at parity: **757 keys** (756 before). New:
+> `camp_battleskill_setting_slot_detail` = "{0}, {1} of {2}: {3}".
+> `docs/game-api.md` section rewritten with the two traps (stale animated label,
+> inlined tab presenter) plus the "two speakers, one cursor move" rule.
+>
+> **✅ CONFIRMED WORKING (user: "Seems to work fine now"), log 26-9-2_20-33-27
+> reconciles on every point — 0 warnings, 0 exceptions:**
+> 1. Items categories now name the tab you land on: 'Food' → Tuna Sashimi,
+>    'Weapons' → Longsword, 'Armor' → Holey Armor+, 'Accessories' → Amulet of
+>    Antivenin, 'Healing Items' → Primavera. The off-by-one is gone, and the
+>    first switch of a visit names a real category.
+> 2. Root Special Arts/Spells reads as one sentence, every time:
+>    "Rena. L1Button, 1 of 7: Heal. MP: 10. Type: Support. Range: Single target…"
+>    on a character switch, "R1Button, 2 of 3: Helmetbreak. MP: 22…" on up/down.
+>    Every slot line logged `info=merged` — the rich readout is never cut off now.
+>    Entering the screen takes the flush path ("slot poll did not claim the skill
+>    info") and speaks the full detail with no character name, as designed.
+> 3. No phantom name on entry anywhere: Equipment and the assignment screen both
+>    seeded at 1 (CLAUDE) and the first thing spoken was a genuine switch to Rena.
+> 4. Improve → Combat Skill unchanged and still correct.
+>
+> **One diagnostic gap closed afterwards:** the `CampItem.tabTable` dump printed
+> nothing in that log — the table is still empty on the first poll after the
+> screen opens, and the dump spent its one shot on it. It now waits for a
+> populated table. Diagnostic only; no behaviour change.
+>
+>
+> **What was tested (debug F12 on):**
+> 1. Camp → Items, L1/R1: the category name must match the items that follow it.
+>    Weapons should bring a weapon, Food should bring food. The first switch of a
+>    visit must name a real category, not "Category changed."
+> 2. Camp → Special Arts/Spells: entering should read the skill with all its
+>    detail and no character name. Up/down through the slots should keep reading
+>    the detail. L1/R1 should read "Claude. L1Button, 1 of 3: Knuckle Burst. MP…"
+>    — name, slot, position, then the full detail, in one breath.
+> 3. Camp → Equipment: entering should NOT say a character name; L1/R1 still
+>    should.
+> 4. Improve → Combat Skill and Improve → Special Arts/Spells: unchanged.
+
+
+> 🔁 **L1/R1 TAB SWITCHES ANNOUNCED EVERYWHERE IN CAMP (2026-09-02) — BUILT,
+> ✅ TESTED, see ROUND 2 above for the four bugs it turned up.** Built clean.
+> Committed 2026-09-02 (see ROUND 2). No version bump yet — user's call.
+>
+> **The problem.** Some camp screens read the new character when you cycle with
+> L1/R1 and some said nothing at all, and the Items screen never named the
+> category you cycled into. Log 26-9-2_19-55-44 shows it: the Skills screen
+> announced "Rena. Determination…", the Status screen read the new character's
+> whole block — but Equipment, Special Arts/Spells and the Improve screens
+> announced nothing, and seven seconds of category cycling in Items produced not
+> one line.
+>
+> **Why it was silent.** A tab switch replaces the list under the cursor without
+> moving the cursor, so every index the mod polls stays exactly the same and no
+> announcement path fires. It has to be detected on its own.
+>
+> **Now consistent — four screens gained it:**
+> - **Equipment** — `UICampEquipSelector.currentPlayerID`, slot list only.
+> - **Special Arts/Spells** and **Improve → Special Arts/Spells** —
+>   `UISelectBattleSkillSelector.currentPlayerID`.
+> - **Improve → Combat Skill** — `UICampCombatSkillSelector.currentPlayerID`.
+> - **Special Arts/Spells → button assignment** —
+>   `UICampBattleSkillSettingSelector.currentPlayerID`, Equip state only.
+>
+> **Items category** — triggered off `UIItemListSelectorBase.currentCategory`
+> (an enum, so language-safe), named from the game's own localized tab label.
+> Primary source is a capture-only postfix on `UIItemTabPresenter.SetTabName`
+> (CallerCount 2; the `UpdateTabName` that wraps it is CallerCount 0, i.e.
+> inlined — hooking it would be another silent no-op). Live fallback reads
+> `itemTabPresenter.itemTabLabel.currentText.text`. Last resort says "Category
+> changed." and logs which source failed.
+>
+> **One utterance, not two.** `ScreenReader.Say` interrupts, so saying the name
+> and then the new row would cut the name off. New `CampMenuHandler.TabSwitch.cs`
+> holds `TabSwitchAnnouncer`: it parks the label, the screen's own row
+> announcement prefixes it ("Rena. Weapon: Sword, 1 of 7."), and if nothing
+> claims the label within 0.3 s it is spoken alone — a switch is never silent.
+> The hook-driven screens detect the switch inside
+> `UIBattleSkillInformationPresenter.Set` (which runs before the mod's frame
+> poll) so the name merges into the skill row; the frame poll is the safety net.
+> The Skills screen keeps its own deferred-flush machinery but now builds its
+> prefix from the same `camp_character_prefix` key.
+>
+> **Left alone:** Status (already reads the whole block, name first) and Item
+> Creation (already speaks the name; its action-list tracking is validated and
+> uses `currentTabIndex`, not a PlayerID).
+>
+> **Localization.** All six lang files re-verified at parity: **756 keys** each
+> (752 before). New: `camp_character_prefix`, `camp_item_category_prefix`,
+> `camp_item_category_empty`, `camp_item_category_unknown`. Translations written
+> for fr/de/sv/pt/zh-Hans. New reference section in `docs/game-api.md`:
+> "L1/R1 tab strips in camp — every screen that has one", listing every camp
+> class that carries a tab strip and which field to read.
+>
+> **What was tested (debug mode F12 on, so the log shows
+> the `tab tracking seeded` / `tab switched to` lines):**
+> 1. Camp → Equipment, then L1/R1: each press should say the new character's
+>    name followed by the highlighted slot, e.g. "Rena. Weapon: Sword, 1 of 7."
+> 2. Camp → Special Arts/Spells, L1/R1 on the skill list: "Celine. Wind Blade.
+>    MP: 12…" — name first, then the skill, in one go.
+> 3. Same screen → button assignment (the slot list), L1/R1 there too.
+> 4. Camp → Improve → Combat Skill, and Improve → Special Arts/Spells: L1/R1.
+> 5. Camp → Items, L1/R1 to cycle categories: the category name should come
+>    first, then the item under the cursor. Check an empty category too — it
+>    should say the name and "Empty."
+> 6. Nothing should be announced merely on ENTERING any of these screens (the
+>    first read is the row as before, with no name or category glued on front).
+> 7. Camp → Improve → IC/Specialty Skills (the Skills screen) and Status should
+>    behave exactly as they did before.
+
+
+> 🔊 **MOD MENU RESTRUCTURE + SOUND PREVIEW (2026-09-02) — ✅ TESTED AND
+> CONFIRMED by the user. Built clean (Debug, 0 warnings).
+> Committed 2026-09-02. No version bump yet — user's call.
+>
+> **What changed, and why.** The mod menu was one flat list of 24 settings.
+> It is now a root list of three submenus, so nothing is more than one Enter
+> away and the root is three rows long:
+> - **Sound and announcements** (19 rows) — every audio cue as an on/off row
+>   followed by its volume, then the spoken announcements (ally health, ally
+>   ailments, player damage, gauge break, gauge percentage, jump prompt speech,
+>   enter prompt speech). User's wording: "instead of sounds, make it sounds
+>   and announcements, then you have most of them covered."
+> - **Language and speech** (3 rows) — Speech language, Dialogue mode, Cutscene
+>   subtitles.
+> - **Key bindings** — the existing rebind screen, unchanged.
+>
+> **Sound preview.** Space (keyboard) or **Square / buttonWest** (gamepad) plays
+> the sound the highlighted row controls, at its current volume. Works on both
+> the on/off row and the volume row of every cue, and deliberately plays even
+> when that cue is switched off — hearing what you just muted is the point.
+> - One-shot cues (save, dodge, private action, gauge fill, jump, fishing) reuse
+>   the existing `AudioCuePlayer.Play*Cue` methods as-is.
+> - The enemy-proximity cue is a **loop** (`SpatialAudioPlayer`), not a one-shot,
+>   so the preview starts it centred at full distance volume and a 1.5 s timer
+>   stops it. That timer is driven by the new `ModMenuHandler.Tick()`, called
+>   from `Main.OnUpdate()` **before** `ProcessHotkeys()` — and unconditionally,
+>   open or closed, so a preview can never be left looping after the menu shuts.
+>   Safe against `EnemyProximityHandler` because `ProcessHotkeys()` returns true
+>   while the menu is open, so `UpdateHandlers()` (and therefore the proximity
+>   handler) does not run.
+> - Never silently silent: `ModMenuItem.Preview` is a `Func<bool>`. A row with no
+>   sound says "No sound to preview."; a sound whose WAV failed to load says
+>   "That sound file is not loaded." New `Is*Loaded` properties on
+>   `AudioCuePlayer` (dodge/jump/save/private action — gauge and fish already had
+>   them) and `SpatialAudioPlayer.IsInitialized` back this.
+>
+> **Removed from the menu** (settings kept in `settings.json` at their defaults,
+> still editable by hand): **NPC-aware pathfinding**, **Walk assist**, **Event
+> NPCs in nav list**. User's call — "leave [them] on the current setting and
+> remove [them] from the menu completely."
+>
+> **Added:** a **Jump prompt sound volume** row. `ModSettings.JumpPromptSoundVolume`
+> has existed since the jump cue landed but had no menu row at all — the volume
+> was unreachable in game.
+>
+> **Escape now means back, not close.** Escape leaves a submenu (saving on the
+> way out) and only closes at the root; F4 closes the whole menu from any depth.
+> Circle/B mirrors Escape.
+>
+> **Files.** `ModMenuHandler.cs` slimmed to menu machinery only (~400 lines);
+> new `ModMenuHandler.Sound.cs` and `ModMenuHandler.Language.cs` hold the two new
+> submenus; `ModMenuHandler.Rebinding.cs` untouched (it already returned to the
+> root list by index, which still works). Also fixed while in there: the fishing
+> prompt WAV was never freed in `AudioCuePlayer.Shutdown()`.
+>
+> **Localization.** All six lang files re-verified at parity: **752 keys** each
+> (750 before; +8 new, −6 for the three removed settings). New keys:
+> `mod_menu_label_sound_group`, `mod_menu_label_language_group`,
+> `mod_menu_sound_group_open`, `mod_menu_language_group_open`, `mod_menu_back`,
+> `mod_menu_no_preview`, `mod_menu_preview_unavailable`,
+> `mod_menu_label_jump_volume`. Translations written for fr/de/sv/pt/zh-Hans.
+>
+> **What was tested and confirmed:**
+> 1. F4 reads "Mod settings menu." then "Sound and announcements: press Enter to
+>    open. Item 1 of 3."
+> 2. Enter on Sound and announcements; Space on each sound row plays it; Left/Right
+>    changes a volume and Space confirms the new level by ear.
+> 3. Square on the gamepad does the same as Space.
+> 4. Enemy proximity preview plays for about 1.5 s and stops on its own; leaving
+>    the submenu or pressing F4 mid-preview cuts it off cleanly.
+> 5. Space on an announcement row says "No sound to preview."
+> 6. Escape goes back one level; F4 closes from inside a submenu.
+> 7. Key bindings submenu still behaves exactly as before.
+
 > 🚀 **v0.3.1 RELEASED (2026-09-01):**
 > https://github.com/Yakku5226/SO2RAccess/releases/tag/v0.3.1
 > Commit 4ea8b22 on master, tag v0.3.1, both pushed. Release build (0 warnings).

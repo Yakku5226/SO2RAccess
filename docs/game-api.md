@@ -843,6 +843,73 @@ filters. Powerful catch-all for text we can't source, but noisy by design — pr
 hooks above; consider the TMP tap only as a targeted last resort (e.g. path-filtered to one
 window).
 
+### L1/R1 tab strips in camp — every screen that has one (2026-09-02)
+
+Several camp sub-screens put a tab strip above the list. L1/R1 cycles it, the list
+underneath is replaced, and the cursor row keeps its index — so nothing the mod polls
+changes and the switch is silent unless it is detected explicitly. Two kinds:
+
+**Character tabs** — every class carrying a `characterTabPresenter`, plus everything
+deriving from `UICharacterTabListSelectorBase`. The complete camp set:
+- `UICampEquipSelector` — `currentPlayerID` (own field)
+- `UICampBattleSkillSettingSelector` — `currentPlayerID` (own field), Equip state only
+- `UISelectBattleSkillSelector` : `UICharacterTabListSelectorBase` — battle skill list
+  (root BattleSkill and Enhance → BattleSkillPoint)
+- `UICampCombatSkillSelector` : `UICharacterTabListSelectorBase` — Enhance → CombatPoint
+- `UICampSkillSelector` : `UICharacterTabListSelectorBase` — Enhance → Skill
+- `UICampStatusSelector` — no player field; poll `pageIndex` instead
+- Item Creation action lists — `currentTabIndex` into `executablePlayerIDList`
+- (`UIBattleSpellSelector` has one too, but that is the battle screen, not camp.)
+
+Name for a `PlayerID`: `ParameterManager.Instance.GetCharacterFirstName(playerID)`.
+
+**Item category tabs** — `UIItemListSelectorBase.currentCategory`
+(`UIItemListSelectorBase.Category`: New, All, Field, Eat, Weapon, Armor, Accessory,
+Material, Other, Battle, KeyItem) is the change trigger. The spoken name comes from
+`itemTabPresenter.itemTabDataList` — one `UIItemTabItemData` per Category value, indexed
+by the enum, each with `tabName` (localized), `isDisplay` (a save with All hidden simply
+skips it while cycling) and `canSelected`. That table is static, so the name always
+belongs to the category you just detected.
+
+⚠ TWO TRAPS HERE, both cost a test round on 2026-09-02:
+- **Do not read `itemTabLabel.currentText`.** It is a `UICommonSelectTextPresenter`
+  mid-animation and holds the PREVIOUS category. Log 26-9-2_20-17-0 announced ten
+  switches and every one named the tab the user had just left — provable by pairing each
+  announced name with the item list that came with it ("Weapons" arrived with Tuna
+  Sashimi, "Armor" with a Longsword), and the first switch of a visit had no previous
+  name at all, so it fell through to the generic fallback line.
+- **Do not hook `UIItemTabPresenter`.** `UpdateTabName` is CallerCount 0. `SetTabName`
+  looks safe at CallerCount 2 — it was patched, the patch applied, and it never fired
+  once. Both are inlined into their callers, exactly like the caption methods.
+
+**Announce it as one utterance, not two.** `ScreenReader.Say` interrupts, so speaking
+the tab label and then the new row cuts the label off. `CampMenuHandler.TabSwitch.cs`
+(`TabSwitchAnnouncer`) parks the label and the screen's own row announcement prefixes
+it — `HasChanged(tab)` → `Park(label)` → force the row to re-read → `Decorate(text)`.
+Screens announce their row from different places (equip slots poll, battle skills come
+from `UIBattleSkillInformationPresenter.Set`), so the hook-driven ones call
+`HasChanged` from inside the hook: the hook runs before the mod's per-frame poll, and
+detecting the switch there is what lets the name merge into the row it is about to
+speak. The per-frame poll stays as a safety net — `FlushIfStale` speaks a label nothing
+claimed after 0.3 s, so a switch is never silent.
+
+**Two speakers, one cursor move (root Special Arts/Spells).** That screen shows the
+button-slot list AND a skill information panel for the same row, and the mod had a
+handler on each: `UIBattleSkillInformationPresenter.Set` (rich readout) fires ~14 ms
+before the slot poll, so both spoke and the shorter slot line cut the rich one off —
+the details survived only on the moves where the slot index happened not to change.
+Whenever two of the mod's own paths describe one cursor move, the LAST one to run must
+be the only speaker: the hook now caches its text (`_battleSkillRootInfo`, with a
+freshness stamp) and the slot poll speaks both as one sentence. A cached readout the
+poll never claims is spoken alone a quarter-second later rather than dropped.
+
+**Seed character tabs on a real PlayerID.** A camp sub-screen reports
+`PlayerID.INVALID` (enum value 0) until the game populates it — up to a second after the
+mod starts polling. Seeding a tracker on that value turns the first real character into
+a phantom switch, and the screen greets the user with a name they did not ask for.
+`TrackCharacterTab` ignores INVALID for exactly this reason.
+
+
 ### Localized menu labels — read the rendered text, not the data (2026-08-31)
 `UICampMenuItemData` carries NO display text — only the `UIDefine.CampMenuItem` enum.
 `menuItem.ToString()` is the English-only C# identifier and must never be spoken. The

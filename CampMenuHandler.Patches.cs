@@ -54,6 +54,8 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(CharacterParameter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(ConstPlayerParameter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIItemTabPresenter).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UIItemListSelectorBase).TypeHandle);
+                RuntimeHelpers.RunClassConstructor(typeof(UICommonSelectTextPresenter).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UICharacterTabItemData).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UICampFormationSelector).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UICampFormationListItemData).TypeHandle);
@@ -183,6 +185,12 @@ namespace SO2RAccess
                     postfix: new HarmonyMethod(typeof(CampMenuHandler),
                         nameof(CampMenuItemPresenter_UpdateShow_Postfix))
                 );
+
+                // NO HOOK on UIItemTabPresenter — item category names are read from
+                // itemTabDataList instead. SetTabName(string) looks hookable (CallerCount
+                // 2) but never fired once in testing (log 26-9-2_20-17-0), and the
+                // UpdateTabName that wraps it is CallerCount 0: both are inlined into
+                // their callers, like the caption methods. See ResolveItemCategoryName.
 
                 // UIItemInformationPresenter.Set has two overloads — patch the one that
                 // takes UIItemInformationData (fires on every equip item navigation).

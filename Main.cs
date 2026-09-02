@@ -184,6 +184,8 @@ namespace SO2RAccess
         public override void OnUpdate()
         {
             if (!CheckGameReady()) return;
+            // Runs open or closed: ends a timed mod-menu sound preview.
+            _modMenuHandler.Tick();
             ProcessGamepad();
             if (ProcessHotkeys()) return;
             UpdateHandlers();

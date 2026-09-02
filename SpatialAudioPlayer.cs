@@ -104,6 +104,9 @@ namespace SO2RAccess
         /// <summary>Whether the player is currently outputting audio.</summary>
         public static bool IsPlaying => _playing;
 
+        /// <summary>Whether the WAV loaded and the player is ready to start.</summary>
+        public static bool IsInitialized => _initialized;
+
         #endregion
 
         #region Public API

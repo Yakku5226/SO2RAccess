@@ -54,6 +54,40 @@ namespace SO2RAccess
         private static int _battleSkillEquipLastIndex = -1;
         private static readonly SubScreenState _battleSkillSettingState = new SubScreenState();
 
+        // TWO SCREENS, ONE CURSOR MOVE. On the root Special Arts/Spells screen the slot
+        // list and the skill information panel both describe the row under the cursor.
+        // UIBattleSkillInformationPresenter.Set fires ~14 ms before the slot poll (log
+        // 26-9-2_20-17-0), so speaking in both places meant the rich readout was started
+        // and then cut off by the shorter slot line — the user heard the full details
+        // only on the entries where the slot index happened not to change.
+        // Fix: on that screen the hook CACHES its text here and the slot poll speaks
+        // both as one sentence. The timestamp guards against attaching a stale readout
+        // to a slot the presenter did not fire for (an empty slot).
+        private const float BattleSkillInfoFreshness = 0.25f;
+        private static string _battleSkillRootInfo = null;
+        private static float _battleSkillRootInfoTime = 0f;
+
+        /// <summary>
+        /// True while the root Special Arts/Spells screen is showing its slot list — the
+        /// state in which the slot poll, not the information hook, does the speaking.
+        /// </summary>
+        private static bool IsRootSlotListShowing()
+        {
+            if (!IsRootBattleSkillMenu()) return false;
+            if (_battleSkillSettingSelector == null) return false;
+
+            try
+            {
+                return _battleSkillSettingSelector.gameObject.activeInHierarchy
+                    && _battleSkillSettingSelector.currentState
+                       == UICampBattleSkillSettingSelector.State.Equip;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         #region Gate Functions
 
         /// <summary>
@@ -107,6 +141,7 @@ namespace SO2RAccess
                     _combatSkillToggleLastIndex = -1;
                     _combatSkillToggleLastIsUse = false;
                     _lastBattleSkillMenuItem = "";
+                    _battleSkillCharTab.Reset();
                     DebugLogger.LogState("CampBattleSkill: deactivated (root menu moved away).");
                 }
                 return;
@@ -128,6 +163,7 @@ namespace SO2RAccess
                     _combatSkillToggleLastIndex = -1;
                     _combatSkillToggleLastIsUse = false;
                     _lastBattleSkillMenuItem = _lastRootMenuItemName;
+                    _battleSkillCharTab.Reset();
                     DebugLogger.LogState($"CampBattleSkill: heading pending for '{_lastRootMenuItemName}'.");
                 }
                 else if (_lastRootMenuItemName != _lastBattleSkillMenuItem)
@@ -143,8 +179,16 @@ namespace SO2RAccess
                     _combatSkillToggleLastIndex = -1;
                     _combatSkillToggleLastIsUse = false;
                     _lastBattleSkillMenuItem = _lastRootMenuItemName;
+                    _battleSkillCharTab.Reset();
                     DebugLogger.LogState($"CampBattleSkill: sub-item changed to '{_lastRootMenuItemName}', re-caching.");
                 }
+
+                // Safety net for the character tabs (L1/R1). The switch is normally
+                // caught inside BattleSkillInfoPresenter_Set_Postfix, which merges the
+                // name into the skill row it is about to speak. This poll only fires
+                // when that hook did not run, and then TickTabSwitchAnnouncers speaks
+                // the name on its own rather than leaving the switch silent.
+                PollBattleSkillCharacterTab();
 
                 // Poll combat skill toggle mode (Square button) — Enhance menu only.
                 if (IsEnhanceBattleSkillMenu() && _combatSkillInnerSelector != null)
@@ -164,7 +208,76 @@ namespace SO2RAccess
                 _combatSkillToggleLastIndex = -1;
                 _combatSkillToggleLastIsUse = false;
                 _lastBattleSkillMenuItem = "";
+                _battleSkillCharTab.Reset();
             }
+        }
+
+        /// <summary>
+        /// The information panel's readout for the row the slot poll is about to speak,
+        /// or "" when the hook did not fire for it (an empty slot has no skill to
+        /// describe) or fired too long ago to belong to this row. Clears the cache, so
+        /// one readout is never spoken twice.
+        /// </summary>
+        private static string TakeFreshBattleSkillInfo()
+        {
+            string info = _battleSkillRootInfo;
+            _battleSkillRootInfo = null;
+
+            if (string.IsNullOrEmpty(info)) return "";
+            if (UnityEngine.Time.time - _battleSkillRootInfoTime > BattleSkillInfoFreshness)
+            {
+                DebugLogger.LogState("CampBattleSkillSetting: cached skill info too old, dropped.");
+                return "";
+            }
+
+            return info;
+        }
+
+        /// <summary>
+        /// Speaks a cached skill readout the slot poll never claimed. That happens when
+        /// the information panel fires without the slot cursor moving — re-entering the
+        /// screen on the row you left, for instance — and without this the readout would
+        /// simply be dropped and the screen would open in silence.
+        /// Called once per frame, after the slot poll has had its chance at the cache.
+        /// </summary>
+        private static void FlushPendingBattleSkillInfo()
+        {
+            if (_battleSkillRootInfo == null) return;
+
+            if (!IsRootBattleSkillMenu())
+            {
+                // Left the screen — the readout no longer describes anything on it.
+                _battleSkillRootInfo = null;
+                return;
+            }
+
+            if (UnityEngine.Time.time - _battleSkillRootInfoTime < BattleSkillInfoFreshness) return;
+
+            string info = _battleSkillRootInfo;
+            _battleSkillRootInfo = null;
+            DebugLogger.LogState("CampBattleSkill: slot poll did not claim the skill info — speaking it alone.");
+            ScreenReader.Say(_battleSkillSettingCharTab.Decorate(info));
+        }
+
+        /// <summary>
+        /// Feeds the character whose skills are currently listed to the shared tab
+        /// announcer. Whichever inner selector is cached is the live one — only one of
+        /// them is ever cached at a time (see CacheBattleSkillInnerSelectors) — and both
+        /// derive from UICharacterTabListSelectorBase, so both carry currentPlayerID.
+        /// Returns without doing anything before the first hook fire caches a selector.
+        /// </summary>
+        private static void PollBattleSkillCharacterTab()
+        {
+            PlayerID playerID;
+
+            if (_combatSkillInnerSelector != null)
+                playerID = _combatSkillInnerSelector.currentPlayerID;
+            else if (_battleSkillInnerSelector != null)
+                playerID = _battleSkillInnerSelector.currentPlayerID;
+            else
+                return;
+
+            TrackCharacterTab(_battleSkillCharTab, playerID);
         }
 
         /// <summary>
@@ -196,6 +309,8 @@ namespace SO2RAccess
                         _battleSkillEquipListBase = null;
                         _battleSkillPickerListBase = null;
                         _battleSkillEquipLastIndex = -1;
+                        _battleSkillSettingCharTab.Reset();
+                        _battleSkillRootInfo = null;
                     });
 
                 if (!shouldPoll)
@@ -220,7 +335,15 @@ namespace SO2RAccess
                 // In Equip state: poll slot list. In SelectBattleSkill: hook handles it.
                 var state = _battleSkillSettingSelector.currentState;
                 if (state == UICampBattleSkillSettingSelector.State.Equip)
+                {
+                    // L1/R1 switch which party member's button assignments are shown.
+                    // Force the slot to re-read — it now belongs to the new character.
+                    if (TrackCharacterTab(_battleSkillSettingCharTab,
+                                          _battleSkillSettingSelector.currentPlayerID))
+                        _battleSkillEquipLastIndex = -1;
+
                     UpdateBattleSkillEquipSlotList();
+                }
             }
             catch (Exception ex)
             {
@@ -261,13 +384,26 @@ namespace SO2RAccess
                 string button    = StripTags(item.categoryName    ?? "");
                 string skillName = item.battleSkillName ?? "";
 
-                DebugLogger.LogGameValue("CampBattleSkillSetting.slot",
-                    $"button='{button}' skill='{skillName}' ({idx + 1}/{total})");
+                // The information panel's rich readout for this same row, cached by the
+                // hook moments ago. It already opens with the skill name, so when it is
+                // present the slot line contributes only the button and the position.
+                string info = TakeFreshBattleSkillInfo();
 
+                DebugLogger.LogGameValue("CampBattleSkillSetting.slot",
+                    $"button='{button}' skill='{skillName}' ({idx + 1}/{total}) " +
+                    $"info={(string.IsNullOrEmpty(info) ? "none" : "merged")}");
+
+                string line;
                 if (string.IsNullOrEmpty(skillName))
-                    ScreenReader.Say(Loc.Get("camp_battleskill_setting_slot_empty", button, idx + 1, total));
+                    line = Loc.Get("camp_battleskill_setting_slot_empty", button, idx + 1, total);
+                else if (!string.IsNullOrEmpty(info))
+                    line = Loc.Get("camp_battleskill_setting_slot_detail",
+                                   button, idx + 1, total, info);
                 else
-                    ScreenReader.Say(Loc.Get("camp_battleskill_setting_slot", button, skillName, idx + 1, total));
+                    line = Loc.Get("camp_battleskill_setting_slot", button, skillName, idx + 1, total);
+
+                // Prefixes the character's name when this re-read follows an L1/R1 switch.
+                ScreenReader.Say(_battleSkillSettingCharTab.Decorate(line));
             }
             catch (Exception ex)
             {
@@ -314,6 +450,12 @@ namespace SO2RAccess
                         CacheBattleSkillInnerSelectors();
                     }
 
+                    // An L1/R1 character switch rebuilds the list and re-fires this
+                    // presenter for the new character's first skill. Detecting it here,
+                    // rather than in the frame poll, means the name is prefixed onto that
+                    // skill instead of arriving as a second utterance that cuts it off.
+                    PollBattleSkillCharacterTab();
+
                     if (isRoot)
                     {
                         // Root: detailed tactical readout.
@@ -326,8 +468,18 @@ namespace SO2RAccess
                             $"desc='{data.battleSkillDescription}'");
 
                         string result = BuildRootBattleSkillAnnouncement(data, targetStr);
-                        if (!string.IsNullOrEmpty(result))
-                            ScreenReader.Say(result);
+
+                        if (IsRootSlotListShowing())
+                        {
+                            // The slot poll runs a few milliseconds from now and speaks
+                            // this together with the button name — see the field comment.
+                            _battleSkillRootInfo = result;
+                            _battleSkillRootInfoTime = UnityEngine.Time.time;
+                        }
+                        else if (!string.IsNullOrEmpty(result))
+                        {
+                            ScreenReader.Say(_battleSkillCharTab.Decorate(result));
+                        }
                     }
                     else
                     {
@@ -389,7 +541,7 @@ namespace SO2RAccess
                             data, pointCost, isMax, balance, isCombat,
                             listSkillLevel, listSkillLevelMax);
                         if (!string.IsNullOrEmpty(result))
-                            ScreenReader.Say(result);
+                            ScreenReader.Say(_battleSkillCharTab.Decorate(result));
                     }
                     return;
                 }
