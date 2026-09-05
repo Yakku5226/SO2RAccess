@@ -9,7 +9,8 @@ The mod is built on [MelonLoader](https://melonwiki.xyz/) and uses the [Tolk](ht
 - Full menu narration — the camp menu and all of its sub-screens (items, equipment, battle skills, status, formation, tactics, item creation, specialties, operations, missions), shops, guilds, save screens, and the game-over menu. Where a screen has tabs along the top, cycling them with L1/R1 announces the party member or item category you land on, together with the row under the cursor.
 - Dialogue readout — conversation text is read aloud, including unvoiced lines the game only shows on screen.
 - Cutscene subtitles — the subtitle line under movie cutscenes and the caption text events show above characters are read as they appear. Can be turned off in the mod settings menu (F4).
-- Field navigation — a navigation menu lists nearby NPCs, exits, treasure chests, save points, and interactable objects; pick one and the mod walks you there automatically.
+- Field navigation — a navigation menu lists nearby NPCs, exits, treasure chests, save points, stairs and climb points (ladders, ivy walls), and interactable objects; pick one and the mod walks you there automatically. When a target sits on a level the mod cannot walk to yet, it tells you how far away it is, and where the shape of the floor suggests the climb or descent begins.
+- Spoken directions — instead of being walked, be guided: pick an item and the mod calls out which way to push the stick and how far, leg by leg, as you walk it yourself. Where no walked route exists yet, it follows the shape of the floor and says so ("unverified route"); the route you then walk is remembered for next time.
 - World map navigation — pathfinding auto-walk to towns, dungeons, and fishing spots across the world map, with honest feedback when a destination cannot be reached on foot.
 - Battle accessibility — target announcements, enemy proximity cues, dodge notifications, and status readouts during real-time battles.
 - Fishing support — navigate to fishing spots and get an audio cue the moment you can cast.
@@ -38,13 +39,16 @@ The mod is built on [MelonLoader](https://melonwiki.xyz/) and uses the [Tolk](ht
    From the mod release download:
    - Copy `SO2RAccess.dll` into the game's `Mods` folder.
    - Copy `Tolk.dll` and `nvdaControllerClient64.dll` into the main game folder (the one containing the game's `.exe`).
-   - Copy the `Sounds` folder to `UserData\SO2RAccess\Sounds` inside the game directory, so that the `.wav` files end up directly in that folder.
    - Optional: copy the `lang` folder to `UserData\SO2RAccess\lang` if you want the bundled starter translations (French, German, Swedish, Portuguese, Simplified Chinese). Skip it to play in English.
+
+   There is no `Sounds` folder to copy — every audio cue is built into `SO2RAccess.dll`.
 
 4. Play.
    Start your screen reader, then start the game. The mod announces itself once it has loaded. If you hear nothing, check the MelonLoader console/log for errors — the most common cause is `Tolk.dll` not being in the game folder.
 
-All navigation data is built into `SO2RAccess.dll` — there is nothing extra to install. The mod creates a few files of its own in `UserData` as you play (settings, learned NPC names, and navigation data).
+All navigation data and every audio cue are built into `SO2RAccess.dll` — there is nothing extra to install. The mod creates a few files of its own in `UserData` as you play (settings, learned NPC names, and navigation data).
+
+If you would rather hear your own sound for a cue, put a WAV of the same name in `UserData\SO2RAccess\Sounds` and the mod uses that instead of the built-in one. `SOUND_CREDITS.txt` lists the file names. The folder is entirely optional — leave it out and the built-in cues play.
 
 ## Updating to a new release
 
@@ -54,7 +58,9 @@ You do not need to reinstall MelonLoader or repeat the full installation — upd
 2. Download the new release and unpack it.
 3. Copy `SO2RAccess.dll` into the game's `Mods` folder, replacing the old file. This is the only step that is always required.
 4. Copy the `lang` folder to `UserData\SO2RAccess\lang` again, replacing the old files. New versions usually add new spoken text, and a translation from an older release would read those new lines in English until it is updated. Skip this step only if you have edited a translation file yourself and want to keep your changes. The English template (`en.json`) never needs copying — the mod regenerates it automatically every time the game starts.
-5. Only if the release notes mention new or changed sounds: copy the `Sounds` folder to `UserData\SO2RAccess\Sounds` again. Likewise, `Tolk.dll` and `nvdaControllerClient64.dll` almost never change between releases — copying them again is harmless but normally unnecessary.
+5. Nothing else is normally needed. Sounds now travel inside `SO2RAccess.dll`, so replacing the DLL updates them too. `Tolk.dll` and `nvdaControllerClient64.dll` almost never change between releases — copying them again is harmless but normally unnecessary.
+
+If you installed version 0.3.1 or earlier, you will have a `UserData\SO2RAccess\Sounds` folder left over. The mod still reads it, and files there take priority over the built-in cues — which means an old folder would keep playing old sounds if a release ever changes one. Unless you have deliberately put your own sounds in there, you can delete that folder.
 
 Your personal data is safe during an update. Settings, key bindings, learned NPC names, and navigation data live in their own files under `UserData\SO2RAccess` and are not part of the release download, so replacing the files above never touches them.
 
@@ -92,6 +98,10 @@ between rows, Enter opens the highlighted submenu, and inside a submenu the
 Left and Right arrows change a setting's value. Escape goes back one level and
 saves; F4 closes the whole menu from anywhere.
 
+Language and speech also holds the Directions reminder row: Off by default, so
+spoken directions only speak when the heading changes; set it to a number of
+seconds to have the current leg repeated while you walk.
+
 In Sound and announcements, Space plays the sound the highlighted row controls,
 at its current volume, so you can set a level by ear without leaving the menu.
 It plays even when that sound is switched off. Rows that carry no sound of
@@ -117,6 +127,7 @@ The mod lives on L2 — hold it like a shift key.
 - L2 held, D-pad Up / Down — previous / next category
 - L2 held, D-pad Left / Right — previous / next item
 - L2 held, push the left stick up — walk to the selected item
+- L2 held, push the left stick down — spoken directions to the selected item: you walk, the mod tells you which way to push the stick and how far, and speaks again whenever the direction changes. Push down again on the same item to stop, or on another item to switch. Directions carry on after a battle.
 - Release L2 — close the overlay
 - L2 + L3 (click the left stick) — open or close the mod settings menu
 - L2 + R3 (click the right stick) — read your current Fol
@@ -150,7 +161,7 @@ See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for current limitations and quirks.
 
 ### Sound credits
 
-The notification sounds are sourced from [Freesound](https://freesound.org/) under Creative Commons licenses. The full listing also ships with the mod in `Sounds\Game sound license directory.txt`.
+The notification sounds are sourced from [Freesound](https://freesound.org/) under Creative Commons licenses. The full listing ships with the mod in `SOUND_CREDITS.txt`, which also explains how to substitute your own sounds.
 
 - Dodge notification and jump prompt sounds by Yakku — made for this mod
 - Menu Beep (save sound) by CogFireStudios — <https://freesound.org/s/531511/> — License: Creative Commons 0

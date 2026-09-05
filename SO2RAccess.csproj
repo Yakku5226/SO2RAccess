@@ -37,6 +37,18 @@
     <EmbeddedResource Include="grids\*.grid.gz" />
   </ItemGroup>
 
+  <!-- Audio cues (gzip-compressed), compiled into the DLL so the mod installs as a
+       single file with no Sounds folder to copy alongside it. Decompressed straight
+       into memory at startup — nothing is written to disk. A WAV of the same name in
+       UserData\SO2RAccess\Sounds still overrides the bundled copy, so players can
+       swap in their own cue and keep it across updates.
+       To change a bundled cue: gzip the new WAV into soundcues\ under the same name
+       and rebuild. Cues must be integer PCM (16-bit for volume control to apply);
+       float32 does not play through the winmm players. See EmbeddedSounds.cs. -->
+  <ItemGroup>
+    <EmbeddedResource Include="soundcues\*.wav.gz" />
+  </ItemGroup>
+
   <!-- English string table, compiled into the DLL as the localization
        fallback and re-extracted to UserData\SO2RAccess\lang\en.json on every
        launch as the translators' reference template (see TRANSLATING.md).

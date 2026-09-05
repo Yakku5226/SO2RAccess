@@ -46,8 +46,27 @@ namespace SO2RAccess
                 },
                 Toggle("mod_menu_label_subtitles",
                     () => ModSettings.SubtitlesEnabled,
-                    v => ModSettings.SubtitlesEnabled = v)
+                    v => ModSettings.SubtitlesEnabled = v),
+                // How often spoken directions repeat the current leg while walking.
+                new ModMenuItem
+                {
+                    LabelKey = "mod_menu_label_guide_reminder",
+                    GetValue = () => ModSettings.GuideReminderSeconds == 0
+                        ? Loc.Get("mod_menu_off")
+                        : Loc.Get("mod_menu_seconds", ModSettings.GuideReminderSeconds),
+                    Change = ChangeGuideReminder
+                }
             };
+        }
+
+        /// <summary>Cycles the directions reminder interval through the fixed choices.</summary>
+        private static void ChangeGuideReminder(int delta)
+        {
+            var choices = ModSettings.GuideReminderChoices;
+            int index = System.Array.IndexOf(choices, ModSettings.GuideReminderSeconds);
+            if (index < 0) index = 0; // default Off
+            index = ((index + delta) % choices.Length + choices.Length) % choices.Length;
+            ModSettings.GuideReminderSeconds = choices[index];
         }
 
         #endregion

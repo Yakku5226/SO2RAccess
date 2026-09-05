@@ -241,8 +241,11 @@ namespace SO2RAccess
                             }
                             else
                             {
-                                // Recorded-traversal reachability report.
+                                // Recorded-traversal reachability report, then the
+                                // floor-grid audit against those breadcrumbs.
                                 _navigationHandler.LogTraversalDiagnostic(
+                                    player.transform.position);
+                                _navigationHandler.RunFloorGridAudit(
                                     player.transform.position);
                             }
                         }

@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Runtime.InteropServices;
 using MelonLoader;
 
@@ -8,7 +7,8 @@ namespace SO2RAccess
     /// <summary>
     /// Plays short audio cues for time-critical gameplay feedback.
     /// Uses Windows native audio (winmm.dll) to bypass Unity IL2CPP GC issues.
-    /// Supports both synthesized cues (dodge warning) and file-based cues (save sound).
+    /// Cue audio comes from <see cref="EmbeddedSounds"/>: WAVs compiled into this DLL,
+    /// or the user's own copies of the same names in UserData\SO2RAccess\Sounds.
     /// </summary>
     public static class AudioCuePlayer
     {
@@ -26,7 +26,7 @@ namespace SO2RAccess
 
         private static bool _initialized;
 
-        // File-based dodge warning sound — same pattern as save sound.
+        // Dodge warning cue.
         private static byte[] _dodgeSoundRawWav;
         private static int _dodgeSoundDataOffset;
         private static int _dodgeSoundDataLength;
@@ -36,7 +36,7 @@ namespace SO2RAccess
         private static float _dodgeSoundCachedVolume = -1f;
         private static bool _dodgeSoundLoaded;
 
-        // File-based private action notification sound.
+        // Private action notification cue.
         private static byte[] _paSoundRawWav;
         private static int _paSoundDataOffset;
         private static int _paSoundDataLength;
@@ -46,7 +46,7 @@ namespace SO2RAccess
         private static float _paSoundCachedVolume = -1f;
         private static bool _paSoundLoaded;
 
-        // File-based bonus gauge fill sound.
+        // Bonus gauge fill cue.
         private static byte[] _gaugeFillSoundRawWav;
         private static int _gaugeFillSoundDataOffset;
         private static int _gaugeFillSoundDataLength;
@@ -56,7 +56,7 @@ namespace SO2RAccess
         private static float _gaugeFillSoundCachedVolume = -1f;
         private static bool _gaugeFillSoundLoaded;
 
-        // File-based jump-prompt cue — played when the "press X to jump down" prompt
+        // Jump-prompt cue — played when the "press X to jump down" prompt
         // appears above the player at a one-way ledge.
         private static byte[] _jumpSoundRawWav;
         private static int _jumpSoundDataOffset;
@@ -67,7 +67,7 @@ namespace SO2RAccess
         private static float _jumpSoundCachedVolume = -1f;
         private static bool _jumpSoundLoaded;
 
-        // File-based fishing-prompt cue — played when the "you can fish" bubble
+        // Fishing-prompt cue — played when the "you can fish" bubble
         // appears, replacing the spoken "You can fish here."
         private static byte[] _fishPromptSoundRawWav;
         private static int _fishPromptSoundDataOffset;
@@ -78,7 +78,7 @@ namespace SO2RAccess
         private static float _fishPromptSoundCachedVolume = -1f;
         private static bool _fishPromptSoundLoaded;
 
-        // File-based save sound — stores the raw WAV file bytes and the
+        // Save cue — stores the raw WAV bytes and the
         // byte offset of the PCM data region within it. Volume adjustment
         // creates a copy with scaled samples rather than rebuilding the
         // entire WAV from scratch. The final WAV is stored in unmanaged
@@ -116,19 +116,14 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Loads a WAV file from disk for the dodge warning cue.
+        /// Loads the dodge warning cue: the user's own copy in the Sounds folder if they
+        /// have put one there, otherwise the copy bundled inside the DLL.
         /// </summary>
-        public static void LoadDodgeSound(string path)
+        public static void LoadDodgeSound(string fileName)
         {
             try
             {
-                if (!File.Exists(path))
-                {
-                    MelonLogger.Warning($"AudioCuePlayer: dodge sound not found: {path}");
-                    return;
-                }
-
-                if (!TryParseWav(path, out byte[] fileBytes, out int dataOffset,
+                if (!TryLoadCue(fileName, out byte[] fileBytes, out int dataOffset,
                         out int dataLength, out short bitsPerSample))
                     return;
 
@@ -191,19 +186,14 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Loads a WAV file from disk for the jump-prompt cue.
+        /// Loads the jump-prompt cue: the user's own copy in the Sounds folder if they
+        /// have put one there, otherwise the copy bundled inside the DLL.
         /// </summary>
-        public static void LoadJumpSound(string path)
+        public static void LoadJumpSound(string fileName)
         {
             try
             {
-                if (!File.Exists(path))
-                {
-                    MelonLogger.Warning($"AudioCuePlayer: jump sound not found: {path}");
-                    return;
-                }
-
-                if (!TryParseWav(path, out byte[] fileBytes, out int dataOffset,
+                if (!TryLoadCue(fileName, out byte[] fileBytes, out int dataOffset,
                         out int dataLength, out short bitsPerSample))
                     return;
 
@@ -266,19 +256,14 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Loads a WAV file from disk for the fishing-prompt cue.
+        /// Loads the fishing-prompt cue: the user's own copy in the Sounds folder if they
+        /// have put one there, otherwise the copy bundled inside the DLL.
         /// </summary>
-        public static void LoadFishPromptSound(string path)
+        public static void LoadFishPromptSound(string fileName)
         {
             try
             {
-                if (!File.Exists(path))
-                {
-                    MelonLogger.Warning($"AudioCuePlayer: fishing-prompt sound not found: {path}");
-                    return;
-                }
-
-                if (!TryParseWav(path, out byte[] fileBytes, out int dataOffset,
+                if (!TryLoadCue(fileName, out byte[] fileBytes, out int dataOffset,
                         out int dataLength, out short bitsPerSample))
                     return;
 
@@ -348,19 +333,14 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Loads a WAV file from disk for the save sound cue.
+        /// Loads the save sound cue: the user's own copy in the Sounds folder if they
+        /// have put one there, otherwise the copy bundled inside the DLL.
         /// </summary>
-        public static void LoadSaveSound(string path)
+        public static void LoadSaveSound(string fileName)
         {
             try
             {
-                if (!File.Exists(path))
-                {
-                    MelonLogger.Warning($"AudioCuePlayer: save sound not found: {path}");
-                    return;
-                }
-
-                if (!TryParseWav(path, out byte[] fileBytes, out int dataOffset,
+                if (!TryLoadCue(fileName, out byte[] fileBytes, out int dataOffset,
                         out int dataLength, out short bitsPerSample))
                     return;
 
@@ -428,19 +408,14 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Loads a WAV file from disk for the private action notification cue.
+        /// Loads the private action notification cue: the user's own copy in the Sounds folder if they
+        /// have put one there, otherwise the copy bundled inside the DLL.
         /// </summary>
-        public static void LoadPrivateActionSound(string path)
+        public static void LoadPrivateActionSound(string fileName)
         {
             try
             {
-                if (!File.Exists(path))
-                {
-                    MelonLogger.Warning($"AudioCuePlayer: private action sound not found: {path}");
-                    return;
-                }
-
-                if (!TryParseWav(path, out byte[] fileBytes, out int dataOffset,
+                if (!TryLoadCue(fileName, out byte[] fileBytes, out int dataOffset,
                         out int dataLength, out short bitsPerSample))
                     return;
 
@@ -503,19 +478,14 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Loads a WAV file from disk for the bonus gauge fill cue.
+        /// Loads the bonus gauge fill cue: the user's own copy in the Sounds folder if they
+        /// have put one there, otherwise the copy bundled inside the DLL.
         /// </summary>
-        public static void LoadGaugeFillSound(string path)
+        public static void LoadGaugeFillSound(string fileName)
         {
             try
             {
-                if (!File.Exists(path))
-                {
-                    MelonLogger.Warning($"AudioCuePlayer: gauge fill sound not found: {path}");
-                    return;
-                }
-
-                if (!TryParseWav(path, out byte[] fileBytes, out int dataOffset,
+                if (!TryLoadCue(fileName, out byte[] fileBytes, out int dataOffset,
                         out int dataLength, out short bitsPerSample))
                     return;
 
@@ -645,10 +615,11 @@ namespace SO2RAccess
         #region WAV Helpers
 
         /// <summary>
-        /// Reads and validates a PCM WAV file, returning the raw bytes and
-        /// the location/size of the PCM data region within it.
+        /// Fetches a cue's bytes — the user's replacement if there is one, otherwise the
+        /// copy compiled into the DLL — and validates them as PCM WAV.
+        /// The single place every Load*Sound method gets its audio from.
         /// </summary>
-        private static bool TryParseWav(string path, out byte[] fileBytes,
+        private static bool TryLoadCue(string fileName, out byte[] fileBytes,
             out int dataOffset, out int dataLength, out short bitsPerSample)
         {
             fileBytes = null;
@@ -656,15 +627,32 @@ namespace SO2RAccess
             dataLength = 0;
             bitsPerSample = 0;
 
-            byte[] raw = File.ReadAllBytes(path);
+            byte[] raw = EmbeddedSounds.Get(fileName);
+            if (raw == null) return false; // EmbeddedSounds has already said why
 
-            if (raw.Length < 44 ||
+            return TryParseWav(raw, fileName, out fileBytes,
+                out dataOffset, out dataLength, out bitsPerSample);
+        }
+
+        /// <summary>
+        /// Validates PCM WAV bytes, returning them along with the location and size of
+        /// the PCM data region. <paramref name="name"/> only names the cue in warnings.
+        /// </summary>
+        private static bool TryParseWav(byte[] raw, string name, out byte[] fileBytes,
+            out int dataOffset, out int dataLength, out short bitsPerSample)
+        {
+            fileBytes = null;
+            dataOffset = -1;
+            dataLength = 0;
+            bitsPerSample = 0;
+
+            if (raw == null || raw.Length < 44 ||
                 raw[0] != 'R' || raw[1] != 'I' ||
                 raw[2] != 'F' || raw[3] != 'F' ||
                 raw[8] != 'W' || raw[9] != 'A' ||
                 raw[10] != 'V' || raw[11] != 'E')
             {
-                MelonLogger.Warning($"AudioCuePlayer: {Path.GetFileName(path)} is not a valid WAV file.");
+                MelonLogger.Warning($"AudioCuePlayer: {name} is not a valid WAV file.");
                 return false;
             }
 
@@ -679,7 +667,7 @@ namespace SO2RAccess
                     short format = BitConverter.ToInt16(raw, pos + 8);
                     if (format != 1)
                     {
-                        MelonLogger.Warning($"AudioCuePlayer: {Path.GetFileName(path)} must be PCM format.");
+                        MelonLogger.Warning($"AudioCuePlayer: {name} must be PCM format.");
                         return false;
                     }
                     bitsPerSample = BitConverter.ToInt16(raw, pos + 22);
@@ -696,7 +684,7 @@ namespace SO2RAccess
 
             if (dataOffset < 0 || bitsPerSample == 0)
             {
-                MelonLogger.Warning($"AudioCuePlayer: could not parse {Path.GetFileName(path)} WAV data.");
+                MelonLogger.Warning($"AudioCuePlayer: could not parse {name} WAV data.");
                 return false;
             }
 

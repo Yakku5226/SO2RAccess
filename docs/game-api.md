@@ -583,6 +583,35 @@ string          cameraName
 ```
 Position via `marker.transform.position`.
 
+### Climb Points — FieldGimmick03 (ladders, ivy, cliff scrambles)
+**Files:** `FieldGimmick03.cs`, `ConstGimmick03Parameter.cs`, `FieldCharacterLadderBaseTask.cs`
+**Inheritance:** FieldGimmick03 → FieldContactGimmick → FieldGimmickBase → FieldBillboardObject
+The game's climb is a *contact gimmick*, not a stairs/door object. Proof: the
+character state machine has `LadderStart / Ladder / LadderEnd` states
+(`FieldCharacterState`), and `FieldCharacterLadderBaseTask` holds a
+`fieldGimmick03` field — so Gimmick03 IS the ladder. Walking into its
+collision starts the climb natively (`FieldCharacterController.OnLadderStart`,
+native-only callers). Earlier mod code mislabelled it "Platform" under Warp Points.
+```csharp
+// Live objects (spawned for the current map)
+var list = FieldManager.Instance.FieldGimmickManager.FieldGimmickList; // List<FieldGimmickBase>
+var ladder = list[i].TryCast<FieldGimmick03>();
+Vector3 bottomOrTop = ladder.StartPosition;   // PascalCase — never the lowercase field
+Vector3 otherEnd    = ladder.EndPosition;
+GimmickStartupType t = ladder.GetGimmickStartupType(); // Auto = walk in; Conversation = press confirm
+
+// Static placement table (exists even before the object spawns)
+var table = ParameterManager.Instance.GetGimmick03ParameterList(mapID); // List<ConstGimmick03Parameter>
+table[i].ColPosition;  // List<Vector3> — contact collision centres (walk targets)
+table[i].ColDirection; // List<float>
+table[i].ColSize;      // List<Vector3>
+table[i].Position;     // List<Vector3> — climb end points (pairing with ColPosition NOT yet verified — read the NAV:CLIMB log)
+```
+The mod lists these in the **Stairs** category as "Climb up / Climb down / Climb point"
+(`NavigationHandler.Build.Climb.cs`). Other gimmick numbers seen so far:
+09 = warp panel, 17 = magic circle, 16 = breakable rock (NavMeshObstacle).
+Dialogue hint that a climb point is nearby: "We could probably climb up here if we tried."
+
 ### Map Name Issue (known limitation)
 - `FieldmapID` enum values are technical codes (`MF_0001_01A`, `MF_0002_01A`, etc.)
 - `MapjumpID` values are also codes (`MAPJUMP_001`, `MAPJUMP_002`, etc.)

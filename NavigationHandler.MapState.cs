@@ -130,17 +130,12 @@ namespace SO2RAccess
                     {
                         _fieldmapInitialized = false;
                         _lastFieldmapID = FieldmapID.INVALID;
-                        _lastPlayerY = float.NaN;
                     }
                     return;
                 }
 
                 FieldmapID current = fm.currentFieldmapID;
                 if (current == _lastFieldmapID) return;
-
-                // New map — reset floor tracking so we don't announce a floor change
-                // from the old map's Y position to the new map's Y position.
-                _lastPlayerY = float.NaN;
 
                 FieldmapID previous = _lastFieldmapID;
                 _lastFieldmapID = current;
@@ -149,6 +144,12 @@ namespace SO2RAccess
                 // the next modeless key rebuilds for this one (belt-and-braces
                 // with EnsureListReady's own map comparison).
                 InvalidateNavList();
+
+                // The guidance destination belonged to the old map, and its
+                // route is meaningless here — drop it silently (the map-name
+                // announcement below is the feedback the player needs).
+                StopGuidance("map change");
+                InvalidateFloorGrid();
 
                 // Skip INVALID transitions.
                 if (current == FieldmapID.INVALID)
@@ -190,67 +191,6 @@ namespace SO2RAccess
             catch (Exception ex)
             {
                 DebugLogger.LogState($"CheckFieldmapChange error: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Monitors the player's Y position each frame. When it changes by more than
-        /// <see cref="FloorChangeThreshold"/>, announces "Went upstairs" or "Went downstairs".
-        /// Uses a cooldown to avoid rapid-fire announcements on long staircases.
-        /// Resets on fieldmap change (called from CheckFieldmapChange).
-        /// </summary>
-        private void CheckFloorChange()
-        {
-            // Use FieldManager.IsWorldmap() directly instead of _isWorldmap field,
-            // because CancelAutoWalk clears _isWorldmap — causing stale floor change
-            // announcements on the world map when auto-walk ends.
-            try
-            {
-                if (FieldManager.Instance?.IsWorldmap() == true) return;
-            }
-            catch { /* FieldManager unavailable — proceed with floor check */ }
-
-            try
-            {
-                var fm = FieldManager.Instance;
-                if (fm == null) return;
-
-                var player = fm.GetControlPlayer();
-                if (player == null) return;
-
-                float currentY = player.transform.position.y;
-
-                // First reading — seed without announcing.
-                if (float.IsNaN(_lastPlayerY))
-                {
-                    _lastPlayerY = currentY;
-                    return;
-                }
-
-                // Tick down cooldown.
-                if (_floorChangeCooldownTimer > 0f)
-                {
-                    _floorChangeCooldownTimer -= Time.deltaTime;
-                    // Keep tracking Y during cooldown so the baseline stays current.
-                    _lastPlayerY = currentY;
-                    return;
-                }
-
-                float deltaY = currentY - _lastPlayerY;
-                if (Mathf.Abs(deltaY) >= FloorChangeThreshold)
-                {
-                    string key = deltaY > 0 ? "nav_floor_up" : "nav_floor_down";
-                    ScreenReader.Say(Loc.Get(key));
-                    DebugLogger.LogState(
-                        $"NAV floor change: Y {_lastPlayerY:F1} → {currentY:F1} " +
-                        $"(delta={deltaY:F1})");
-                    _lastPlayerY = currentY;
-                    _floorChangeCooldownTimer = FloorChangeCooldown;
-                }
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"CheckFloorChange error: {ex.Message}");
             }
         }
 

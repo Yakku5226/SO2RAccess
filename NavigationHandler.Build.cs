@@ -815,9 +815,10 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Scans for warp-related gimmicks: warp panels (Gimmick09), magic circles
-        /// (Gimmick17), and moving platforms (Gimmick03). Iterates
-        /// FieldGimmickManager.FieldGimmickList and uses TryCast to identify types.
+        /// Scans for warp-related gimmicks: warp panels (Gimmick09) and magic circles
+        /// (Gimmick17). Iterates FieldGimmickManager.FieldGimmickList and uses TryCast
+        /// to identify types. Gimmick03 is the game's climb point (ladder), handled by
+        /// BuildClimbPoints in the Stairs category.
         /// </summary>
         private void BuildWarpPoints(FieldManager fm, Vector3 playerPos)
         {
@@ -832,7 +833,7 @@ namespace SO2RAccess
                 if (gimmickList == null) return;
 
                 var items = new List<NavItem>();
-                int panelCount = 0, circleCount = 0, platformCount = 0;
+                int panelCount = 0, circleCount = 0;
 
                 for (int i = 0; i < gimmickList.Count; i++)
                 {
@@ -890,33 +891,13 @@ namespace SO2RAccess
                             $"circle dist={dist:F1}");
                         continue;
                     }
-
-                    var platform = gimmick.TryCast<FieldGimmick03>();
-                    if (platform != null)
-                    {
-                        Vector3 pos  = platform.transform.position;
-                        float   dist = Vector3.Distance(playerPos, pos);
-                        platformCount++;
-
-                        items.Add(new NavItem
-                        {
-                            Label         = Loc.Get("nav_warp_platform"),
-                            Distance      = dist,
-                            Position      = pos,
-                            LiveTransform = null,
-                        });
-
-                        DebugLogger.LogGameValue("NAV:WARP",
-                            $"platform dist={dist:F1}");
-                        continue;
-                    }
                 }
 
                 SortAndFilterUnreachable(items, playerPos);
 
-                if (panelCount > 1 || circleCount > 1 || platformCount > 1)
+                if (panelCount > 1 || circleCount > 1)
                 {
-                    int pNum = 1, cNum = 1, plNum = 1;
+                    int pNum = 1, cNum = 1;
                     for (int i = 0; i < items.Count; i++)
                     {
                         var item = items[i];
@@ -929,11 +910,6 @@ namespace SO2RAccess
                         {
                             if (circleCount > 1)
                                 item.Label = Loc.Get("nav_warp_circle_n", cNum++);
-                        }
-                        else if (item.Label == Loc.Get("nav_warp_platform"))
-                        {
-                            if (platformCount > 1)
-                                item.Label = Loc.Get("nav_warp_platform_n", plNum++);
                         }
                         items[i] = item;
                     }

@@ -64,6 +64,48 @@ namespace SO2RAccess
         public bool HasData => _nodes.Count > 0;
         public int NodeCount => _nodes.Count;
 
+        // ── Read-only views (audits / diagnostics) ───────────────────────────
+
+        /// <summary>All breadcrumb positions, by node index.</summary>
+        public IReadOnlyList<Vector3> Nodes => _nodes;
+
+        /// <summary>Every directed edge (from, to) the graph will route along.</summary>
+        public IEnumerable<(int from, int to)> Edges
+        {
+            get
+            {
+                for (int a = 0; a < _adj.Count; a++)
+                    foreach (int b in _adj[a])
+                        yield return (a, b);
+            }
+        }
+
+        /// <summary>
+        /// Every one-way drop (jump-down ledge) as (high, low): a steep edge that
+        /// exists downhill but whose uphill direction was never observed.
+        /// </summary>
+        public IEnumerable<(int high, int low)> OneWayDrops
+        {
+            get
+            {
+                for (int hi = 0; hi < _adj.Count; hi++)
+                    foreach (int lo in _adj[hi])
+                    {
+                        if (!IsSteepDrop(hi, lo)) continue;
+                        if (_nodes[hi].y < _nodes[lo].y) continue;   // count each drop once (high side)
+                        if (_adj[lo].Contains(hi)) continue;         // climb point, not one-way
+                        yield return (hi, lo);
+                    }
+            }
+        }
+
+        /// <summary>Directed out-neighbours of a breadcrumb.</summary>
+        public IReadOnlyList<int> OutNeighbours(int node) => _adj[node];
+
+        /// <summary>True when a breadcrumb lies within the radius (XZ) and height limit.</summary>
+        public bool HasNodeWithin(Vector3 pos, float radius, float yLimit) =>
+            FindNearest(pos, radius, yLimit) >= 0;
+
         // ── Map lifecycle ────────────────────────────────────────────────────
 
         /// <summary>Switch to a map: save the previous one, load this one, reset the trail.</summary>
@@ -305,19 +347,13 @@ namespace SO2RAccess
         {
             int count = 0;
             var sample = new List<string>(sampleMax);
-            for (int hi = 0; hi < _adj.Count; hi++)
+            foreach (var (hi, lo) in OneWayDrops)
             {
-                foreach (int lo in _adj[hi])
+                count++;
+                if (sample.Count < sampleMax)
                 {
-                    if (!IsSteepDrop(hi, lo)) continue;
-                    if (_nodes[hi].y < _nodes[lo].y) continue;     // count each drop once (high side)
-                    if (_adj[lo].Contains(hi)) continue;           // climb point, not one-way
-                    count++;
-                    if (sample.Count < sampleMax)
-                    {
-                        Vector3 h = _nodes[hi], l = _nodes[lo];
-                        sample.Add($"({h.x:F1},{h.y:F1},{h.z:F1})->({l.x:F1},{l.y:F1},{l.z:F1})");
-                    }
+                    Vector3 h = _nodes[hi], l = _nodes[lo];
+                    sample.Add($"({h.x:F1},{h.y:F1},{h.z:F1})->({l.x:F1},{l.y:F1},{l.z:F1})");
                 }
             }
             return $"{count} one-way drops" +
@@ -456,8 +492,8 @@ namespace SO2RAccess
             public List<int[]> ClimbEdges { get; set; }
         }
 
-        // ── Minimal binary min-heap ──────────────────────────────────────────
-        private sealed class MinHeap
+        // ── Minimal binary min-heap (shared with FloorProbeGrid) ─────────────
+        internal sealed class MinHeap
         {
             private int[] _items; private float[] _prio; private int _count;
             public int Count => _count;

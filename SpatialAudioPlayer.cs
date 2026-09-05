@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Runtime.InteropServices;
 using MelonLoader;
 
@@ -11,7 +10,8 @@ namespace SO2RAccess
     /// that doesn't conflict with AudioCuePlayer's PlaySound calls.
     ///
     /// Designed for ambient spatial cues (e.g. enemy proximity warnings).
-    /// The WAV file is loaded from disk — swap the file to change the sound.
+    /// The WAV comes from <see cref="EmbeddedSounds"/> — bundled in the DLL, or the
+    /// user's own copy of the same name in UserData\SO2RAccess\Sounds.
     /// </summary>
     public static class SpatialAudioPlayer
     {
@@ -112,22 +112,21 @@ namespace SO2RAccess
         #region Public API
 
         /// <summary>
-        /// Loads a WAV file and prepares the waveOut device. Call once at mod startup.
-        /// Returns true on success, false if the file is missing or invalid.
+        /// Loads the proximity loop and prepares the waveOut device. Call once at mod
+        /// startup. The WAV comes from the user's Sounds folder if they have put their
+        /// own copy there, otherwise from the copy bundled inside the DLL.
+        /// Returns true on success, false if the cue is missing or invalid.
         /// </summary>
-        public static bool Initialize(string wavFilePath)
+        public static bool Initialize(string fileName)
         {
             if (_initialized) return true;
 
             try
             {
-                if (!File.Exists(wavFilePath))
-                {
-                    MelonLogger.Warning($"SpatialAudioPlayer: WAV file not found: {wavFilePath}");
-                    return false;
-                }
+                byte[] wavBytes = EmbeddedSounds.Get(fileName);
+                if (wavBytes == null) return false; // EmbeddedSounds has already said why
 
-                if (!LoadWav(wavFilePath))
+                if (!LoadWav(wavBytes))
                     return false;
 
                 _initialized = true;
@@ -248,14 +247,12 @@ namespace SO2RAccess
         #region WAV Loading
 
         /// <summary>
-        /// Parses a PCM WAV file and extracts mono samples.
+        /// Parses PCM WAV bytes and extracts mono samples.
         /// Handles 8-bit and 16-bit, mono and stereo input.
         /// </summary>
-        private static bool LoadWav(string path)
+        private static bool LoadWav(byte[] fileData)
         {
-            byte[] fileData = File.ReadAllBytes(path);
-
-            if (fileData.Length < 44)
+            if (fileData == null || fileData.Length < 44)
             {
                 MelonLogger.Error("SpatialAudioPlayer: WAV file too small.");
                 return false;

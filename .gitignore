@@ -31,3 +31,6 @@ reference-mods/
 # Notification sounds (user-provided, not for commit) — but keep the license listing
 Sounds/*
 !Sounds/Game sound license directory.txt
+
+# Candidate sound samples for future features (not shipped; bundled cues live in soundcues\)
+sound-samples/

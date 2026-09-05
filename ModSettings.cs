@@ -103,6 +103,17 @@ namespace SO2RAccess
         public static bool JumpPromptSpeechEnabled { get; set; } = true;
 
         /// <summary>
+        /// Seconds of silence after which spoken directions repeat the current
+        /// leg (direction and remaining distance) while the player is walking.
+        /// 0 = never repeat (default — the user's rule: directions only when the
+        /// heading changes); a value turns on a periodic repeat of the leg.
+        /// </summary>
+        public static int GuideReminderSeconds { get; set; } = 0;
+
+        /// <summary>The choices the mod menu cycles through for <see cref="GuideReminderSeconds"/>.</summary>
+        public static readonly int[] GuideReminderChoices = { 0, 3, 5, 8, 12, 20 };
+
+        /// <summary>
         /// Whether the world-map "Press X to enter" location prompt is spoken once via the
         /// screen reader when it appears above the player near a town or dungeon entrance.
         /// </summary>
@@ -208,6 +219,7 @@ namespace SO2RAccess
                     JumpPromptSoundVolume = Math.Clamp(data.JumpPromptSoundVolume, 0f, 1f);
                     JumpPromptSpeechEnabled = data.JumpPromptSpeechEnabled;
                     EnterPromptSpeechEnabled = data.EnterPromptSpeechEnabled;
+                    GuideReminderSeconds = Math.Clamp(data.GuideReminderSeconds, 0, 60);
                     FishPromptSoundEnabled = data.FishPromptSoundEnabled;
                     FishPromptSoundVolume = Math.Clamp(data.FishPromptSoundVolume, 0f, 1f);
                     SubtitlesEnabled = data.SubtitlesEnabled;
@@ -256,6 +268,7 @@ namespace SO2RAccess
                     JumpPromptSoundVolume = JumpPromptSoundVolume,
                     JumpPromptSpeechEnabled = JumpPromptSpeechEnabled,
                     EnterPromptSpeechEnabled = EnterPromptSpeechEnabled,
+                    GuideReminderSeconds = GuideReminderSeconds,
                     FishPromptSoundEnabled = FishPromptSoundEnabled,
                     FishPromptSoundVolume = FishPromptSoundVolume,
                     SubtitlesEnabled = SubtitlesEnabled,
@@ -350,6 +363,7 @@ namespace SO2RAccess
             public float JumpPromptSoundVolume { get; set; } = 0.8f;
             public bool JumpPromptSpeechEnabled { get; set; } = true;
             public bool EnterPromptSpeechEnabled { get; set; } = true;
+            public int GuideReminderSeconds { get; set; } = 0;
             public bool FishPromptSoundEnabled { get; set; } = true;
             public float FishPromptSoundVolume { get; set; } = 0.8f;
             public bool SubtitlesEnabled { get; set; } = true;

@@ -225,6 +225,11 @@ namespace SO2RAccess
                 return;
             }
 
+            // One navigation aid at a time: spoken directions would keep talking
+            // over the walk's own announcements (and over the cannot-reach hint).
+            StopGuidance("auto-walk started");
+            ClearGuideResume();
+
             _autoWalkTarget        = walkTarget;
             _autoWalkLabel         = item.Label;
             LastAutoWalkTarget     = walkTarget;
@@ -702,6 +707,16 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// Localization keys for the eight compass directions, indexed by the
+        /// sector returned from <see cref="CompassSector"/> (0 = North).
+        /// </summary>
+        private static readonly string[] _compassKeys =
+        {
+            "nav_dir_n",  "nav_dir_ne", "nav_dir_e",  "nav_dir_se",
+            "nav_dir_s",  "nav_dir_sw", "nav_dir_w",  "nav_dir_nw",
+        };
+
+        /// <summary>
         /// Computes a compass direction string (e.g. "North", "South East")
         /// from the player toward the target.
         /// When <paramref name="worldRelative"/> is false (default, used on field maps),
@@ -710,6 +725,33 @@ namespace SO2RAccess
         /// "North" = Z+, "East" = X+, matching the fixed map orientation.
         /// </summary>
         private static string GetCompassDirection(Vector3 playerPos, Vector3 targetPos,
+            bool worldRelative = false) =>
+            CompassName(CompassSector(playerPos, targetPos, worldRelative));
+
+        /// <summary>The localized name of a compass sector (0 = North, 7 = North West).</summary>
+        private static string CompassName(int sector) =>
+            Loc.Get(_compassKeys[((sector % 8) + 8) % 8]);
+
+        /// <summary>
+        /// Maps the bearing from the player to the target onto one of eight
+        /// 45-degree compass sectors: 0 = North, 1 = North East, ... 7 = North West.
+        /// See <see cref="GetCompassDirection"/> for what "North" means in each frame.
+        /// </summary>
+        private static int CompassSector(Vector3 playerPos, Vector3 targetPos,
+            bool worldRelative = false) =>
+            BearingToSector(CompassBearing(playerPos, targetPos, worldRelative));
+
+        /// <summary>The compass sector (0 = North) a bearing in degrees falls in.</summary>
+        private static int BearingToSector(float bearing) =>
+            ((Mathf.RoundToInt(bearing / 45f) % 8) + 8) % 8;
+
+        /// <summary>
+        /// The bearing from the player to the target in degrees, 0 = North and
+        /// 90 = East, in the frame described by <see cref="GetCompassDirection"/>.
+        /// Kept separate from the sector so callers that need to know HOW FAR the
+        /// bearing has swung (not just which word it lands on) can measure it.
+        /// </summary>
+        private static float CompassBearing(Vector3 playerPos, Vector3 targetPos,
             bool worldRelative = false)
         {
             float dx = targetPos.x - playerPos.x;
@@ -739,19 +781,10 @@ namespace SO2RAccess
             }
             // else: world-relative — use raw dx/dz where Z+ = North, X+ = East.
 
-            // Angle in degrees: 0 = North (forward), 90 = East (right)
+            // Angle in degrees: 0 = North (forward), 90 = East (right).
             float angle = Mathf.Atan2(dx, dz) * Mathf.Rad2Deg;
             if (angle < 0f) angle += 360f;
-
-            // 8 compass directions, each spanning 45 degrees
-            if (angle < 22.5f  || angle >= 337.5f) return "North";
-            if (angle < 67.5f)  return "North East";
-            if (angle < 112.5f) return "East";
-            if (angle < 157.5f) return "South East";
-            if (angle < 202.5f) return "South";
-            if (angle < 247.5f) return "South West";
-            if (angle < 292.5f) return "West";
-            return "North West";
+            return angle;
         }
 
         /// <summary>
@@ -963,6 +996,7 @@ namespace SO2RAccess
             Vector3[] corners;
             bool fromTraversal = false;
             _lastPathBlockedByExit = false;
+            _lastPathWasPartial = false;
 
             // 1. A COMPLETE NavMesh path (towns / connected areas) — smooth and
             //    reliable. Probe around the player to beat NavMesh fragmentation.
@@ -994,6 +1028,7 @@ namespace SO2RAccess
                 if (_navPath.status == NavMeshPathStatus.PathInvalid)
                     return false;
                 corners = CopyCorners(_navPath);
+                _lastPathWasPartial = _navPath.status == NavMeshPathStatus.PathPartial;
             }
 
             // Hard map-exit barrier for NavMesh paths. Traversal paths are skipped
@@ -1009,6 +1044,7 @@ namespace SO2RAccess
             _pathCorners = corners;
             _pathCornerIndex = corners.Length > 1 ? 1 : 0;
             _pathRecalcTimer = 0f;
+            _pathTargetAtCalc = targetPos;
 
             TrackPathStability(corners);
             LogPath(corners);

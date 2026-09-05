@@ -70,9 +70,16 @@ namespace SO2RAccess
         /// <summary>
         /// Modeless: starts an auto-walk to the selected item, or cancels the
         /// active walk (with speech — a deliberate cancel must never be silent).
+        /// Spoken directions are cancelled the same way: the walk key is the
+        /// player's one "stop guiding me" key, whichever aid is running.
         /// </summary>
         public bool ModelessAutoWalkToggle()
         {
+            if (_guideActive && !_isAutoWalking)
+            {
+                CancelGuidanceSpoken();
+                return true;
+            }
             if (_isAutoWalking)
             {
                 string label = _autoWalkLabel;
@@ -385,10 +392,12 @@ namespace SO2RAccess
                     BuildExits(playerPos);
                     BuildMarkers(fm.FieldLocationPointList, playerPos);
                     BuildEvents(playerPos);
+                    LogSubEventTable(mapID); // debug-only: all stages + unlock conditions
                     BuildSavePoints(fm.FieldSavePointList, playerPos);
                     BuildFishingSpots(playerPos);
                     BuildEnemies(playerPos);
                     BuildStairs(fm.FieldStairsList, playerPos);
+                    BuildClimbPoints(fm, mapID, playerPos); // appends to Stairs
                     BuildDoors(fm.FieldDoorList, playerPos);
                     BuildWarpPoints(fm, playerPos);
                 }

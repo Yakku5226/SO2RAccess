@@ -175,16 +175,13 @@ namespace SO2RAccess
         private const float CameraFollowScale = 1.5f;
 
         /// <summary>
-        /// Minimum Y-position change (in world units) to count as a floor transition.
-        /// Typical floor height in the game is ~4 units.
+        /// Minimum Y-position change (in world units) to count as a different
+        /// level: drives "(above)/(below)" labels, partial-path honesty and the
+        /// floor-grid ramp logic. Typical floor height in the game is ~4 units.
+        /// (The old "Went upstairs/downstairs" announcement built on this was
+        /// removed 2026-09-05 — it was an elevation heuristic, not stairs.)
         /// </summary>
         private const float FloorChangeThreshold = 2.0f;
-
-        /// <summary>
-        /// Minimum seconds between floor change announcements to avoid rapid-fire
-        /// triggers while on long staircases or ramps.
-        /// </summary>
-        private const float FloorChangeCooldown = 1.5f;
 
         #endregion
 
@@ -311,6 +308,18 @@ namespace SO2RAccess
         /// player through a map exit. Lets callers announce a clear message.
         /// </summary>
         private bool _lastPathBlockedByExit;
+        /// <summary>
+        /// True when the stored path is a PARTIAL NavMesh path — it ends where the
+        /// mesh runs out, not at the target. Guidance uses this to prefer a
+        /// floor-grid route over a route that stops at the foot of a cliff.
+        /// </summary>
+        private bool _lastPathWasPartial;
+        /// <summary>
+        /// Where the target stood when the stored path was computed. A moving
+        /// target (NPC) is re-routed only when it has moved away from THIS, not
+        /// when the path merely ends short of it (partial paths always do).
+        /// </summary>
+        private Vector3 _pathTargetAtCalc;
         /// <summary>Margin (m) added to map-exit collider bounds for the hard barrier.</summary>
         private const float MapExitBarrierMargin = 0.5f;
 
@@ -323,10 +332,6 @@ namespace SO2RAccess
         // Map name announcement: track current fieldmap to detect area changes.
         private FieldmapID _lastFieldmapID = FieldmapID.INVALID;
         private bool _fieldmapInitialized;
-
-        // Floor change detection: track player Y to announce stair transitions.
-        private float _lastPlayerY = float.NaN;
-        private float _floorChangeCooldownTimer;
 
         // Soft spatial-awareness assist: nudges the auto-walk heading around
         // NPCs/clutter the NavMesh doesn't know about, without leaving the route.
@@ -556,7 +561,6 @@ namespace SO2RAccess
         public void Update()
         {
             CheckFieldmapChange();
-            CheckFloorChange();
             CheckTraversalRecording();
 
             // Resume auto-walk after battle on world map.
@@ -650,6 +654,16 @@ namespace SO2RAccess
             // cutscenes, and menus are discarded (see UpdateFieldResume).
             if (_fieldResumePending && !_isAutoWalking)
                 UpdateFieldResume();
+
+            // Directions interrupted by a battle come back on their own.
+            if (_guideResumePending && !_guideActive && !_isAutoWalking)
+                UpdateGuideResume();
+
+            // Spoken directions (NavigationHandler.Guidance.cs). Never moves the
+            // player — it only talks — so it runs alongside everything except an
+            // auto-walk, which supersedes it.
+            if (_guideActive && !_isAutoWalking)
+                GuidanceTick();
 
             if (!_isAutoWalking) return;
 
@@ -1112,16 +1126,20 @@ namespace SO2RAccess
                     if (_pathRecalcTimer >= PathRecalcInterval)
                     {
                         _pathRecalcTimer = 0f;
-                        // Check if the NPC has moved significantly from the path's last corner.
-                        Vector3 pathEnd = _pathCorners[_pathCorners.Length - 1];
-                        float endDx = _autoWalkTarget.x - pathEnd.x;
-                        float endDz = _autoWalkTarget.z - pathEnd.z;
+                        // Re-route only when the target itself has moved since the
+                        // path was computed. Comparing against the path's LAST
+                        // CORNER instead killed every partial-path walk (chest on a
+                        // ledge, marker up a cliff): the path end is always far from
+                        // such a target, so the recalc — which then ran WITHOUT
+                        // allowPartial — failed and spoke "Lost path" within a second.
+                        float endDx = _autoWalkTarget.x - _pathTargetAtCalc.x;
+                        float endDz = _autoWalkTarget.z - _pathTargetAtCalc.z;
                         float endDist = Mathf.Sqrt(endDx * endDx + endDz * endDz);
 
                         if (endDist > PathRecalcDistanceThreshold)
                         {
                             if (CalculateAndStorePath(playerPos, _autoWalkTarget,
-                                    isCounter: _autoWalkIsCounter))
+                                    allowPartial: true, isCounter: _autoWalkIsCounter))
                             {
                                 DebugLogger.LogState(
                                     $"NAV path recalculated: {_pathCorners.Length} waypoints " +
@@ -1286,8 +1304,11 @@ namespace SO2RAccess
                                 string key = dfVert > 0f
                                     ? "nav_autowalk_cannot_reach_above"
                                     : "nav_autowalk_cannot_reach_below";
-                                AnnounceArrival(Loc.Get(key, _autoWalkLabel,
-                                    meters.ToString(), compass));
+                                // Floor-grid hint: does the map's floor shape
+                                // offer a route, and where does it start climbing?
+                                string hint = FloorGridRouteHint(playerPos, _autoWalkTarget, dfVert > 0f);
+                                string message = Loc.Get(key, _autoWalkLabel, meters.ToString(), compass);
+                                AnnounceArrival(hint.Length > 0 ? message + " " + hint : message);
                             }
                             DebugLogger.LogState(
                                 $"NAV auto-walk partial path ended for '{_autoWalkLabel}' " +

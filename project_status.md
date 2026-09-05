@@ -37,6 +37,454 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> ✅ **COMMITTED + PUSHED 2026-09-05 (end of session 11): spoken directions
+> released to all players, floor-grid routes, climb points, sound bundling.**
+> The L2 + stick-DOWN gesture's debug gate is REMOVED (Main.ProcessGamepad) —
+> user-validated on the Lasgus summit climb. README: gamepad list, feature
+> bullet, "Directions reminder" row; F1 help text in all six languages.
+> Project `traversals\` refreshed from UserData for MF_0014_01A (Lasgus,
+> 920 nodes) and MF_0006_01A. One commit carries the whole day (the
+> sound-bundling and navigation changes overlap in Main.cs).
+> Still ⏳ UNTESTED from today's last two rounds: reminder row (default Off),
+> resume after battle, short "Unverified route.", queued item notifications,
+> heading-change-only directions, removal of "Went upstairs/downstairs".
+> NO version bump (user's call) — MelonInfo still 0.3.1.
+
+> 🔊 **SOUND SET FOR THE MANUAL NAVIGATION SYSTEM — FINAL, USER-APPROVED (2026-09-05).** Allocation table: `sound-samples\CHOSEN.txt`; files: `sound-samples\final\` (mod-ready 16-bit 44.1 kHz mono, NOT yet in soundcues\). ALL cues loop as constant beacons:
+> - NavNpc / NavChest / NavJump: short hit + silence, period 1.2 s. NavDoor: gate-latch phrase + silence, period 3.0 s. NavLocation: 1.5 s seamless shimmer loop. Wall_behind/left/right/front: 4 s seamless "breath" loops at 294/392/494/587 Hz (D-major spread). Marimba_reserve: 1.2 s beacon, unallocated.
+> - Sources all CC0 (Freesound originals downloaded by the user; wall loops generated). Credit lines ready in `final\README.txt` → copy into SOUND_CREDITS.txt when shipping; gzip WAVs into `soundcues\`.
+> - **NEXT SESSION: design + build the manual navigation system** (raycasts around the player → wall loops with volume/pitch by distance; spatial beacons for NPCs, chests, jump points, doors, locations). Discuss design before coding. SpatialAudioPlayer currently handles ONE loop with volume+pan — needs a multi-voice mixer for 4 walls + N beacons.
+
+> 🔊 **SOUND SAMPLES FOR THE MANUAL NAVIGATION SYSTEM (2026-09-05) — GATHERED, ⏳ USER TO LISTEN AND PICK.**
+> Folder `sound-samples\` (git-ignored via .gitignore, nothing ships until moved into `soundcues\` + credited in SOUND_CREDITS.txt). 153 WAVs, all 16-bit 44100 Hz mono, loudness-normalised. `sound-samples\README.txt` explains folders + how to listen; `sound-samples\CREDITS_DRAFT.txt` has origin/licence for every file.
+> - `wall-proximity\`: four synthesised loop styles (softpad / pulse / shimmer / hum), 4 pitches each: behind 147 Hz, left 196, right 247, front 294 (D-major spread so overlapping walls sound like a chord). Loops are mathematically seamless (whole cycles per 2 s file, verified sample-continuous). Plus a 5-step pitch ladder of style A (+2 semitones per step). Plus Amethyst's Digimon wall_north/south/east/west as fallback (LICENCE UNKNOWN — reference only, do not ship without asking).
+> - `chest\`, `door\`, `jump-point\`, `npc\`, `location\`, `stairs-climb\`: Kenney CC0 packs (RPG Audio, Interface, Impact, Sci-fi, UI, Music Jingles, Digital) + Freesound CC0 picks (fetched from public HQ previews — re-download originals before shipping) + Digimon item/person/rail fallbacks.
+> - Runtime note: SpatialAudioPlayer loops one buffer with live volume+pan; continuous "pitch rises as you approach" = variable-rate read pointer in the refill, or swap ladder files per distance band.
+> - 2026-09-05 later: user picked cues for every category EXCEPT walls ("all a bit jarring, want more natural / less harsh synth"). Second attempt: `wall-proximity\natural-1-breath` (pink-noise breath), `natural-2-puresine`, `natural-3-ocarina`, `natural-4-bell`, `natural-5-bowl` (last three = real CC0 Freesound recordings, rubberband pitch-shifted, cut to whole cycles via zero-crossing pitch measurement so the crossfade never phase-cancels, RMS -21 dB). Pitches one octave up: 294/392/494/587 Hz. ⏳ USER TO LISTEN.
+> - 2026-09-05 later still: user rejected the chest, door and NPC picks too → `chest\batch2`, `door\batch2`, `npc\batch2` (Freesound CC0, ~50 files: game-style item-get/coins/fanfares, heavy doors/gates/latches/knocks, human "hmm/ahem/whistle/hello/huh" + marimba/wood block/kalimba). Freesound originals must be fetched MANUALLY by the user (no browser automation: Firefox fork, privacy) — Claude gives page URLs. ⏳ USER TO LISTEN.
+> - 2026-09-05 PICKS MADE (see `sound-samples\CHOSEN.txt`): NPC = fs243701 "correct"; chest = fs448416 "Bolt Lock 5"; door = fs126041 "Gate Latch" (needs slow-loop edit); jump = fs350906 "Jump_C_04"; location = fs351408 "GLEAM-GLOW-SFX-CHIME" (needs loop cut); walls = natural-1-breath; reserve = fs185833 "Marimba note struck". ⏳ User downloads originals manually → `sound-samples\originals\` → Claude converts/loops → gzip into soundcues\ + SOUND_CREDITS.txt when the nav feature lands.
+> - 2026-09-05 ORIGINALS RECEIVED + CONVERTED → `sound-samples\final\` (NavNpc, NavChest, NavJump one-shots; NavDoor = latch phrase + silence, 3 s slow loop; NavLocation = gleam sustain flattened + crossfade, 1.5 s seamless loop; Wall_behind/left/right/front = natural-1-breath; Marimba_reserve unallocated). User heard all loops 2026-09-05 and is HAPPY; all cues are beacon loops now (one-shots padded to a 1.2 s period, raw hits in `finaloneshot-raw`). See `final\README.txt`. User dropped the originals in `Sounds\` (git-ignored) — copies in `sound-samples\originals\`. Ready to gzip into soundcues\ when the manual-nav code needs them.
+> - Next: design + build the manual navigation system (raycasts around the player → 4 wall loops; spatial beacons for POIs).
+
+> 🔬 **FLOOR-GRID RAMP FINDER — PHASE 1 AUDIT ONLY (2026-09-05) — BUILT, ⏳ AWAITING F11 TEST.**
+> Plan (user-approved): `C:\Users\Jaco\.claude\plans\compressed-chasing-feigenbaum.md`.
+> Built clean, DLL copied. Not committed. **Changes NOTHING in live navigation.**
+>
+> **The user's rule (now a feedback memory):** any automatic ramp/bridge method
+> must reproduce the recorded breadcrumb routes 100 % (every node present,
+> every walked edge a short grid route, zero one-way-drop violations) and must
+> not produce wall-leading candidates — otherwise it is DISCARDED, like
+> DungeonNavGraph in June. No nav-list integration until the gate passes.
+>
+> **What was built.**
+> - `FloorProbeGrid.cs` — discovery-only floor map: 1.5 m cells, one
+>   `Physics.RaycastAll` down per cell from above the map (all layers except the
+>   player's, triggers ignored, capsule/character/sphere colliders skipped so
+>   NPC heads are not floors), keep hits with normal.y ≥ 0.4, multi-level
+>   (one node per distinct floor in a cell, 0.5 m dedupe). Neighbours connect
+>   when |Δy| ≤ 0.67 × horizontal distance (1.0 m per cell — NOT the old 5 m).
+>   Flood-fill components; sloped nodes (steepest step ≥ 0.15) grouped into
+>   runs; runs rising ≥ 2 m = ramp candidates (foot, top, rise, component,
+>   collider under the foot), nearest 12 kept. Bounds = union of solid
+>   collider bounds, capped 400 m. Queries: FindNode, ComponentOf,
+>   TryLocalRoute (bounded Dijkstra). Reuses `TraversalGraph.MinHeap` (now internal).
+> - `TraversalGraph.cs` — read-only views for audits: `Nodes`, `Edges`
+>   (directed), `OneWayDrops`, `HasNodeWithin`. `DropSummary` now uses `OneWayDrops` (DRY).
+> - `NavigationHandler.FloorGridAudit.cs` — `RunFloorGridAudit` wired to
+>   **F11 on field maps** (after LogTraversalDiagnostic). Logs `[FLOORGRID]`
+>   build stats and `[GRIDAUDIT]` checks: node coverage (XZ 1.1 m / Y 0.8 m),
+>   edge connectivity (grid route ≤ max(3×len, 6 m)), drop respect (grid must
+>   not climb a one-way ledge within max(1.5×straight, 3 m)), candidate list
+>   flagged WALKED (breadcrumb within 1.6 m of foot/top) or unverified, with
+>   distance + compass from the player. Up to 30 misses listed per check;
+>   `RESULT PASS/FAIL` line. Spoken summary via `debug_gridaudit_result`
+>   (+ `debug_gridaudit_nogrid`), both keys in all six lang files (763 keys;
+>   en 777 = +14 English-only guidance keys, deliberate).
+>
+> **ROUND 1 RESULT (2026-09-05 17:40, user ran F11 on both maps):**
+> - **Lasgus:** structural checks PASS — 458/458 nodes, 4088/4088 edges, 0 drop
+>   violations; 19 330 nodes / 498 components / 37 ramp runs in 167 ms. BUT all
+>   12 candidates "unverified" and the walked slope (foot ≈ −35,9,31, grade
+>   0.3–0.55 per the traversal JSON) is NOT among them. Hypothesis: the slope is
+>   part of one huge sloped run (the mountain surface) whose foot is far away,
+>   so it falls outside the nearest-12 cut and the foot/top-only WALKED test.
+> - **Krosse Cave:** 9 node misses + 86 edge misses, ALL at the two jump-down
+>   ledges (breadcrumbs at (33,9.7,79)→(31.8,6.5,79) and (21.8,6.4,73)→(21.8,3.4,72)
+>   with nearest floor 1–4 m BELOW) = breadcrumbs laid mid-air during the jump,
+>   not floors the grid missed. 6 drops, 0 violations. 30 563 nodes / 200
+>   components / 7 runs; 2 of 7 candidates WALKED (real ramps), all in the
+>   player's component.
+>
+> **Round-2 audit changes (built, DLL copied):** no threshold changed.
+> - Node misses that touch a recorded one-way drop AND sit above the nearest
+>   floor are classed AIRBORNE and reported separately (edges touching them
+>   too); PASS/FAIL now counts floor misses only — the log states both numbers.
+> - New check 4 "walked slopes": every walked edge at ramp grade (0.15–1.2) →
+>   does the grid see slope at both ends, and which RUN holds it (`WALKED RUN`
+>   lines with edge/breadcrumb counts, foot/top/rise/nodes); plus the LARGEST
+>   RUN list. This answers the Lasgus mystery directly.
+> - New check 5 "targets": each save point / chest → grid component vs player,
+>   grid route length, traversal verdict side by side.
+> - RAMP candidates now flagged WALKED when ANY breadcrumb lies inside the run
+>   (`RunOf` per node; `AllRuns` kept; `RunId` on candidates).
+>
+> **ROUND 2 RESULT (2026-09-05 17:47) — GATE PASSED ON BOTH MAPS.**
+> - **Lasgus:** PASS 458/458 nodes, 4088/4088 edges, 0/0 drops. Giant-run
+>   hypothesis CONFIRMED: run 0 = 7 973 nodes, rise 145.9 m (foot y −41 → top
+>   y 104.7), holds 351 of 458 breadcrumbs and 1 292 of 1 298 walked slope
+>   edges — the whole mountainside is one sloped surface, so "runs" cannot
+>   name a ramp here. TARGET check: unopened chest = same component, grid
+>   route 115 m (user walked ~120 m ✔); summit save (−164.5, 92.4, 72.8) =
+>   same component, grid route 316 m, traversal=False (unexplored) ← the
+>   natural Phase-2 acceptance test.
+> - **Krosse Cave:** PASS 1499/1499 floor nodes (+9 airborne at the two
+>   ledges), 16362/16362 floor edges (+86 airborne), 0/6 drop violations.
+>   6 of 7 candidates WALKED; 1 unverified (RAMP 2, 19 nodes, rise 3 m, foot
+>   (4.3, 3.4, 77.2), 57 m north of the entrance save). Chests 8/9/10 = grid
+>   same component, traversal=False (opened before recording existed).
+> - 20 % of walked edges at 0.15–0.19 grade read flat at one end — threshold
+>   edge cases, not misses. No threshold was changed in either round.
+>
+> **PHASE 2 BUILT (user: "build both") — ⏳ AWAITING IN-GAME TEST.** Built
+> clean, DLL copied. Not committed. Route-based, never drives the character:
+> - `FloorProbeGrid.TryRoute(from, to, out corners, out length)`: snaps ends
+>   (XZ 2.2 m; Y 1.6 m player / 3.0 m target), A* (binary heap, Euclidean),
+>   then greedy string-pulling (`SimplifyRoute`/`LineWalkable`: a straight cut
+>   is kept only if every 0.75 m sample finds same-component floor within
+>   1.0 m of the line's height) so 8-direction zig-zags become long legs.
+>   corners[0] = node under the player, last = exact target (NavMesh shape).
+> - New `NavigationHandler.FloorGridRoute.cs`: per-map cached lazy grid
+>   (`GetFloorGrid`, invalidated in CheckFieldmapChange), `TryFloorGridRoute`
+>   (honours the map-exit barrier via PathCrossesMapExit, sets
+>   `_lastPathBlockedByExit`), `FloorGridRouteHint`.
+> - (A) `NavigationHandler.cs` cannot-reach site: message + " " + hint. Hint =
+>   first corner-to-corner stretch that changes height ≥ 1 m in the target's
+>   direction at ramp grade → `nav_autowalk_route_hint_up/_down` ("A possible
+>   route of {0} meters exists. It starts climbing {1} meters {2}.") else
+>   `nav_autowalk_route_hint`. Keys in ALL six lang files (766 each).
+> - (B) `NavigationHandler.Guidance.cs`: `GuideTo` and `RefreshGuideRoute`
+>   fall back to the grid route when CalculateAndStorePath fails (and the
+>   failure was not the exit barrier). `_guideUnverified`; start message
+>   `nav_guide_unverified_start`, mid-walk switch `nav_guide_unverified_switch`
+>   (English-only like the other nav_guide_* keys, en.json 782); when a
+>   walked/NavMesh route appears again it silently takes over (logged).
+>
+> **TEST 1 (2026-09-05 18:56–19:00) — FAILED, three defects found and fixed (build 2):**
+> 1. **"Lost path" within 1 s of every walk to a chest/marker on another level**
+>    — PRE-EXISTING BUG in the moving-target recalc (`NavigationHandler.cs`
+>    ~1121): it compared the target to the path's LAST CORNER; a partial path
+>    always ends far from such a target, so it recalculated WITHOUT
+>    allowPartial, failed, and spoke "Lost path". Also explains the 16:16
+>    "Lost path to Unopened chest 1" from earlier today. FIX: new
+>    `_pathTargetAtCalc` (set in CalculateAndStorePathCore) — recalc only when
+>    the target itself moved, and with allowPartial: true.
+> 2. **Guidance never used the grid** (`unverified=False` in the log): the
+>    partial NavMesh path counted as "routed", so legs were the old behaviour
+>    — partial path to the cliff foot, then the straight bearing "North, 60 m"
+>    into the wall. The dead end the user hit was NOT the grid route. FIX:
+>    `_lastPathWasPartial` (set in CalculateAndStorePathCore) +
+>    `GuideRouteFallsShort` (partial end ≥ 2 m vertical or > 5 m flat from the
+>    target) → GuideTo/RefreshGuideRoute prefer the grid route; a partial route
+>    with no grid alternative is still followed (better than a bearing).
+> 3. **The hint WAS spoken (twice) but inaudible**: guidance was still active
+>    while auto-walk ran and its "60 meters." reminder interrupted the message
+>    70 ms later. FIX: AutoWalkTo calls `StopGuidance("auto-walk started")`.
+> Open question for test 2: the grid route from the cliff foot was 426 m
+> ("starts climbing 14 m South") — the mountain mesh extends beyond the
+> playable walls (run foot at y −41), so the route may leave the play area.
+> The walk decides.
+>
+> **✅ TEST 2 (2026-09-05 19:10–19:16) — SUCCESS, user: "not seamless, but I
+> got there… I would say it is a success."** Log: hint spoken in full
+> ("A possible route of 423 meters exists. It starts climbing 19 meters
+> South."), directions started `unverified=True` with 15 legs over the grid
+> route, player climbed from y 0 to y 87 following it (breadcrumbs 539 →
+> 845), a battle at 19:14:55 stopped the directions, user restarted them at
+> the top (now `unverified=False` — the breadcrumbs had learned the way),
+> arrived at the marker 19:16:08, "Discovered The Monarch's Roost". The user's
+> gate is met: no leg into a wall on an unverified route. The grid mesh's
+> beyond-the-walls worry did not materialise (route was 423 m because the
+> real path winds).
+>
+> **User tweaks (2026-09-05, BUILT, ⏳ untested):**
+> 1. **Reminder interval setting** — `ModSettings.GuideReminderSeconds`
+>    (0/3/5/8/12/20, default 5, persisted) as "Directions reminder" row in the
+>    Language & speech submenu (`mod_menu_label_guide_reminder`,
+>    `mod_menu_seconds`, all six langs → 768 keys; en 785). The reminder now
+>    repeats the WHOLE leg (direction + distance), not just the distance.
+> 2. **Directions resume after battle** — `OnSceneChangeGuidance` (Main.cs
+>    scene hook) saves the destination; `UpdateGuideResume` (Update) mirrors
+>    the auto-walk field resume: battle seen + field free + same map →
+>    `ResumeGuidance` re-routes (walked/NavMesh else grid) and says
+>    `nav_guide_resuming` "Resuming directions to {0}."; non-battle
+>    interruptions dropped after 3 s. GuideTo/ResumeGuidance share
+>    `TryRouteForGuidance` + `StartGuidance` (DRY). AutoWalkTo/GuideTo clear a
+>    pending resume.
+> 3. **Shorter unverified messages** — "Directions to {0}. Unverified route."
+>    / "Unverified route."
+> 4. **Field notifications no longer interrupt** — NotificationHandler's
+>    item/skill flush is now queued (`interrupt: false`); "Went upstairs/
+>    downstairs" is queued while directions are active.
+> Guidance.cs is ~870 lines now — split the battle-resume region into
+> `NavigationHandler.Guidance.Resume.cs` at the next touch.
+>
+> **User tweaks round 2 (2026-09-05, BUILT, ⏳ untested):**
+> 5. **Directions only on a heading change** — the "new leg, same word"
+>    trigger is gone (`GuideAimChangeMeters` removed); a leg is spoken at
+>    start and when the compass word changes with ≥30° swing. Reminder
+>    setting now defaults to Off (0); turning it on repeats the leg.
+> 6. **"Went upstairs / downstairs" REMOVED** — user diagnosis confirmed: it
+>    was `CheckFloorChange`, a 2 m Y-delta heuristic with a 1.5 s cooldown,
+>    never tied to FieldStairs objects / minimap stair icons. Deleted method,
+>    call, `_lastPlayerY`, `_floorChangeCooldownTimer`, `FloorChangeCooldown`,
+>    `nav_floor_up/down` (all six langs → 766 keys; en 783).
+>    `FloorChangeThreshold` stays (above/below labels, partial-path honesty,
+>    floor-grid). If real stair announcements are ever wanted, build them on
+>    `FieldManager.FieldStairsList` proximity, not on Y.
+>
+> **TEST 2 procedure (for reference):**
+> 1. Auto-walk to the summit save point / undiscovered marker → expect the
+>    cannot-reach message to end with "A possible route of ~316 meters exists.
+>    It starts climbing N meters <direction>."
+> 2. Hold L2, pick the summit save point, push the stick DOWN → expect
+>    "Directions to Save point, unverified route…" then legs. Walk it. The
+>    chest (already breadcrumb-reachable) should give a normal verified start
+>    message — a good control.
+> 3. Acceptance = the legs never point into a wall and you reach the summit.
+>    One wall = feature fails the user's rule (remove B, keep the audit).
+> Log lines: `NAV floor grid: built …`, `NAV floor grid: UNVERIFIED route
+> length=…`, `NAV guidance: leg N/M …`.
+>
+> **Phase 2 (only after PASS):** candidates into the Stairs category as
+> "Possible ramp up/down" / "Ramp up (walked)", and a "Possible ramp N meters
+> <direction>" tail on the cannot-reach message. Phase 3 (separate approval):
+> slope compass for the manual nav system; probe walk.
+
+> 🧗 **CLIMB POINTS IN THE NAV LIST (2026-09-05) — BUILT, ⏳ NOT YET TESTED.**
+> Built clean, DLL copied to Mods. Not committed.
+>
+> **Why.** User stuck in the Lasgus Mountains (`MF_0014_01A`, user-confirmed; NOT the Sacred Grounds): the
+> chest sits 34m above ground level, auto-walk ends at the nearest ground
+> point below it, and a side event said "We could probably climb up here if
+> we tried." No ladder/climb item existed in the nav list.
+>
+> **Finding.** The game's climb is `FieldGimmick03`, a contact gimmick with
+> StartPosition/EndPosition; `FieldCharacterLadderBaseTask` references it and
+> the character state machine has Ladder states. The mod already scanned
+> Gimmick03 but called it "Platform" under Warp Points — and found none in this
+> map's live gimmick list (no `NAV:WARP` lines all session). Documented in
+> game-api.md §16.
+>
+> **What was built.** New `NavigationHandler.Build.Climb.cs`: reads BOTH the
+> live gimmick list and the static placement table
+> `ParameterManager.GetGimmick03ParameterList(map)`, dedupes within 2m, and
+> appends "Climb up" / "Climb down" / "Climb point" items to the **Stairs**
+> category (direction from which end is on the player's floor). The
+> "Platform" branch and its two Loc keys were removed from Warp Points; six
+> `nav_climb*` keys added to ALL six lang files (761 keys each; en.json 775 —
+> the 14 extra are the deliberately-English-only guidance keys).
+>
+> **Diagnostics.** Every gimmick in the scene is logged by type name
+> (`NAV:CLIMB gimmick[i] <Type> at (...)`), the table's raw lists are logged
+> per entry, and each item logs its source (scene/table). **If this dungeon's
+> climb is not a Gimmick03, the type-name dump is the next clue.**
+>
+> **❌ TESTED 2026-09-05 (same day): NO climb item in the Lasgus Mountains.**
+> Log: `NAV:CLIMB gimmick list has 0 entries` AND `table for MF_0014_01A: 0
+> entries` — this map has no Gimmick03 at all, so its climb is NOT the ladder
+> gimmick. The code stays (it is correct for maps that do use ladders, and
+> the type-name dump is useful), but it did not solve this dungeon.
+>
+> **Current theory.** The trigger `ev_sub_040600` is a thin 2×3×8 m box at
+> the foot of a 39 m-tall cliff collider ('Center (1)'), whose top (~y 31)
+> matches the chest height (34.5). The far overworld exit is also unreachable
+> from ground level → the whole upper region is a separate NavMesh island
+> reached by a SCRIPTED event. The sub event re-enables after a reload
+> (events=1 again). "…if we tried" reads like a HINT STAGE; the real climb is
+> probably a later stage of the same placement, gated on sub-scenario /
+> main-scenario progress, a party member (`enablePlayerID`) or a flag.
+>
+> **Added: debug-only sub-event table dump** (`NavigationHandler.EventTableDiag.cs`,
+> `LogSubEventTable`, called from ScanAndOpenList after BuildEvents). Prints
+> every `ConstSubEventParameter` for the map — placement, eventFunction,
+> SubScenarioID + progress ranges, main-scenario range, mapjump/nextMap,
+> enable/disable player, party count, scenario flags — plus the player's
+> current main and sub progress. Lines are `NAV:SUBEVT …`. Built clean.
+>
+> **✅ RESOLVED 2026-09-05 (later): the "scripted event" theory was WRONG too.**
+> The user simply walked up: a long slope, "Went upstairs" every 2 m from y 8
+> to y 34.5, and opened the chest (Flare Ring+). The `NAV:SUBEVT` dump shows
+> `ev_sub_040600` is pure flavour (no sub-scenario range, disabled by
+> `FLAG_LASGAS_FIRST` after the first visit); `ev_sub_040700/040800` are the
+> Ashton sub-scenario (needs Ashton, enemy party 199); `ev_sub_042000/042100`
+> the SUB_SCENARIO_029 variant; `ev_sub_320000` needs `FLAG_PUT_METOKUS`.
+> **Real cause:** the baked NavMesh has no connection up the slope — the
+> textbook dungeon case from [dungeon-traversal-navigation]: first visit is
+> manual, the breadcrumb recorder learns the route. Verified in the saved
+> `UserData\SO2RAccess\traversals\MF_0014_01A.json`: 458 nodes, ONE connected
+> component, entrance → chest reachable, no steep edges. Auto-walk to the
+> chest will work from the entrance next time. The summit marker (y 101) is
+> still 86 m from the nearest breadcrumb → needs one more manual walk.
+> The "look for stairs or a ramp" arrival message was correct advice.
+>
+> Kept: Gimmick03 climb listing (right for ladder maps) and the `NAV:SUBEVT`
+> dump (debug-only, useful for any event gate question). Not committed.
+> TODO before next release: copy the UserData traversal for MF_0014_01A into
+> project `traversals\` (project copy has only 3 nodes).
+
+> 🧭 **SPOKEN TURN-BY-TURN DIRECTIONS (2026-09-03) — BUILT, NOT YET TESTED.**
+> Built clean (Debug, 0 warnings). DLL copied to Mods. Not committed.
+>
+> **What it is.** The hands-on alternative to auto-walk: the player walks
+> themselves and is told, leg by leg, which way to push the stick and how far.
+> "North East, 14 meters." A new instruction is spoken whenever the direction
+> to push changes — because the route turns a corner, or because the camera
+> rotated far enough that the same corner now needs a different word.
+> Modelled on the user's own Eiyuden Chronicle mod
+> (`NavigationHandler.Guide.cs` there, Directions mode).
+>
+> **Trigger — DEBUG-GATED for now (user's request).** Hold L2 to open the
+> navigation list, highlight a target, push the **left stick DOWN**. Mirrors
+> the existing L2 + stick UP = auto-walk. The gate is `Main.DebugMode` (F12)
+> at the input site in `Main.ProcessGamepad`; in normal play the gesture does
+> nothing. Note L2+L3 was NOT available — it is already the mod menu toggle.
+>
+> **Decisions the user made before coding:**
+> - Compass frame: **camera-relative** ("North" = stick straight up), matching
+>   the mod's existing arrival hints. World-relative was rejected as
+>   unusable without sight (you would have to know where the camera points).
+> - Scope: **field and dungeon maps only.** The world map refuses with
+>   `nav_guide_not_worldmap`; its grid A* route can feed the same leg splitter
+>   later.
+> - Re-press: same target **stops**, different target **switches**. The walk
+>   key (backslash) also cancels — one "stop guiding me" key for both aids.
+>
+> **New file `NavigationHandler.Guidance.cs` (~470 lines).** Reuses
+> `CalculateAndStorePath` — the same NavMesh/recorded-traversal pathfinder
+> auto-walk uses — so anything auto-walk can reach can also be described.
+> The corner list is reduced to spoken **legs**: corners bending the route
+> less than 22° are merged into the straight stretch they belong to, stretches
+> under 1.2m are folded into the next, and the real destination always
+> terminates the list (a partial route stops short of it). Repath every 1s.
+>
+> **Three deliberate anti-chatter measures** — the failure mode here is a
+> voice that talks constantly:
+> 1. **Sector hysteresis.** A bearing resting exactly on a sector boundary
+>    would flip "North"/"North East" forever while the player walked straight.
+>    A re-word needs the bearing to have swung 30° from where it was spoken.
+> 2. **Reminder needs movement.** The 5s distance repeat only fires if the
+>    player covered ≥1m since the last announcement, so standing still to
+>    think is never interrupted on a timer.
+> 3. **Silent while the L2 overlay is held.** The list is reading items out
+>    loud; directions would cut it mid-word. Memory is kept across that pause
+>    (the instruction is still valid), so nothing is echoed on release.
+>
+> **Pauses, never dies.** Guidance moves nothing, so dialogue/battle/menu only
+> pause it — and it forgets what it said, so the player is re-oriented instead
+> of dropped back mid-leg. It stops on arrival, map change, scene change, the
+> walk key, or an auto-walk taking over.
+>
+> **Localization fix carried along.** `GetCompassDirection` returned hardcoded
+> English ("North", "South East") — a pre-existing gap that this feature would
+> have made constant. Split into `CompassBearing` (degrees) →
+> `BearingToSector` (0-7) → `CompassName` (Loc), so the eight directions now
+> come from `nav_dir_n` … `nav_dir_nw`. The existing arrival hints get this
+> for free.
+>
+> **14 new en.json keys** (`nav_dir_*` ×8, `nav_guide_start`, `_stopped`,
+> `_leg`, `_distance`, `_no_route`, `_not_worldmap`). Deliberately NOT copied
+> into fr/de/sv/pt/zh: English fallback is automatic and logged, and seeding
+> them with English would hide the gap from translators.
+>
+> **README not updated** — the feature is debug-only, so there is nothing for a
+> normal player to read yet. Update it when the gate comes off.
+>
+> **⏳ NEEDS TESTING — DEFERRED BY THE USER (2026-09-03): "will test another
+> day."** Nothing was committed this session; the working tree carries the
+> guidance feature on top of the still-uncommitted sound-bundling work.
+>
+> Suggested run when you get to it: F12 for debug mode, hold L2 in a town,
+> pick an NPC across the square, push the stick down, and walk it. Watch for:
+> too much or too little speech, legs that describe a wall rather than the
+> route, whether the stop/switch gesture behaves, and whether the distances
+> match what walking them feels like.
+>
+> **The most likely thing to be wrong is the leg splitter** — the 22° merge
+> and the 1.2m fold are judgement calls made without play data. If a leg ever
+> points at a wall, that is where to look first; the debug log prints every
+> announcement as `NAV guidance: leg N/M <direction> <meters>` with the reason
+> (start / new leg / direction changed), which should make it readable.
+
+> 🔊 **SOUNDS BUNDLED INTO THE DLL (2026-09-02) — ✅ TESTED AND CONFIRMED.**
+> Built clean (Debug, 0 warnings), DLL copied to Mods. Not committed yet.
+>
+> **Why.** User's request: "make it so that the next release will bundle the
+> sounds with the .dll… it will make installation and updating the mod easier."
+> Installing is now one DLL — no Sounds folder to copy, and updating a sound is
+> just replacing the DLL.
+>
+> **How.** All seven cues are gzipped into the project's `soundcues\` folder and
+> compiled in as embedded resources, the same way `grids\*.grid.gz` already were.
+> New `EmbeddedSounds.cs` resolves a cue by file name and hands back raw WAV
+> bytes, decompressed straight into memory — nothing is written to disk.
+>
+> **The user's own sounds still win.** A WAV of the same name in
+> `UserData\SO2RAccess\Sounds` overrides the bundled copy, so anyone who prefers
+> their own cue keeps it across updates. The folder is now optional rather than
+> required. Which source answered is logged.
+>
+> **Refactor.** Both players read `File.ReadAllBytes` then worked purely on the
+> array, so the change was small: `AudioCuePlayer.TryParseWav(string path, …)` →
+> `TryParseWav(byte[] raw, string name, …)` behind a new shared
+> `TryLoadCue(fileName, …)` that all six `Load*Sound` methods now call (their
+> duplicated File.Exists checks are gone). `SpatialAudioPlayer.LoadWav(string)` →
+> `LoadWav(byte[])`. `Main.cs` passes names, not paths — 23 lines down to 7.
+>
+> **Verified before handing over:** all 7 resources extract and gunzip
+> byte-for-byte identical to the originals in the game's Sounds folder
+> (`cmp` clean on every one). Resource names confirmed in the built assembly.
+>
+> **Licensing handled.** GaugeFill and bubble_big are CC-BY (Attribution 4.0), so
+> the attribution has to keep travelling with the audio. New `SOUND_CREDITS.txt`
+> at the release root carries the full listing plus instructions for substituting
+> your own cues; the old `Sounds\Game sound license directory.txt` would have
+> vanished with the folder. README credits now point at it.
+>
+> **Sizes.** DLL 13 MB → 25 MB (12 MB of cues; gzip saves 2.6 MB over raw). The
+> release zip should not grow — it already carried these WAVs, just outside the
+> DLL. `Enemynearby.wav` alone is 12.3 MB of that: 48 kHz **stereo** 16-bit, and
+> `SpatialAudioPlayer` downmixes it to mono at load. A mono re-encode would halve
+> it with no audible change. NOT done — user's audio, user's call.
+>
+> **README.** Installation no longer says to copy `Sounds`; Updating explains that
+> sounds now ride along in the DLL and that a leftover pre-0.3.2 `Sounds` folder
+> can be deleted (it still takes priority, so a stale one would shadow a future
+> sound change).
+>
+> **✅ TESTED AND CONFIRMED — log 26-9-2_20-56-50, 0 warnings, 0 exceptions.**
+> All seven cues loaded straight from the DLL, every byte count matching the
+> original file exactly: dodge 13274, save 1186954, private action 879636,
+> gauge fill 115808, jump 26504, fishing 44142, and the proximity loop
+> "3066300 samples, 48000Hz, 2ch 16bit -> mono". No "loaded from the user's
+> Sounds folder" line anywhere, so the rename held and these really are the
+> embedded copies. The proximity loop started and stopped cleanly in play.
+> User drove it through F4 → Sound and announcements → Space, previewing save,
+> dodge, proximity, gauge, jump and both fishing rows by ear; announcement rows
+> correctly answered "No sound to preview."
+>
+> **Test setup to undo when convenient:** the game's `UserData\SO2RAccess\Sounds`
+> folder is still renamed to `Sounds_renamed_for_test`. Nothing depends on it —
+> rename it back only to restore the user-override path, or delete it.
+>
+> **🟡 SURFACED BY THIS WORK, NOT CAUSED BY IT — 24-bit cues ignore their volume
+> slider.** The log now prints each cue's bit depth, which shows `Save_sound.wav`
+> and `PrivateAction.wav` are **24-bit**, while `AudioCuePlayer.ScalePcmSamples`
+> handles only 16-bit and 8-bit and falls through silently for anything else.
+> So the save and private action volume settings do nothing — those two always
+> play at full volume. Pre-existing (both files predate this change), untouched
+> tonight. Fix is either a 24-bit branch in ScalePcmSamples or re-encoding the
+> two cues to 16-bit; the second is simpler and matches every other cue.
+
 > 🔁 **ROUND 2 (2026-09-02) — FOUR BUGS FOUND IN THE LOG AND FIXED. ✅ TESTED
 > AND CONFIRMED.** Log 26-9-2_20-17-0 was decisive on every one.
 > User's verdict on round 1: "Looks good but for one or two oddities."
@@ -121,7 +569,6 @@
 >    should.
 > 4. Improve → Combat Skill and Improve → Special Arts/Spells: unchanged.
 
-
 > 🔁 **L1/R1 TAB SWITCHES ANNOUNCED EVERYWHERE IN CAMP (2026-09-02) — BUILT,
 > ✅ TESTED, see ROUND 2 above for the four bugs it turned up.** Built clean.
 > Committed 2026-09-02 (see ROUND 2). No version bump yet — user's call.
@@ -191,7 +638,6 @@
 >    first read is the row as before, with no name or category glued on front).
 > 7. Camp → Improve → IC/Specialty Skills (the Skills screen) and Status should
 >    behave exactly as they did before.
-
 
 > 🔊 **MOD MENU RESTRUCTURE + SOUND PREVIEW (2026-09-02) — ✅ TESTED AND
 > CONFIRMED by the user. Built clean (Debug, 0 warnings).
@@ -2857,7 +3303,6 @@ Want: every reward reads its name, talents read "Talent X", and the per-entry di
 User confirmed each super specialty now reads its OWN requirement, stable on re-visit. Temporary
 debug line removed; committed.
 
-
 User report: in IC → Super Special Skills tab, the "Requires:" text was the SAME for every
 super specialty (and the same item read different requirements at different times). Log
 (13:47–13:48) confirmed: skill NAME + DESCRIPTION were correct per row, but the requirement
@@ -3059,7 +3504,6 @@ NOTE: TextUtil.ResolveItemName(itemID) is still used by CampMenuHandler.ItemCrea
 **Punctuation fix:** TextUtil.AppendPosition now collapses a trailing "." before the
 ". N of M." suffix, so segments that end in a period no longer produce a double period
 (".. 1 of 5."). This applies to ALL handlers that use AppendPosition.
-
 
 **Player-facing known issues:** see `KNOWN_ISSUES.md` (ships with the mod) — currently:
 guild mission menu unreadable, world-map auto-walk town collision, IC default character not
@@ -4458,8 +4902,6 @@ Without this list, mod keys WILL conflict with game controls. -->
 - [x] Camp menu: "Camp menu." announced when opening the menu ✓
 - [x] Camp menu: "[Item name], N of total." announced on up/down navigation ✓
 - [x] Camp menu: position count is correct ✓
-
-
 
 - [x] Title menu navigation — all passing ✓
 - [x] Config menu categories — all passing ✓

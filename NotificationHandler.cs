@@ -817,7 +817,10 @@ namespace SO2RAccess
             _notificationQueue.Clear();
             _notificationFlushTimer = 0f;
 
-            ScreenReader.Say(combined);
+            // Queued, never interrupting: item pickups and skill notices are
+            // background news and must not cut off spoken directions or a
+            // navigation announcement mid-sentence.
+            ScreenReader.Say(combined, interrupt: false);
             DebugLogger.LogGameValue("FieldInfoStack(flush)",
                 $"count={combined.Length} text='{combined}'");
         }

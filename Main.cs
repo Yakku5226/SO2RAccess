@@ -80,6 +80,8 @@ namespace SO2RAccess
         private bool _gamepadModHeld;
         private readonly DpadRepeater _dpadRepeater = new DpadRepeater();
         private bool _stickUpWasActive;
+        /// <summary>Edge-detect state for the stick-down spoken-directions gesture.</summary>
+        private bool _stickDownWasActive;
         private float _gamepadDiagTimer;
 
         private const float StickUpThreshold = 0.5f;
@@ -100,29 +102,16 @@ namespace SO2RAccess
             ModSettings.Load();
             AudioCuePlayer.Initialize();
 
-            // Load audio files from the mod sounds folder.
-            string soundsDir = Path.Combine(Directory.GetCurrentDirectory(),
-                "UserData", "SO2RAccess", "Sounds");
-            string proximityWavPath = Path.Combine(soundsDir, "Enemynearby.wav");
-            SpatialAudioPlayer.Initialize(proximityWavPath);
-
-            string dodgeWavPath = Path.Combine(soundsDir, "Dodge.wav");
-            AudioCuePlayer.LoadDodgeSound(dodgeWavPath);
-
-            string saveWavPath = Path.Combine(soundsDir, "Save_sound.wav");
-            AudioCuePlayer.LoadSaveSound(saveWavPath);
-
-            string paWavPath = Path.Combine(soundsDir, "PrivateAction.wav");
-            AudioCuePlayer.LoadPrivateActionSound(paWavPath);
-
-            string gaugeFillWavPath = Path.Combine(soundsDir, "GaugeFill.wav");
-            AudioCuePlayer.LoadGaugeFillSound(gaugeFillWavPath);
-
-            string jumpWavPath = Path.Combine(soundsDir, "Jump.wav");
-            AudioCuePlayer.LoadJumpSound(jumpWavPath);
-
-            string fishPromptWavPath = Path.Combine(soundsDir, "bubble_big.wav");
-            AudioCuePlayer.LoadFishPromptSound(fishPromptWavPath);
+            // Audio cues. Every one is compiled into this DLL, so the mod installs as a
+            // single file; a WAV of the same name dropped into UserData\SO2RAccess\Sounds
+            // still overrides the bundled copy. See EmbeddedSounds.
+            SpatialAudioPlayer.Initialize("Enemynearby.wav");
+            AudioCuePlayer.LoadDodgeSound("Dodge.wav");
+            AudioCuePlayer.LoadSaveSound("Save_sound.wav");
+            AudioCuePlayer.LoadPrivateActionSound("PrivateAction.wav");
+            AudioCuePlayer.LoadGaugeFillSound("GaugeFill.wav");
+            AudioCuePlayer.LoadJumpSound("Jump.wav");
+            AudioCuePlayer.LoadFishPromptSound("bubble_big.wav");
 
             Loc.Initialize();
             InitializeHandlers();
@@ -227,6 +216,7 @@ namespace SO2RAccess
             DebugLogger.LogState($"Scene changed to: {sceneName}");
             _gameReady = false;
             _navigationHandler?.CancelAutoWalk();
+            _navigationHandler?.OnSceneChangeGuidance();
             _campMenuHandler?.OnSceneChanged();
             _shopHandler?.OnSceneChanged();
             _guildHandler?.OnSceneChanged();
@@ -607,6 +597,7 @@ namespace SO2RAccess
                 _gamepadModHeld = true;
                 _dpadRepeater.Reset();
                 _stickUpWasActive = false;
+                _stickDownWasActive = false;
                 DebugLogger.LogInput(ModKeys.NavModifierName, "GamepadNavOpen");
                 _navigationHandler.GamepadOpenNav();
                 return;
@@ -646,6 +637,18 @@ namespace SO2RAccess
                 // until L2 is released (prevents accidental camera/movement).
             }
             _stickUpWasActive = stickUp;
+
+            // --- Left stick down — spoken directions ---
+            // The player walks themselves and is told which way to push the
+            // stick and how far. (Debug-gated until 2026-09-05; user-validated
+            // on the Lasgus Mountains summit climb, now open to all players.)
+            bool stickDown = gp.leftStick.y.ReadValue() < -StickUpThreshold;
+            if (stickDown && !_stickDownWasActive)
+            {
+                DebugLogger.LogInput("LStickDown", "GamepadGuidance");
+                _navigationHandler.GuideTo();
+            }
+            _stickDownWasActive = stickDown;
         }
 
         /// <summary>
