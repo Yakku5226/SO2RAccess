@@ -38,7 +38,7 @@
 **Phase:** Phase 3 — Feature Implementation
 
 > 🚀 **v0.4.0 RELEASED (2026-09-06, end of session 13).** https://github.com/Yakku5226/SO2RAccess/releases/tag/v0.4.0
-> Middle-number bump (user's call): the whole manual-navigation sound system ships — LoopMixer, wall tones
+> Commit a79775e on master + tag v0.4.0, both pushed; asset SO2RAccess.zip (24.6 MB). Middle-number bump (user's call): the whole manual-navigation sound system ships — LoopMixer, wall tones
 > (default OFF, slider 2–8 m), object beacons (NPC / chest / door / location / save / jump; stairs placeholder),
 > two new F4 submenus — plus the day's fixes (R2 Party↔Assault swap, camp quick heal, battle log flood, dodge
 > double-fire guard, save-point marimba). Release build 0 warnings. Zip = `SO2RAccess-0.4.0\` root, asset
