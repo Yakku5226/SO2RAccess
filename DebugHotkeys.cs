@@ -247,6 +247,9 @@ namespace SO2RAccess
                                     player.transform.position);
                                 _navigationHandler.RunFloorGridAudit(
                                     player.transform.position);
+                                // Wall-probe gate for the manual-nav wall sounds.
+                                _navigationHandler.RunWallProbeAudit(
+                                    player.transform.position);
                             }
                         }
                     }

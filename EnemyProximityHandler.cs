@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Il2CppGame;
-using MelonLoader;
 using UnityEngine;
 
 namespace SO2RAccess
@@ -10,10 +9,14 @@ namespace SO2RAccess
     /// Plays a spatial audio cue when field enemies are nearby.
     /// Volume scales with distance, stereo pans with direction relative to the player.
     /// Scans for enemies periodically and tracks the closest one each frame.
+    /// The loop is one <see cref="MixerVoice"/> on the shared <see cref="LoopMixer"/>.
     /// </summary>
     public class EnemyProximityHandler
     {
         #region Constants
+
+        /// <summary>Cue file for the proximity loop.</summary>
+        public const string CueFile = "Enemynearby.wav";
 
         /// <summary>Distance (units) beyond which the cue is silent and stops.</summary>
         private const float MaxDistance = 25f;
@@ -30,7 +33,7 @@ namespace SO2RAccess
 
         private int _scanTimer;
         private readonly List<Transform> _cachedEnemies = new List<Transform>();
-        private bool _isPlaying;
+        private MixerVoice _voice;
 
         #endregion
 
@@ -38,25 +41,18 @@ namespace SO2RAccess
 
         /// <summary>
         /// Called every frame from Main.UpdateHandlers().
-        /// Finds the closest enemy and drives SpatialAudioPlayer with volume/pan.
+        /// Finds the closest enemy and steers the mixer voice with volume/pan.
         /// </summary>
         public void Update()
         {
             // Respect the mod setting — if disabled, stop any active playback and bail.
             if (!ModSettings.EnemyProximitySoundEnabled)
             {
-                if (_isPlaying)
-                {
-                    SpatialAudioPlayer.Stop();
-                    _isPlaying = false;
-                }
+                StopVoice();
                 return;
             }
 
-            // Push the user's volume setting to the audio player each frame.
-            SpatialAudioPlayer.UserVolume = ModSettings.EnemyProximitySoundVolume;
-
-            if (!SpatialAudioPlayer.IsPlaying && !CanActivate())
+            if (_voice == null && !CanActivate())
             {
                 // Not on the field — nothing to do.
                 return;
@@ -65,11 +61,7 @@ namespace SO2RAccess
             // If we were playing but the field is no longer free, stop.
             if (!IsFieldFree())
             {
-                if (_isPlaying)
-                {
-                    SpatialAudioPlayer.Stop();
-                    _isPlaying = false;
-                }
+                StopVoice();
                 return;
             }
 
@@ -144,11 +136,7 @@ namespace SO2RAccess
             // --- No enemy in range ---
             if (!found || closestDist > MaxDistance)
             {
-                if (_isPlaying)
-                {
-                    SpatialAudioPlayer.Stop();
-                    _isPlaying = false;
-                }
+                StopVoice();
                 return;
             }
 
@@ -158,6 +146,7 @@ namespace SO2RAccess
                 volume = 1f;
             else
                 volume = 1f - (closestDist - MinDistance) / (MaxDistance - MinDistance);
+            volume *= ModSettings.EnemyProximitySoundVolume;
 
             // --- Calculate panning (player-relative direction) ---
             Vector3 toEnemy = closestPos - playerPos;
@@ -172,13 +161,10 @@ namespace SO2RAccess
             }
 
             // --- Drive audio ---
-            SpatialAudioPlayer.SetVolumePan(volume, pan);
-
-            if (!_isPlaying)
-            {
-                SpatialAudioPlayer.Start();
-                _isPlaying = true;
-            }
+            if (_voice == null || !_voice.IsActive)
+                _voice = LoopMixer.Play(CueFile, volume, pan, phase01: 0f);
+            else
+                _voice.Set(volume, pan);
         }
 
         /// <summary>
@@ -188,12 +174,7 @@ namespace SO2RAccess
         {
             _cachedEnemies.Clear();
             _scanTimer = 0; // force immediate scan next Update
-
-            if (_isPlaying)
-            {
-                SpatialAudioPlayer.Stop();
-                _isPlaying = false;
-            }
+            StopVoice();
         }
 
         /// <summary>
@@ -208,6 +189,13 @@ namespace SO2RAccess
         #endregion
 
         #region Private Methods
+
+        private void StopVoice()
+        {
+            if (_voice == null) return;
+            _voice.Stop();
+            _voice = null;
+        }
 
         /// <summary>
         /// Full scan using FindObjectsOfType. Called on a timer to discover new enemies

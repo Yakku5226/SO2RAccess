@@ -52,6 +52,92 @@ namespace SO2RAccess
 
         #endregion
 
+        #region Party ↔ Assault Formation switch (R2 / L2)
+
+        // Party Formation and Assault Formation are sibling screens: the game swaps
+        // between them directly with R2 / L2 without returning to the root menu, so
+        // _lastRootMenuItemName (set only by root cursor moves) went stale and the
+        // assault screen stayed silent (log 2026-09-06 11:07). Two detectors feed one
+        // switch: the window's selector stack top, polled every frame like all native
+        // camp navigation, and the two selectors' own Show() calls (Harmony postfix).
+        // Either one is enough; both are logged so a failure names the missing path.
+
+        /// <summary>Pointer of the selector on top of the camp window's stack last frame.</summary>
+        private static IntPtr _lastStackTopPointer = IntPtr.Zero;
+
+        /// <summary>
+        /// Polls the camp window's selector stack; when the party or assault
+        /// selector climbs to the top while its sibling is the current sub-screen,
+        /// switches the sub-screen gate to it.
+        /// </summary>
+        private void SyncFormationSiblingScreen()
+        {
+            if (!IsCampOpen || _campWindow == null) return;
+
+            try
+            {
+                var stack = _campWindow.selectorStack;
+                if (stack == null || stack.Count == 0)
+                {
+                    _lastStackTopPointer = IntPtr.Zero;
+                    return;
+                }
+
+                var top = stack.Peek();
+                IntPtr pointer = top != null ? top.Pointer : IntPtr.Zero;
+                if (pointer == _lastStackTopPointer) return;
+                _lastStackTopPointer = pointer;
+
+                DebugLogger.LogState($"CampMenu: selector stack top is now {(top != null ? top.GetIl2CppType().Name : "null")}.");
+
+                if (_assistSelector != null && pointer == _assistSelector.Pointer)
+                    SwitchFormationSibling("AssistFormation", "stack");
+                else if (_selectCharSelector != null && pointer == _selectCharSelector.Pointer)
+                    SwitchFormationSibling("PartyFormation", "stack");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"CampMenuHandler.SyncFormationSiblingScreen: {ex.Message}");
+            }
+        }
+
+        /// <summary>Postfix for UICampAssistSettingSelector.Show(): R2 on Party Formation lands here.</summary>
+        private static void AssistSettingSelector_Show_Postfix()
+        {
+            SwitchFormationSibling("AssistFormation", "Show");
+        }
+
+        /// <summary>Postfix for UICampSelectCharacterSelector.Show(): L2 on Assault Formation lands here.</summary>
+        private static void SelectCharacterSelector_Show_Postfix()
+        {
+            SwitchFormationSibling("PartyFormation", "Show");
+        }
+
+        /// <summary>
+        /// Moves the sub-screen gate from one formation sibling to the other and
+        /// resets both screens' entry state, so the screen switched to announces its
+        /// heading and cursor row, and switching back announces again. A no-op unless
+        /// the sibling is the current sub-screen, so opening either screen from the
+        /// root menu (or at camp open) is left to the normal path.
+        /// </summary>
+        private static void SwitchFormationSibling(string target, string source)
+        {
+            if (!IsCampOpen) return;
+
+            string sibling = target == "AssistFormation" ? "PartyFormation" : "AssistFormation";
+            if (_lastRootMenuItemName != sibling) return;
+
+            _lastRootMenuItemName = target;
+            _selectCharState.Reset();
+            _assistState.Reset();
+            _assistEquipListBase = null;
+            _assistCharListBase = null;
+            _assistLastState = -1;
+            DebugLogger.LogState($"CampMenu: {sibling} → {target} (via {source}).");
+        }
+
+        #endregion
+
         #region Update Methods — Party Formation / Assist / Tactics
 
         /// <summary>

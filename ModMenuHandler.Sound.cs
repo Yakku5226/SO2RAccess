@@ -18,13 +18,13 @@ namespace SO2RAccess
         #region Preview State
 
         /// <summary>
-        /// How long the looping enemy-proximity cue plays when previewed. It has
-        /// no natural end, unlike the one-shot cues, so a timer stops it.
+        /// How long a looping cue plays when previewed. Loops have no natural end,
+        /// unlike the one-shot cues, so the mixer stops the preview voice itself.
         /// </summary>
-        private const float ProximityPreviewSeconds = 1.5f;
+        private const float LoopPreviewSeconds = 1.5f;
 
-        /// <summary>Seconds left of the proximity preview; 0 = not previewing.</summary>
-        private float _proximityPreviewRemaining;
+        /// <summary>The loop preview currently sounding, if any.</summary>
+        private MixerVoice _previewVoice;
 
         #endregion
 
@@ -165,45 +165,41 @@ namespace SO2RAccess
 
         /// <summary>
         /// Previews the enemy-proximity cue: centred and at full distance volume,
-        /// so only the user's own volume setting is being judged. Pressing again
-        /// while it plays simply extends it.
+        /// so only the user's own volume setting is being judged.
         /// </summary>
         private bool PreviewProximitySound()
         {
-            if (!SpatialAudioPlayer.IsInitialized) return false;
+            return PreviewLoop(EnemyProximityHandler.CueFile, ModSettings.EnemyProximitySoundVolume);
+        }
 
-            SpatialAudioPlayer.UserVolume = ModSettings.EnemyProximitySoundVolume;
-            SpatialAudioPlayer.SetVolumePan(1f, 0f);
-            if (!SpatialAudioPlayer.IsPlaying)
-                SpatialAudioPlayer.Start();
-            _proximityPreviewRemaining = ProximityPreviewSeconds;
+        /// <summary>
+        /// Plays a looping cue for <see cref="LoopPreviewSeconds"/> at the given
+        /// volume, pan and muffle, replacing any preview already sounding. Returns
+        /// false when the cue's WAV is missing so the menu can say so.
+        /// </summary>
+        private bool PreviewLoop(string cue, float volume, float pan = 0f, float muffle = 0f)
+        {
+            if (!LoopMixer.IsCueAvailable(cue)) return false;
+
+            StopSoundPreview();
+            _previewVoice = LoopMixer.Play(cue, volume, pan, phase01: 0f, autoStopSeconds: LoopPreviewSeconds);
+            if (_previewVoice == null) return false;
+
+            _previewVoice.Set(volume, pan, muffle);
             return true;
         }
 
         /// <summary>
-        /// Counts the proximity preview down and stops it when it expires.
-        /// Called every frame from <see cref="Tick"/>.
-        /// </summary>
-        private void UpdateSoundPreview()
-        {
-            if (_proximityPreviewRemaining <= 0f) return;
-
-            _proximityPreviewRemaining -= UnityEngine.Time.deltaTime;
-            if (_proximityPreviewRemaining <= 0f)
-                StopSoundPreview();
-        }
-
-        /// <summary>
         /// Silences a running preview. Called when leaving the submenu or closing
-        /// the menu so the loop never escapes into normal play; the one-shot cues
+        /// the menu so a loop never escapes into normal play; the one-shot cues
         /// are short enough to be left alone.
         /// </summary>
         private void StopSoundPreview()
         {
-            if (_proximityPreviewRemaining <= 0f) return;
+            if (_previewVoice == null) return;
 
-            _proximityPreviewRemaining = 0f;
-            SpatialAudioPlayer.Stop();
+            _previewVoice.Stop();
+            _previewVoice = null;
         }
 
         #endregion

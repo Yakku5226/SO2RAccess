@@ -30,6 +30,36 @@ bubble_big.wav used for fishing spot arrival by cdonahueucsd
   https://freesound.org/s/337133/
   License: Attribution 4.0
 
+Manual navigation beacons (looping, panned toward nearby objects):
+
+  "correct" used for the NPC beacon (NavNpc.wav) by ertfelda
+    https://freesound.org/s/243701/
+    License: Creative Commons 0
+
+  "Bolt Lock 5" used for the chest beacon (NavChest.wav) by LordForklift
+    https://freesound.org/s/448416/
+    License: Creative Commons 0
+
+  "Gate Latch" used for the door and exit beacon (NavDoor.wav) by mhtaylor67
+    https://freesound.org/s/126041/
+    License: Creative Commons 0
+
+  "GLEAM-GLOW-SFX-CHIME" used for the location beacon (NavLocation.wav) by newagesoup
+    https://freesound.org/s/351408/
+    License: Creative Commons 0
+
+  "Jump_C_04" used for the jump point beacon (NavJump.wav) by cabled_mess
+    https://freesound.org/s/350906/
+    License: Creative Commons 0
+
+  "Marimba note struck" used for the save point beacon (NavSave.wav) by LloydEvans09
+    https://freesound.org/s/185833/
+    License: Creative Commons 0
+
+Wall proximity tones (Wall_front.wav, Wall_right.wav, Wall_behind.wav,
+Wall_left.wav) were generated for this mod: band-passed noise "breath" loops
+at 587, 494, 294 and 392 Hz.
+
 
 Using your own sounds
 ---------------------
@@ -48,6 +78,22 @@ survives mod updates. The file names are:
     GaugeFill.wav      bonus gauge filled
     Enemynearby.wav    enemy proximity loop
     bubble_big.wav     fishing spot reached
+    Wall_front.wav     wall ahead (loop)
+    Wall_right.wav     wall to the right (loop)
+    Wall_behind.wav    wall behind (loop)
+    Wall_left.wav      wall to the left (loop)
+    NavNpc.wav         NPC beacon (loop)
+    NavChest.wav       unopened chest beacon (loop)
+    NavDoor.wav        door / exit beacon (loop)
+    NavLocation.wav    location and warp beacon (loop)
+    NavSave.wav        save point beacon (loop)
+    NavJump.wav        jump-down ledge beacon (loop)
+    NavStairs.wav      stairs and ladder beacon (loop) — NOT bundled; drop
+                       your own file here to give stairs a sound
+    NavBump.wav        wall bump (one short hit) — NOT bundled and not yet in
+                       the menu; reserved for a future release
+
+The looping cues are played end to end, so a seamless loop file sounds best.
 
 Cues must be integer PCM WAV files — 16-bit is recommended, and volume
 control in the mod settings menu only applies to 8-bit and 16-bit audio.

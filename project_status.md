@@ -37,6 +37,200 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> 🚀 **v0.4.0 RELEASED (2026-09-06, end of session 13).** https://github.com/Yakku5226/SO2RAccess/releases/tag/v0.4.0
+> Middle-number bump (user's call): the whole manual-navigation sound system ships — LoopMixer, wall tones
+> (default OFF, slider 2–8 m), object beacons (NPC / chest / door / location / save / jump; stairs placeholder),
+> two new F4 submenus — plus the day's fixes (R2 Party↔Assault swap, camp quick heal, battle log flood, dodge
+> double-fire guard, save-point marimba). Release build 0 warnings. Zip = `SO2RAccess-0.4.0\` root, asset
+> `SO2RAccess.zip`: SO2RAccess.dll (Release), Tolk.dll, nvdaControllerClient64.dll, README.md, LICENSE,
+> KNOWN_ISSUES.md, SOUND_CREDITS.txt, TRANSLATING.md, lang\ (fr/de/sv/pt/zh-Hans). MelonInfo 0.4.0.
+> **User decision on the wall audit:** "good enough" — wall tones stay opt-in at ~0.2 % false on short walked
+> links (steep spots); KNOWN_ISSUES has the caveat. **Wall bump cue = FRAMEWORK ONLY:** `NavCueKind.Bump`
+> (`NavBump.wav`, not bundled), detector `ManualNavHandler.UpdateBump` (push stick / WASD while position does
+> not change ≥ 0.15 s → one-shot via LoopMixer autoStop 0.5 s, repeat 0.6 s, new direction at once), hidden from
+> the menu because `NavCues.All` omits Bump, default disabled. Loc keys `mod_menu_label_wall_bump(_volume)`
+> already in all six files. **TODO:** pick the bump sound → gzip `soundcues\NavBump.wav.gz` → add Bump to
+> `NavCues.All` after WallLeft → credit it. Also still open: stairs sound (`NavStairs.wav`), rear-mode
+> preference, spoken-directions quality opinion, guide reminder row test.
+
+> 🔧 **2026-09-06 (session 13): FIRST SOUND TEST DONE — two fixes built, ⏳ UNTESTED, NOT committed.**
+> User tested all the manual-navigation sounds: "still a bit overwhelming, will have to get used to it" (no
+> tuning request yet; the range row 10/15/20/30 m and per-cue toggles are the levers if it stays too much).
+> Two problems reported, both fixed in this build (DLL copied to Mods):
+> 1. **Save points played the location shimmer.** By design the location cue covered markers + save points +
+>    warps; the user hears the shimmer as "unique locations only". New cue `NavCueKind.Save` → `NavSave.wav`
+>    (= the user's reserve pick "Marimba note struck", fs 185833, LloydEvans09, CC0; `soundcues\NavSave.wav.gz`,
+>    credited in SOUND_CREDITS.txt + README). Own on/off + volume rows ("Save point beacon") right after the
+>    Location rows; `NavCues.All` is now an explicit ordered array. Warps still share the location shimmer.
+>    ⏳ ASK: is the marimba OK for save points, or should it be another sound?
+> 2. **R2 on Party Formation opened a silent screen.** It is Assault Formation (game's label for the
+>    `AssistFormation` root item). R2/L2 swap the two sibling selectors WITHOUT returning to the root menu, so
+>    `_lastRootMenuItemName` stayed "PartyFormation" and `UpdateAssistSettingSelector` was gated out (log 11:07:
+>    only "ListSelection ... suppressed (dedicated handler owns it)"). Fix: `SyncFormationSiblingScreen` polls
+>    `UICampWindow.selectorStack.Peek()` each frame + Show() postfixes on both selectors; either flips the gate
+>    and resets both SubScreenStates so heading + row are spoken, and swapping back speaks again. Logged as
+>    `CampMenu: PartyFormation → AssistFormation (via stack|Show)`. Documented in game-api.md §17.
+>    ⏳ TEST: Party Formation → R2 → expect "Assault formation." + the first slot row; L2 → "Party formation." +
+>    character row. If still silent, the log line "selector stack top is now ..." says what the game did.
+> 3. **Distance sliders (user request, same session).** New `Metres()` row builder (ModMenuHandler.cs, ±1 m per
+>    press, stops at the ends, no wrap). Wall sounds menu gained "Wall sound start distance" 2–15 m (default 6,
+>    `ModSettings.WallRangeMeters`; passed into `WallProbe.ProbeAround(range)` and the gain ramp — the probe's
+>    `Range` const 6 m now only serves the audits). Beacon range became a 5–20 m slider (was 10/15/20/30
+>    choices; old saved 30 clamps to 20). Persisted as `WallRangeMeters`. Loc key `mod_menu_label_wall_range`
+>    in all six files (en 817 / others 800). README updated. ⏳ TEST both rows, and whether a long wall range
+>    (say 15 m) causes false tones — it probes further over unaudited floor.
+> ✅ User tested 1–3 (11:42–11:56 log): "all appears to be working well" — R2 swap announced via the Show
+>    postfix (`PartyFormation → AssistFormation (via Show)`), save beacons started as `Save`, sliders fine.
+> 4. **Dodge cue "harder to dodge" (user report).** Log audit: the cue is PlaySound async, fired inside the game's
+>    own `DoAttackNotify` postfix, speech in that fight was sparse — NO mod-side delay path found. Two things fixed
+>    anyway: (a) DEBUG LOG FLOOD in battle — `BattleMenu: operation selector active but window IsOpened=false`
+>    every frame (5,700 lines in one fight) + `unhandled selector on stack: UIBattleResultSelector` (1,600) —
+>    MelonLogger writes synchronously, so F12-on battles stuttered; both now latch (log once per state change).
+>    (b) `DoAttackNotify` fires TWICE ~50 ms apart for some attacks; PlaySound restarted the cue → stutter; now
+>    one warning per 150 ms window. ⏳ ASK the user to judge dodging with F12 OFF; if still late, the game's own
+>    flash timing is the limit (we fire at the same instant as the flash).
+> 5. **Camp quick heal silent (D-pad Right on the camp root menu).** A GAME feature (binding CampQuickRecovery),
+>    separate class `UICampQuickRecoverySelector`; the camp window reports IsOpened=false while it shows, so the
+>    mod thought the camp closed. `QuickRecoveryHandler` now handles both variants: Show/Hide/ForceHide postfixes
+>    flag the camp dialog, `CurrentList()/CurrentChoice()` read whichever is open, heading/Yes-No/party status/
+>    result all shared; new `FieldState` gate `IsCampRecoveryOpen`. game-api.md §17. ⏳ TEST: camp → D-pad Right →
+>    "Quick Recovery. Recover party? ..." then Yes/No + result.
+> 6. **F11 WALL AUDIT (12:49 Lasgus, 12:52 Krosse): FAIL on both → TUNING ROUND 1 applied (the one allowed).**
+>    Floor grid audit PASSED on both (1548/1548 + 1499/1499, 0 drop violations). Wall probe: Lasgus 2,749 false
+>    walls / 18,814 walked edges (Face 2,512, FloorStep 237), Krosse 469 / 16,436 (Face 426, FloorStep 27,
+>    FloorGap 16). Top offenders were all OUTSIDE the game's foot wall mask: L24 Mesh_Col/Mesh_L0/Col_Height
+>    (floor meshes), L25 Blend/In_House/Camera_Blend_Box/Bridge/Center (camera + area volumes), L27
+>    FootstepCollision, L10 Global Volume, L20 Crossing; plus L22 MapCollision 60 / L15 collider 32 in Krosse at
+>    0.5–0.7 m (knee ray vs climbable steps). Changes in `WallProbe`: face rays use `GameRenderManager.LayerMaskWall`
+>    (live, fallback 0x04E28000) only; knee ray 0.35 → 0.6 m (above MaxStepY 0.5); floor rays skip volume layers
+>    10/25/27. ALSO FIXED: `ProbeDirection` clamped range to 6 m, so the new wall slider had no effect above 6 —
+>    now `MaxRange` 15. Wall tones STILL DEFAULT OFF. ⏳ RE-AUDIT: F12, F11 on both maps → need
+>    `[WALLAUDIT] RESULT PASS` (0 false walls). If it fails again → REMOVE the four wall rows + WallProbe drive,
+>    keep beacons (user rule, no second tuning round).
+> ✅ Fights: user says better; log shows the battle log flood gone (2 + 1 lines instead of thousands) and the
+>    double-fire guard triggered once in 11 warnings.
+> 7. **RE-AUDIT after round 1 (13:01): Krosse 469 → 119, Lasgus 2,749 → 331 — still FAIL.** User asked for one
+>    more attempt before dropping walls ("anything else you can do?") and to CAP the wall slider at 8 m.
+>    Evidence: Lasgus 274 of 331 = FloorStep on L24 floor meshes (walked slopes failing the 0.5 m-per-0.75 m
+>    rule, which is STRICTER than the breadcrumb-validated grid rule of 1.0 m per 1.5 m cell); Krosse 60 L22 +
+>    32 L15 Face hits on 2.8–4.1 m breadcrumb links — TraversalGraph merges nodes within 1.6 m, so long straight
+>    links clip corners the player walked round = audit artefact, not a probe fault. LIVE readouts this session
+>    (66 `[WALLS]` lines, walls switched on by the user) showed ONLY 'MapCollision'/L22 faces — no volumes.
+>    ROUND 2 applied: floor walk uses the validated rule over a two-sample window (`MaxWindowY` 1.0 m) + 0.75 m
+>    per-sample cap; audit now logs short links (≤ 2 m) separately (`short links: N false on M judged`);
+>    `WallProbe.MaxRange` + `ModSettings.WallRangeMax` = 8. Reference mod (E:\SO2r_SR_test.zip, decompiled in
+>    reference-mods\) checked: its "sonar" is a single 3 m raycast per side on ALL layers at 0.8 m height with no
+>    normal/layer filtering — cruder than ours, nothing to borrow for precision. Its one strong idea: a "wall
+>    bump" cue that fires only when the player pushes the stick and the position does not change (true blockage,
+>    zero false positives by construction). PROPOSED to the user as an addition, not built.
+>    RE-AUDIT after round 2 (13:57): Lasgus 331 → 101 (short links 13 false / 7,076; long 88 / 11,844);
+>    Krosse 119 → 112 (short 15 / 6,056; long 97 / 10,380). Floor grid audits PASS on both. Remaining short-link
+>    false walls are all at steep walked spots (1.0–1.1 m rise over 1.5–2 m, ratio ≥ 0.55; stair faces on
+>    L22 in Krosse; one 16-edge FloorGap cluster around Krosse (33–35, 8.7, 78) where the floor ray finds no
+>    solid floor). ⏳ USER DECISION PENDING: drop the wall tones (the rule), or keep them opt-in (default OFF)
+>    at ~0.2 % false on short links, and/or add the reference mod's "bump on real blockage" cue.
+> ✅ Camp quick heal WORKED (13:02:50 party status, 13:02:54 result) — "Recovery complete.." double period fixed.
+> ✅ Dodge: the 13:02 fight had ONE attack notify (13:02:10) → one cue; the cue mirrors the game's own incoming-
+>    attack flash exactly, attacks without that flash never announce; Welch ended at full HP.
+> Still pending from the plan below: F11 wall audit results on Lasgus + Krosse (wall tones still default OFF),
+> rear-mode preference, stairs sound, older untested items. Lang files: en 816 keys, others 799 (same 17-key gap).
+
+> ⏳ **NEXT SESSION (2026-09-06): TEST THE MANUAL NAVIGATION SOUNDS.** User said "I will test tomorrow."
+> The DLL in the game's Mods folder is the current build (2026-09-05 evening, builds clean). Nothing committed.
+> Start the session by asking for the results of the steps below, in order; each step is independent, so partial
+> results are fine. Record every result here, then act on the "Claude then does" lines.
+>
+> **Before starting:** wall tones are switched OFF by default (rule: no geometry aid before its audit passes).
+> Everything else (beacons, enemy cue) is on. No new keys were added — everything is in the F4 menu.
+>
+> **Step 1 — audio engine sanity (any field map, 2 minutes).**
+> - Walk near a field enemy: the enemy proximity loop should still fade in, pan toward the enemy, and stop when
+>   you move away or a dialogue/menu opens.
+> - F4 → Sound and announcements → move to "Enemy proximity sound" and press Space (Square on pad): the loop
+>   should play for about 1.5 seconds and stop by itself. Try two or three other rows too.
+> - Report: does it sound the same as before? Any clicks, stutter, or a sound that keeps going after the menu
+>   closes? (A stuck sound would be a mixer bug — nothing else can produce it now.)
+>
+> **Step 2 — F11 wall audit (Lasgus Mountains MF_0014_01A and Krosse Cave MF_0008_01A).**
+> - Stand anywhere on the map, F12 (debug mode on), then F11. It speaks the floor-grid audit line first, then
+>   "Wall probe audit: N false walls on M walked edges, wall density P percent." Do it on BOTH maps.
+> - Report the two spoken lines (or just say "done" — Claude reads MelonLoader\Latest.log for the
+>   `[WALLAUDIT]` lines, including the collider/layer evidence for every false wall).
+> - Claude then does: PASS on both (0 false walls, density clearly above 0) → flip the wall default to ON in
+>   `NavCues.Defaults` (`Enabled = !IsWall(kind)` → `Enabled = true`), rebuild. FAIL → ONE documented tuning
+>   round from the evidence (exclude a named layer, or the step ratio), re-audit; still failing → remove the four
+>   wall rows and the WallProbe drive, keep beacons (user rule).
+>
+> **Step 3 — wall tones live (after Step 2 PASS, or to preview them regardless).**
+> - F4 → Wall sounds → turn on the four "… sound" rows (Space previews each: ahead and behind are centred and
+>   differ in pitch, right is in the right ear, left in the left).
+> - In a town or dungeon, face a wall and walk toward it: the ahead tone should rise from silent at about 6 m to
+>   full at touching distance. Turn the camera a quarter turn: the same wall should move to the side tone.
+> - Lasgus: stand at the foot of the slope you walked before (around x −35, y 9, z 31) facing up it and walk to
+>   the top: NO wall tone ahead while the way is open. Stand in an open field: all four silent.
+> - While auto-walking (nav list + `\` or L2 + stick up) the wall tones go quiet on purpose; beacons stay.
+> - Report: any tone that played where you could walk (false wall), any wall that stayed silent, and whether
+>   the four tones are easy to tell apart. Claude reads `[WALLS]` debug readouts if F12 was on.
+>
+> **Step 4 — object beacons (a town, e.g. Salva or Krosse).**
+> - Default range 15 m, nearest 6 objects play. NPC = short "correct" hit every 1.2 s, chest = bolt-lock hit,
+>   door/exit = gate latch every 3 s, location/save/warp = shimmer, jump ledge = jump hit (only ledges you have
+>   jumped before). Stairs/ladders are silent (placeholder, see below).
+> - Turn the camera with an NPC nearby: the beacon should swing between the ears; approach: louder; talk to
+>   them: everything goes quiet, and resumes after. Open a chest: its beacon stops (within 10 s at most).
+> - F4 → Object beacons → "Beacons behind you": Space previews the NPC beacon as if behind you; press Right to
+>   switch Muffled ↔ Quieter only and preview again. Then walk past an NPC in town and listen to the change.
+> - Report: does panning match where things are? Is six at once too many (there is a range row 10/15/20/30)?
+>   Which rear mode do you prefer, or keep the toggle?
+>
+> **Still open afterwards:** pick a stairs/ladder sound (`NavStairs.wav`, drop it into
+> `UserData\SO2RAccess\Sounds` to try it, then Claude bundles it); older untested items (climb points in the
+> nav list, spoken-directions quality, guide reminder row). Then commit everything; version bump = user's call
+> (Claude proposes the third number).
+
+> 🔊 **MANUAL NAVIGATION SOUNDS (2026-09-05, session 12) — BUILT CLEAN, ⏳ UNTESTED, NOT committed.**
+> Plan (user-approved): `C:\Users\Jaco\.claude\plans\enumerated-zooming-reddy.md`. User decisions: walls = volume
+> only (no pitch); rear beacons = BOTH "Muffled" and "Quieter only" as a menu choice (Muffled default); stairs/ladder
+> beacon = placeholder slot `NavStairs.wav` (user will pick a sound; Marimba stays unallocated); NO master key —
+> every cue has its own on/off + volume in the mod menu.
+> - **Audio:** `SpatialAudioPlayer.cs` DELETED → `LoopMixer.cs` (one waveOut device, 44.1 kHz, 4 × 25 ms buffers,
+>   N voices summed) + `MixerVoice.cs` (50 ms gain ramps, constant-power pan, one-pole low-pass "muffle", auto-stop
+>   for previews, STALE RULE: a voice not `Set()` for 0.5 s fades to silence — covers menu-open/handler-stall) +
+>   `SoundBank.cs` (load-once cue cache, resamples to 44.1 k). Enemy proximity cue and menu previews migrated
+>   (`EnemyProximityHandler` holds a voice; `ModMenuHandler.Sound.cs` `PreviewLoop(cue, vol, pan, muffle)`).
+>   `LoopMixer.Update(dt)` runs from `Main.OnUpdate` every frame (closes the device after 10 s idle).
+> - **Walls:** `WallProbe.cs` — per camera direction: (A) floor walk, downward RaycastAll every 0.75 m out to 6 m,
+>   obstacle when |Δy| > 0.5 m (= FloorProbeGrid.MaxStepRatio 0.67 × step) or no floor; (B) knee (0.35 m) + waist
+>   (0.9 m) horizontal rays, ONLY hits with |normal.y| < 0.4 count (slope faces ignored). Mask = everything but
+>   player layer 6; `FloorProbeGrid.IsSolidFloorCollider` (now internal) shared. Never trusts the game's wall mask.
+> - **Audit gate (F11, debug):** `NavigationHandler.WallProbeAudit.cs` `RunWallProbeAudit` — every breadcrumb edge
+>   (minus one-way drops / ratio ≥ 1.2 ledges) probed along its direction; FALSE WALL = obstacle nearer than the
+>   edge end − 0.3 m; logs `[WALLAUDIT]` per false wall with test + collider + layer, totals by test/collider, wall
+>   density %, `RESULT PASS/FAIL`; spoken (`debug_wallaudit_result`). Runs right after `RunFloorGridAudit` on F11.
+>   **WALL TONES DEFAULT OFF until PASS on Lasgus MF_0014_01A + Krosse MF_0008_01A** (NavCues.Defaults) — flip
+>   `Enabled = !IsWall(kind)` → `true` after the gate passes. FAIL → one documented tuning round (layer exclusion
+>   from the collider evidence, or the step ratio), then drop walls, keep beacons.
+> - **Handler:** `ManualNavHandler.cs` (+ `.Beacons.cs`), ticks every 0.1 s, gates: `FieldState.IsFieldFree`, not
+>   world map, any cue enabled; walls muted while `IsAutoWalking`; wall gain linear 6 m → 0.6 m, left/right hard
+>   panned, front/behind centre; wall voice released after 2 s silence. Beacons: `NavigationHandler.Beacons.cs`
+>   `TryGetBeaconTargets` reads `_categories` via `EnsureListReady(allowRefresh: userIdle, fromUser: false)`
+>   (new `_lastNavKeyTime` stamp: never refreshes within 10 s of a modeless nav key, so item order stays stable);
+>   map: NPC→NavNpc, unopened chest (`NavItem.Consumed` flag)→NavChest, exits+stone doors→NavDoor,
+>   markers+save points+warps→NavLocation, stairs+climb→NavStairs (placeholder), `_traversal.OneWayDrops` high
+>   ends (dedupe 2 m)→NavJump. Nearest 6 within `BeaconRangeMeters` (10/15/20/30, default 15); gain linear to
+>   1.5 m; pan = camera-right component; rear = −forward component → Muffled (muffle=rear, ×0.6) or QuieterOnly
+>   (×0.5). Debug: `[WALLS]` readout every 0.5 s, `[BEACON] start …`.
+> - **Settings/menu:** `NavCues.cs` (`NavCueKind`, `BeaconRearMode`, `CueSetting`, file names, label keys);
+>   `ModSettings.NavCue(kind)` dictionary persisted as `NavCues` {kind: {Enabled, Volume}} + `BeaconRear` +
+>   `BeaconRangeMeters`. Two new root submenus (`ModMenuHandler.NavSounds.cs`): "Wall sounds", "Object beacons"
+>   (rear row previews the NPC beacon as if behind you). Loc: 30 new keys, all six files (en 814; others 797 —
+>   pre-existing 17-key gap from the en-only guide keys remains). `soundcues\` gained 9 gz files; SOUND_CREDITS.txt
+>   updated; `NavStairs.wav` NOT shipped (user override folder or soundcues later).
+> - **TEST ORDER:** (1) enemy cue + Sound menu previews still work, no clicks; (2) F11 on Lasgus + Krosse →
+>   `[WALLAUDIT] RESULT PASS`; (3) enable wall tones → approach a wall, turn camera, climb the Lasgus slope
+>   (must stay silent ahead), open field silent; (4) beacons in town (NPC pans/louder/quiet in dialogue; opened
+>   chest stops; entrance latches every 3 s); rear-mode comparison. Then commit; version bump = user's call.
+
 > ✅ **COMMITTED + PUSHED 2026-09-05 (end of session 11): spoken directions
 > released to all players, floor-grid routes, climb points, sound bundling.**
 > The L2 + stick-DOWN gesture's debug gate is REMOVED (Main.ProcessGamepad) —

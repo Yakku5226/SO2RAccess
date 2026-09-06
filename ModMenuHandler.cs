@@ -102,12 +102,11 @@ namespace SO2RAccess
 
         /// <summary>
         /// Per-frame housekeeping, called from Main.OnUpdate() whether the menu
-        /// is open or not. Its only job is ending a timed sound preview; it runs
-        /// even while closed so a preview can never be left looping.
+        /// is open or not. Preview loops stop on the mixer's own timer now, so
+        /// there is nothing to count down; kept as the menu's per-frame hook.
         /// </summary>
         public void Tick()
         {
-            UpdateSoundPreview();
         }
 
         /// <summary>
@@ -318,6 +317,8 @@ namespace SO2RAccess
             _items = new List<ModMenuItem>
             {
                 Submenu("mod_menu_label_sound_group", OpenSoundScreen),
+                Submenu("mod_menu_label_wall_sounds_group", OpenWallSoundsScreen),
+                Submenu("mod_menu_label_beacon_sounds_group", OpenBeaconSoundsScreen),
                 Submenu("mod_menu_label_language_group", OpenLanguageScreen),
                 Submenu("mod_menu_label_keybinds", OpenRebindScreen)
             };
@@ -394,6 +395,17 @@ namespace SO2RAccess
                 GetValue = () => $"{(int)(get() * 100)}%",
                 Change = delta => set(ClampVolume(get() + delta * 0.1f)),
                 Preview = preview
+            };
+        }
+
+        /// <summary>A distance row in whole metres, stepped by 1 per left/right press, stopping at the ends.</summary>
+        private static ModMenuItem Metres(string labelKey, Func<int> get, Action<int> set, int min, int max)
+        {
+            return new ModMenuItem
+            {
+                LabelKey = labelKey,
+                GetValue = () => Loc.Get("mod_menu_metres", get()),
+                Change = delta => set(Math.Clamp(get() + delta, min, max))
             };
         }
 

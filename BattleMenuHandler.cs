@@ -52,6 +52,13 @@ namespace SO2RAccess
         private int _lastPhase = -1;
         private bool _wasWindowOpen;
 
+        // Debug-log latches: these two conditions hold for hundreds of frames in a
+        // row (the whole battle result screen, for one), and MelonLogger writes to
+        // the console and file synchronously — logging them every frame cost real
+        // frame time while F12 was on (5,700 + 1,600 lines in one fight, 2026-09-06).
+        private bool _loggedOperationSelectorWhileClosed;
+        private string _loggedUnhandledSelector;
+
         // Phase A: Root menu polling
         private int _lastMenuIndex = -1;
 
@@ -327,11 +334,22 @@ namespace SO2RAccess
                     // reports closed, this pinpoints why Phase F stays silent.
                     if (Main.DebugMode && _operationSelector != null &&
                         _operationSelector.gameObject.activeInHierarchy)
-                        DebugLogger.LogState(
-                            "BattleMenu: operation selector active but window IsOpened=false.");
+                    {
+                        if (!_loggedOperationSelectorWhileClosed)
+                        {
+                            _loggedOperationSelectorWhileClosed = true;
+                            DebugLogger.LogState(
+                                "BattleMenu: operation selector active but window IsOpened=false.");
+                        }
+                    }
+                    else
+                    {
+                        _loggedOperationSelectorWhileClosed = false;
+                    }
                     return;
                 }
                 _wasWindowOpen = true;
+                _loggedOperationSelectorWhileClosed = false;
 
                 // Detect active sub-screen via selector stack
                 var peekSelector = _battleWindow.GetPeekSelector();
@@ -364,6 +382,7 @@ namespace SO2RAccess
         private void ResetAllState()
         {
             _lastPhase = -1;
+            _loggedUnhandledSelector = null;
             ResetPollingState();
             ClearHookCaches();
         }
@@ -425,8 +444,12 @@ namespace SO2RAccess
                 peekSelector == (UISelectorBase)_operationSelector)
                 return PHASE_OPERATION;
 
-            DebugLogger.LogState(
-                $"BattleMenu: unhandled selector on stack: {peekSelector.GetIl2CppType()?.Name}");
+            string unhandled = peekSelector.GetIl2CppType()?.Name;
+            if (unhandled != _loggedUnhandledSelector)
+            {
+                _loggedUnhandledSelector = unhandled;
+                DebugLogger.LogState($"BattleMenu: unhandled selector on stack: {unhandled}");
+            }
             return PHASE_OTHER;
         }
 

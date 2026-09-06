@@ -51,3 +51,27 @@ not announce which party member is selected by default.
   who is currently selected.
 - Why: the game announces the recipe before the mod can tell which character is highlighted,
   so the name cannot be read at the moment the skill opens.
+
+## Manual navigation sounds — what the beacons and wall tones cannot know
+
+- **Jump point beacons only mark ledges you have already jumped down once.** The game has no
+  list of jump-down ledges; the mod learns them from your own walks (the same breadcrumb data
+  that powers "reachable" checks). A ledge you have never used stays silent until you find it
+  with the game's own "press X to jump" prompt.
+- **Stairs and ladder beacon has no sound yet.** The row is in the menu and the mod looks for
+  `NavStairs.wav` in `UserData\SO2RAccess\Sounds`; until a file is there, stairs and ladders
+  are silent in this mode (they are still in the navigation list).
+- **Very narrow gaps can sound closed.** The wall probe samples the floor every 0.75 m, so an
+  opening narrower than that may play a wall tone even though the character fits. Walk up to
+  it; the tone does not stop you.
+- **Wall tones are muted during auto-walk** on purpose — the mod is steering, and the tones
+  would only be noise. Beacons keep playing.
+- **Wall tones are off by default and can be wrong at very steep spots.** They only count the
+  game's own wall layers and ignore climbable slopes, but a place where you climb a metre or
+  more within a step or two (rough mountain paths, some cave stairs) can still play a tone.
+  In the audit on Lasgus Mountains and Krosse Cave that happened on about one walked link in
+  five hundred. Turn them on in Wall sounds if you want them; keep the start distance short
+  (the slider stops at 8 m) to hear fewer distant guesses.
+- **Wall bump sound is not available yet.** The mod already knows when you push against
+  something and do not move — a bump that cannot be wrong — but no sound has been chosen, so
+  it is hidden from the menu for now.

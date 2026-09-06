@@ -34,6 +34,8 @@ namespace SO2RAccess
 
                 if (CampMenuHandler.IsCampOpen) return false;
                 if (ShopHandler.IsShopOpen) return false;
+                // The camp quick heal dialog closes the camp window while it shows.
+                if (QuickRecoveryHandler.IsCampRecoveryOpen) return false;
                 return true;
             }
             catch (Exception ex)

@@ -29,6 +29,9 @@ namespace SO2RAccess
         /// </summary>
         private const float ListRefreshSeconds = 10f;
 
+        /// <summary>When a modeless nav key last used the list (Time.time); see EnsureListReady.</summary>
+        private float _lastNavKeyTime = -1000f;
+
         /// <summary>
         /// Modeless: previous category. Rebuilds the list first when stale.
         /// Returns true if the key press was acted on.
@@ -100,9 +103,16 @@ namespace SO2RAccess
         /// Returns false — silently, so the key passes through to the game —
         /// when the field is not free (menus, dialogue, battle).
         /// </summary>
-        private bool EnsureListReady(bool allowRefresh)
+        /// <param name="allowRefresh">Rebuild when older than <see cref="ListRefreshSeconds"/>.</param>
+        /// <param name="fromUser">
+        /// True for the modeless keys (the default). The beacon system passes false
+        /// and refreshes only when the user has not touched the list for a while, so
+        /// item order never changes under a cursor that is being cycled.
+        /// </param>
+        private bool EnsureListReady(bool allowRefresh, bool fromUser = true)
         {
             if (!IsFieldFree()) return false;
+            if (fromUser) _lastNavKeyTime = Time.time;
 
             FieldmapID currentMap = FieldmapID.INVALID;
             try

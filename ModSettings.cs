@@ -169,6 +169,28 @@ namespace SO2RAccess
         /// </summary>
         public static string Language { get; set; } = "auto";
 
+        /// <summary>On/off and volume of each manual-navigation cue (walls and beacons).</summary>
+        private static readonly System.Collections.Generic.Dictionary<NavCueKind, CueSetting> _navCues =
+            NavCues.Defaults();
+
+        /// <summary>Settings of one manual-navigation cue; mutate the returned object.</summary>
+        public static CueSetting NavCue(NavCueKind kind) => _navCues[kind];
+
+        /// <summary>How beacons behind the player are distinguished. Default muffled.</summary>
+        public static BeaconRearMode BeaconRear { get; set; } = BeaconRearMode.Muffled;
+
+        /// <summary>Beacons farther than this (m) are silent. Menu slider 5 to 20 m (user request 2026-09-06).</summary>
+        public static int BeaconRangeMeters { get; set; } = 15;
+        public const int BeaconRangeMin = 5, BeaconRangeMax = 20;
+
+        /// <summary>
+        /// A wall tone starts (silent) at this distance (m) and is at full volume when
+        /// touching; also how far the wall probe looks. Menu slider 2 to 8 m (capped at 8 on
+        /// the user's request 2026-09-06: a long probe over unaudited floor invites false tones).
+        /// </summary>
+        public static int WallRangeMeters { get; set; } = 6;
+        public const int WallRangeMin = 2, WallRangeMax = 8;
+
         #endregion
 
         #region Persistence
@@ -229,6 +251,20 @@ namespace SO2RAccess
                         : EventNpcDisplayMode.Both;
                     NpcAwarePathfindingEnabled = data.NpcAwarePathfindingEnabled;
                     Language = string.IsNullOrWhiteSpace(data.Language) ? "auto" : data.Language.Trim();
+                    if (data.NavCues != null)
+                    {
+                        foreach (var pair in data.NavCues)
+                        {
+                            if (!Enum.TryParse(pair.Key, out NavCueKind kind) || pair.Value == null) continue;
+                            _navCues[kind].Enabled = pair.Value.Enabled;
+                            _navCues[kind].Volume = Math.Clamp(pair.Value.Volume, 0f, 1f);
+                        }
+                    }
+                    BeaconRear = Enum.IsDefined(typeof(BeaconRearMode), data.BeaconRear)
+                        ? (BeaconRearMode)data.BeaconRear
+                        : BeaconRearMode.Muffled;
+                    BeaconRangeMeters = Math.Clamp(data.BeaconRangeMeters, BeaconRangeMin, BeaconRangeMax);
+                    WallRangeMeters = Math.Clamp(data.WallRangeMeters, WallRangeMin, WallRangeMax);
                     ApplyKeyBindings(data.KeyBindings);
                 }
                 MelonLogger.Msg("ModSettings: loaded.");
@@ -276,6 +312,10 @@ namespace SO2RAccess
                     EventNpcDisplay = (int)EventNpcDisplay,
                     NpcAwarePathfindingEnabled = NpcAwarePathfindingEnabled,
                     Language = Language,
+                    NavCues = CollectNavCues(),
+                    BeaconRear = (int)BeaconRear,
+                    BeaconRangeMeters = BeaconRangeMeters,
+                    WallRangeMeters = WallRangeMeters,
                     KeyBindings = CollectKeyBindingOverrides()
                 };
 
@@ -320,6 +360,15 @@ namespace SO2RAccess
                 ModKeys.Apply(overrides);
                 MelonLogger.Msg($"ModSettings: applied {overrides.Count} key-binding override(s).");
             }
+        }
+
+        /// <summary>Manual-navigation cue settings as kind-name → setting, for the settings file.</summary>
+        private static System.Collections.Generic.Dictionary<string, CueSetting> CollectNavCues()
+        {
+            var result = new System.Collections.Generic.Dictionary<string, CueSetting>();
+            foreach (var pair in _navCues)
+                result[pair.Key.ToString()] = new CueSetting { Enabled = pair.Value.Enabled, Volume = pair.Value.Volume };
+            return result;
         }
 
         /// <summary>
@@ -371,6 +420,12 @@ namespace SO2RAccess
             public int EventNpcDisplay { get; set; } = (int)EventNpcDisplayMode.Both;
             public bool NpcAwarePathfindingEnabled { get; set; } = true;
             public string Language { get; set; } = "auto";
+
+            /// <summary>Manual-navigation cues: kind name → on/off and volume. Missing kinds keep their defaults.</summary>
+            public System.Collections.Generic.Dictionary<string, CueSetting> NavCues { get; set; }
+            public int BeaconRear { get; set; } = (int)BeaconRearMode.Muffled;
+            public int BeaconRangeMeters { get; set; } = 15;
+            public int WallRangeMeters { get; set; } = 6;
 
             /// <summary>
             /// User key-binding overrides: mod action name → keyboard key name.

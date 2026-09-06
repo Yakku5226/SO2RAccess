@@ -150,6 +150,7 @@ namespace SO2RAccess
             UpdateBattleSkillSettingSelector();
             UpdateFormationSelector();
             UpdateSkillSelector();
+            SyncFormationSiblingScreen();
             UpdatePartyFormationSelector();
             UpdateAssistSettingSelector();
             UpdateTacticsSelector();

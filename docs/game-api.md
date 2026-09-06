@@ -835,6 +835,45 @@ type. `ListSelectionHandler.WasRecentlySelected(typeName, window)` exposes this;
 GuildHandler.PollGuildQuests requires a recent `UIQuestListItemPresenter` selection before
 announcing — the pattern to reuse for any other selector that wakes stale.
 
+### Party Formation ↔ Assault Formation swap with R2 / L2 (2026-09-06)
+
+- The two Operations children are sibling screens: on the Party Formation screen
+  (`UICampWindow.selectCharacterSelector`) R2 swaps straight to Assault Formation
+  (`assistSettingSelector`, root enum `AssistFormation`, on-screen label "Assault
+  Formation") and L2 swaps back, WITHOUT returning to the root menu. The root cursor
+  never moves, so `_lastRootMenuItemName` stayed "PartyFormation" and the assault
+  screen was silent (log 2026-09-06 11:07: only `ListSelection ... suppressed
+  (dedicated handler owns it)` lines, no heading, no rows).
+- Detection (`CampMenuHandler.Party.cs` `SyncFormationSiblingScreen` /
+  `SwitchFormationSibling`): poll `UICampWindow.selectorStack` (inherited from
+  `UIStackSelectorWindowBase`, an `Il2CppSystem` `Stack<UISelectorBase>`) and compare
+  `Peek().Pointer` with the cached selectors each frame; plus Harmony postfixes on
+  `UICampAssistSettingSelector.Show()` and `UICampSelectCharacterSelector.Show()`
+  (parameterless, safe). Both paths log `CampMenu: X → Y (via stack|Show)` so the
+  log shows which one fired. The switch only flips between the two siblings; opening
+  either from the root menu keeps the normal path.
+- Rule: any sub-screen gated on `_lastRootMenuItemName` is blind to in-screen
+  shortcuts that swap selectors. When a screen has such a shortcut, watch the
+  selector stack top instead of trusting the root cursor.
+
+### Camp quick heal — D-pad Right on the camp root menu (2026-09-06)
+
+- A game feature (binding `CampQuickRecovery` = D-pad Right / key 2): the same
+  Yes/No recovery dialog as the field quick heal, but a separate class,
+  `UICampQuickRecoverySelector` (field `quickRecoverySelector` on
+  `UICampMenuSelector`), with the same members as the field one
+  (`recoveryDataList` of `UICommonSelectCharacterStatusSelectItemData`,
+  `currentChoice`). Both execute through `GameManager.QuickRecovery`.
+- While it shows, `UICampWindow.IsOpened` is FALSE — the camp handler logged
+  "window closed" the moment D-pad Right was pressed and "window opened" again when
+  the dialog ended (log 2026-09-06 11:49:19 → 11:49:19.7). So it cannot be found via
+  the camp window / selector stack, and `FieldState.IsFieldFree()` would say free.
+- Handling (`QuickRecoveryHandler`): postfixes on the selector's `Show()`,
+  `Hide(Action)` and `ForceHide()` set/clear `_campOpen`; the field/camp variant is
+  read through `CurrentList()` / `CurrentChoice()`. `IsCampRecoveryOpen` is a new
+  `IsFieldFree()` gate so beacons, wall tones and guidance stay quiet during it.
+  Safety: the flag is dropped if the selector goes inactive without a Hide().
+
 ### Camp menu story hint (speech balloon)
 - Trigger: postfix on `UICampWindow.SetSpeechBalloon(List<UIDotCharacterData>, bool)` — fires
   when the camp screen (re)builds the dot-character strip. Wait ~0.4s then read.
@@ -1023,8 +1062,51 @@ gate for diagnostics.
 - Battle: `BattleManager.AddEnemy/OnDead/StartBattle/FinishBattle` patches for enemy
   announcements and defeat notifications.
 
+## 20. Field Physics, Layers and the Wall Probe (manual navigation sounds)
+
+Learned the hard way across 2026-03 to 2026-09; the rules that survived.
+
+**Layer masks over-report.** `GameRenderManager.LayerMaskWall` (foot mask `0x04E28000` =
+L15 ObjectWall + L17 PsynardWall + L21 GimmickWall + L22 Wall + L23 CharacterWall + L26
+CameraDitherWall) includes layers that do NOT block the player: L15 `collider` volumes and
+L22 `Col_Obstacle_Col*` boxes are walked through freely (SphereCast path validation had to
+be removed 2026-03-15 for exactly this). `FieldPlayer.GetLayerMaskWall()` is per-form
+virtual (bunny `0x00620000`, psynard L17 only). **Never decide "wall" from a layer hit.**
+
+**Slope limits are not in the C# side.** Movement is native (`GameCharacterController`
+task state machine, `FieldCharacterController.OnMove`); no `slopeLimit`/`stepOffset`
+anywhere in `decompiled/`. Blocking comes from colliders, not terrain grade — the world
+map allows ~84° climbs on foot. Any walkability rule must be validated against recorded
+breadcrumbs, never assumed.
+
+**Floor rules that passed the breadcrumb audit 100 % (Lasgus MF_0014_01A, Krosse Cave
+MF_0008_01A, 2026-09-05)** — `FloorProbeGrid`:
+- Downward `Physics.RaycastAll`, mask `~(1 << 6)` (everything but the player layer),
+  `QueryTriggerInteraction.Ignore`.
+- Floor = `hit.normal.y >= 0.4`; ignore triggers, `CapsuleCollider`, `SphereCollider`,
+  `CharacterController` (character bodies) — `FloorProbeGrid.IsSolidFloorCollider`.
+- Walkable step between samples: `|Δy| <= 0.67 × horizontal distance` (about 34°).
+- Player capsule: radius 0.50 m, height 1.70 m (a 0.51 m gap wedges the player).
+
+**`WallProbe` (2026-09-05).** Per horizontal direction: (A) floor walk — samples every
+0.75 m to 6 m, downward ray from 2 m above the previous floor, 4 m long, pick the hit
+nearest the previous height (tracks the current floor under bridges); `|Δy| > 0.5 m` →
+obstacle (`FloorStep`), no floor → `FloorGap`. (B) two horizontal `RaycastAll`s at 0.35 m
+and 0.9 m; only hits with `|normal.y| < 0.4` (near-vertical faces) count (`Face`) — slope
+faces are ignored so slopes are judged by (A) alone. Nearer verdict wins. Audit: F11
+`RunWallProbeAudit` replays every breadcrumb edge (minus ledges) and counts false walls;
+the log names collider + layer for each so exclusions are evidence-based.
+
+**Audio in IL2CPP.** `AudioClip.Create` is broken; use winmm. `PlaySound` = one one-shot
+at a time per process (`AudioCuePlayer`). Loops and anything simultaneous go through
+`LoopMixer` (own `waveOutOpen` handle, 44.1 kHz stereo 16-bit, 4 × 25 ms buffers, N
+`MixerVoice`s summed in float). Cues must be integer PCM; `SoundBank` caches decoded mono
+`short[]` and resamples. A voice not `Set()` for 0.5 s fades itself — handlers stall when
+the mod menu is open (`Main.UpdateHandlers` is skipped), so never rely on a Stop() call.
+
 ## Change History
 
+- **2026-09-05:** §20 added — field physics/layer rules, WallProbe design, LoopMixer audio notes
 - **2026-02-22:** File created during setup
 - **2026-02-22:** Full Tier 1 analysis complete — input system, UI, text, scenes, singletons documented
 - **2026-02-22:** Config menu analysis complete — UIConfigMenuSelector, UIConfigGroupSelectorBase, UIConfigGroupSelectItemSelector documented

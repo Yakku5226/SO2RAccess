@@ -172,6 +172,22 @@ namespace SO2RAccess
                         nameof(CampWindow_Open_Postfix))
                 );
 
+                // Party Formation ↔ Assault Formation swap with R2 / L2 bypasses the
+                // root menu; the selectors' Show() calls (parameterless, safe) mark the
+                // switch. Backed by the selector-stack poll in SyncFormationSiblingScreen.
+                harmony.Patch(
+                    AccessTools.Method(typeof(UICampAssistSettingSelector),
+                        nameof(UICampAssistSettingSelector.Show), Type.EmptyTypes),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(AssistSettingSelector_Show_Postfix))
+                );
+                harmony.Patch(
+                    AccessTools.Method(typeof(UICampSelectCharacterSelector),
+                        nameof(UICampSelectCharacterSelector.Show), Type.EmptyTypes),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(SelectCharacterSelector_Show_Postfix))
+                );
+
                 // UICampMenuItemPresenter.UpdateShow fires from managed code whenever a
                 // root menu row (or System sub-menu row — same type) is populated with
                 // its data. Captures the rendered localized label per CampMenuItem enum

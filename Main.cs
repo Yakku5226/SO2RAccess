@@ -12,7 +12,7 @@ using Il2CppGame;
 // Accessing game code before the game is fully loaded will crash.
 // Safe access begins in OnSceneWasLoaded() or when CheckGameReady() passes.
 
-[assembly: MelonInfo(typeof(SO2RAccess.Main), "SO2RAccess", "0.3.1", "Accessibility Mod")]
+[assembly: MelonInfo(typeof(SO2RAccess.Main), "SO2RAccess", "0.4.0", "Accessibility Mod")]
 // Universal: no game-name check, so the mod loads on both the full game and the
 // demo (their internal product names may differ, but the game code is identical).
 [assembly: MelonGame]
@@ -56,6 +56,7 @@ namespace SO2RAccess
         private ShopHandler _shopHandler;
         private GuildHandler _guildHandler;
         private EnemyProximityHandler _enemyProximityHandler;
+        private ManualNavHandler _manualNavHandler;
         private GameOverHandler _gameOverHandler;
         private SaveNotificationHandler _saveNotificationHandler;
         private BattleTargetHandler _battleTargetHandler;
@@ -105,7 +106,7 @@ namespace SO2RAccess
             // Audio cues. Every one is compiled into this DLL, so the mod installs as a
             // single file; a WAV of the same name dropped into UserData\SO2RAccess\Sounds
             // still overrides the bundled copy. See EmbeddedSounds.
-            SpatialAudioPlayer.Initialize("Enemynearby.wav");
+            SoundBank.Preload(EnemyProximityHandler.CueFile);
             AudioCuePlayer.LoadDodgeSound("Dodge.wav");
             AudioCuePlayer.LoadSaveSound("Save_sound.wav");
             AudioCuePlayer.LoadPrivateActionSound("PrivateAction.wav");
@@ -138,6 +139,7 @@ namespace SO2RAccess
             _shopHandler = new ShopHandler();
             _guildHandler = new GuildHandler();
             _enemyProximityHandler = new EnemyProximityHandler();
+            _manualNavHandler = new ManualNavHandler(_navigationHandler);
             _gameOverHandler = new GameOverHandler();
             _saveNotificationHandler = new SaveNotificationHandler();
             _battleTargetHandler = new BattleTargetHandler();
@@ -175,6 +177,7 @@ namespace SO2RAccess
             if (!CheckGameReady()) return;
             // Runs open or closed: ends a timed mod-menu sound preview.
             _modMenuHandler.Tick();
+            LoopMixer.Update(UnityEngine.Time.deltaTime);
             ProcessGamepad();
             if (ProcessHotkeys()) return;
             UpdateHandlers();
@@ -221,6 +224,7 @@ namespace SO2RAccess
             _shopHandler?.OnSceneChanged();
             _guildHandler?.OnSceneChanged();
             _enemyProximityHandler?.OnSceneChanged();
+            _manualNavHandler?.OnSceneChanged();
             _gameOverHandler?.OnSceneChanged();
             _saveNotificationHandler?.OnSceneChanged();
             _battleTargetHandler?.OnSceneChanged();
@@ -256,6 +260,7 @@ namespace SO2RAccess
             _shopHandler.ApplyPatches(_harmony);
             _guildHandler.ApplyPatches(_harmony);
             _enemyProximityHandler.ApplyPatches(_harmony);
+            _manualNavHandler.ApplyPatches(_harmony);
             _gameOverHandler.ApplyPatches(_harmony);
             _saveNotificationHandler.ApplyPatches(_harmony);
             _battleTargetHandler.ApplyPatches(_harmony);
@@ -277,7 +282,7 @@ namespace SO2RAccess
         public override void OnApplicationQuit()
         {
             _navigationHandler?.SaveTraversal();
-            SpatialAudioPlayer.Shutdown();
+            LoopMixer.Shutdown();
             ScreenReader.Shutdown();
             AudioCuePlayer.Shutdown();
         }
@@ -686,6 +691,7 @@ namespace SO2RAccess
             _shopHandler.Update();
             _guildHandler.Update();
             _enemyProximityHandler.Update();
+            _manualNavHandler.Update();
             _gameOverHandler.Update();
             _notificationHandler.Update();
             _saveNotificationHandler.Update();

@@ -15,6 +15,13 @@ namespace SO2RAccess
     {
         private bool _patchesApplied;
 
+        // The game raises DoAttackNotify twice within ~50 ms for some attacks (log
+        // 2026-09-06 11:43:49.895 and .945). PlaySound restarts the cue on every
+        // call, so the second call cut the first one off after 50 ms — heard as a
+        // stutter. One warning per this window; the cue itself is 150 ms long.
+        private const float RepeatWindowSeconds = 0.15f;
+        private static float _lastWarningTime = -1f;
+
         /// <summary>
         /// Applies Harmony patch on DoAttackNotify for incoming-attack detection.
         /// </summary>
@@ -55,6 +62,14 @@ namespace SO2RAccess
                 if (target == null) return;
                 if (!target.IsControlPlayer()) return;
                 if (!ModSettings.DodgeSoundEnabled) return;
+
+                float now = UnityEngine.Time.unscaledTime;
+                if (now - _lastWarningTime < RepeatWindowSeconds)
+                {
+                    DebugLogger.LogState("BattleCounter: incoming attack — repeat within window, cue left playing.");
+                    return;
+                }
+                _lastWarningTime = now;
 
                 AudioCuePlayer.PlayDodgeWarningCue();
                 DebugLogger.LogState("BattleCounter: incoming attack — dodge warning played.");

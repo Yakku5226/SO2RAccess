@@ -174,8 +174,9 @@ namespace SO2RAccess
         /// Solid level geometry only: no triggers (event boxes), no character
         /// bodies (capsules / character controllers — NPCs and enemies would
         /// otherwise leave floating "floors" on their heads), not the player.
+        /// Shared with <see cref="WallProbe"/> so both probes agree on what is solid.
         /// </summary>
-        private static bool IsSolidFloorCollider(Collider col)
+        internal static bool IsSolidFloorCollider(Collider col)
         {
             if (col.isTrigger) return false;
             if (col.gameObject.layer == PlayerLayer) return false;

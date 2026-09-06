@@ -37,6 +37,16 @@ namespace SO2RAccess
         }
 
         private UIFieldQuickRecoverySelector _selector;
+
+        // Camp variant (D-pad Right on the camp root menu, game binding
+        // CampQuickRecovery): UICampQuickRecoverySelector under UICampMenuSelector.
+        // The camp window reports IsOpened=false while it shows (log 2026-09-06
+        // 11:49), so it cannot be found through the camp handler; its own Show()
+        // and Hide()/ForceHide() calls (Harmony postfixes) mark it open and closed.
+        private static UICampQuickRecoverySelector _campSelector;
+        private static bool _campOpen;
+        private bool _campMode;
+
         private bool _wasActive;
         private UIDefine.DialogChoices _lastChoice = UIDefine.DialogChoices.None;
         private float _nextFindTime;
@@ -82,6 +92,27 @@ namespace SO2RAccess
                         nameof(GameManager_QuickRecovery_Postfix))
                 );
 
+                // Camp variant: Show / Hide / ForceHide are virtual and parameterless
+                // (Hide's Action argument is ignored by the postfix), so they are safe.
+                harmony.Patch(
+                    AccessTools.Method(typeof(UICampQuickRecoverySelector),
+                        nameof(UICampQuickRecoverySelector.Show), Type.EmptyTypes),
+                    postfix: new HarmonyMethod(typeof(QuickRecoveryHandler),
+                        nameof(CampQuickRecovery_Show_Postfix))
+                );
+                harmony.Patch(
+                    AccessTools.Method(typeof(UICampQuickRecoverySelector),
+                        nameof(UICampQuickRecoverySelector.Hide)),
+                    postfix: new HarmonyMethod(typeof(QuickRecoveryHandler),
+                        nameof(CampQuickRecovery_Hide_Postfix))
+                );
+                harmony.Patch(
+                    AccessTools.Method(typeof(UICampQuickRecoverySelector),
+                        nameof(UICampQuickRecoverySelector.ForceHide)),
+                    postfix: new HarmonyMethod(typeof(QuickRecoveryHandler),
+                        nameof(CampQuickRecovery_Hide_Postfix))
+                );
+
                 _patchesApplied = true;
                 DebugLogger.LogState("QuickRecoveryHandler: patch applied.");
             }
@@ -99,6 +130,28 @@ namespace SO2RAccess
             DebugLogger.LogState("QuickRecovery: GameManager.QuickRecovery executed.");
         }
 
+        /// <summary>Postfix for UICampQuickRecoverySelector.Show(): the camp quick heal opened.</summary>
+        private static void CampQuickRecovery_Show_Postfix(UICampQuickRecoverySelector __instance)
+        {
+            _campSelector = __instance;
+            _campOpen = __instance != null;
+            DebugLogger.LogState("QuickRecovery: camp selector Show().");
+        }
+
+        /// <summary>Postfix for UICampQuickRecoverySelector.Hide(Action) and ForceHide(): the camp quick heal closed.</summary>
+        private static void CampQuickRecovery_Hide_Postfix()
+        {
+            _campOpen = false;
+            DebugLogger.LogState("QuickRecovery: camp selector Hide().");
+        }
+
+        /// <summary>
+        /// True while the camp quick heal dialog is showing. The camp window reports
+        /// closed during it, so <see cref="FieldState.IsFieldFree"/> asks here to keep
+        /// field-only features (beacons, wall tones, guidance) quiet meanwhile.
+        /// </summary>
+        public static bool IsCampRecoveryOpen => _campOpen;
+
         #endregion
 
         /// <summary>
@@ -109,6 +162,9 @@ namespace SO2RAccess
         public void OnSceneChanged()
         {
             _selector = null;
+            _campSelector = null;
+            _campOpen = false;
+            _campMode = false;
             _wasActive = false;
             _lastChoice = UIDefine.DialogChoices.None;
             _nextFindTime = 0f;
@@ -131,22 +187,45 @@ namespace SO2RAccess
                 TryAnnounceResult();
             }
 
-            // Find or verify the selector. activeInHierarchy alone is unreliable for
-            // these field overlays (stays true when hidden), so also require recovery data.
-            bool isActive = UiFinder.TryGetActiveOverlay(
-                ref _selector, ref _nextFindTime,
-                s => s.gameObject?.activeInHierarchy == true
-                     && s.recoveryDataList?.Count > 0);
-
-            // The recovery overlay stays active with populated data even while a
-            // scripted event or conversation is running, which previously produced a
-            // false "Quick Recovery. Recover party?..." announcement mid-cutscene
-            // (the menu's own isPause flag is False during these, so it can't be
-            // used). The menu is only legitimately reachable during free field
-            // control, so suppress detection entirely otherwise.
-            if (isActive && IsBlockedByEventOrDialogue())
+            bool isActive;
+            if (_campOpen)
             {
-                isActive = false;
+                // Camp variant, flagged by its own Show()/Hide(). Safety: if the
+                // selector vanished or went inactive without a Hide() we saw, drop
+                // the flag rather than keep the field frozen (IsCampRecoveryOpen).
+                bool alive = false;
+                try { alive = _campSelector != null && _campSelector.gameObject.activeInHierarchy; }
+                catch { alive = false; }
+                if (!alive)
+                {
+                    _campOpen = false;
+                    DebugLogger.LogState("QuickRecovery: camp selector gone without Hide() — flag cleared.");
+                }
+                _campMode = alive;
+                isActive = alive;
+            }
+            else
+            {
+                _campMode = false;
+
+                // Find or verify the field selector. activeInHierarchy alone is
+                // unreliable for these field overlays (stays true when hidden), so
+                // also require recovery data.
+                isActive = UiFinder.TryGetActiveOverlay(
+                    ref _selector, ref _nextFindTime,
+                    s => s.gameObject?.activeInHierarchy == true
+                         && s.recoveryDataList?.Count > 0);
+
+                // The recovery overlay stays active with populated data even while a
+                // scripted event or conversation is running, which previously produced a
+                // false "Quick Recovery. Recover party?..." announcement mid-cutscene
+                // (the menu's own isPause flag is False during these, so it can't be
+                // used). The menu is only legitimately reachable during free field
+                // control, so suppress detection entirely otherwise.
+                if (isActive && IsBlockedByEventOrDialogue())
+                {
+                    isActive = false;
+                }
             }
 
             // Post-transition settle window: silently adopt the overlay's state so a
@@ -155,9 +234,9 @@ namespace SO2RAccess
             if (UnityEngine.Time.time < _settleUntil)
             {
                 _wasActive = isActive;
-                if (isActive && _selector != null)
+                if (isActive)
                 {
-                    try { _lastChoice = _selector.currentChoice; }
+                    try { _lastChoice = CurrentChoice(); }
                     catch { _lastChoice = UIDefine.DialogChoices.None; }
                 }
                 else
@@ -187,12 +266,11 @@ namespace SO2RAccess
                 _lastChoice = UIDefine.DialogChoices.None;
                 try
                 {
-                    UIDefine.DialogChoices choice = _selector.currentChoice;
+                    UIDefine.DialogChoices choice = CurrentChoice();
                     _lastChoice = choice;
                     ScreenReader.Say(Loc.Get("quickheal_heading", ChoiceText(choice)));
-                    DebugLogger.LogState($"QuickRecovery: menu opened. choice={choice}, "
-                        + $"members={_selector.recoveryDataList?.Count ?? 0}, "
-                        + $"isPause={_selector.isPause}, isDisableInput={_selector.isDisableInput}");
+                    DebugLogger.LogState($"QuickRecovery: menu opened ({(_campMode ? "camp" : "field")}). "
+                        + $"choice={choice}, members={CurrentList()?.Count ?? 0}");
                 }
                 catch (Exception ex)
                 {
@@ -229,7 +307,7 @@ namespace SO2RAccess
             // Poll the Yes/No cursor.
             try
             {
-                UIDefine.DialogChoices choice = _selector.currentChoice;
+                UIDefine.DialogChoices choice = CurrentChoice();
                 if (choice == _lastChoice) return;
                 _lastChoice = choice;
 
@@ -283,6 +361,20 @@ namespace SO2RAccess
             return false;
         }
 
+        /// <summary>The open variant's projected recovery list (camp or field), or null.</summary>
+        private Il2CppSystem.Collections.Generic.List<UICommonSelectCharacterStatusSelectItemData> CurrentList()
+        {
+            return _campMode ? _campSelector?.recoveryDataList : _selector?.recoveryDataList;
+        }
+
+        /// <summary>The open variant's Yes/No cursor (camp or field).</summary>
+        private UIDefine.DialogChoices CurrentChoice()
+        {
+            if (_campMode)
+                return _campSelector != null ? _campSelector.currentChoice : UIDefine.DialogChoices.None;
+            return _selector != null ? _selector.currentChoice : UIDefine.DialogChoices.None;
+        }
+
         /// <summary>Maps a Yes/No dialog choice to its localized spoken label.</summary>
         private static string ChoiceText(UIDefine.DialogChoices choice)
         {
@@ -314,7 +406,7 @@ namespace SO2RAccess
         {
             try
             {
-                var list = _selector?.recoveryDataList;
+                var list = CurrentList();
                 int count = list?.Count ?? 0;
                 if (count <= 0) return;
 
@@ -345,7 +437,7 @@ namespace SO2RAccess
         /// </summary>
         private void AnnouncePartyStatus()
         {
-            var list = _selector?.recoveryDataList;
+            var list = CurrentList();
             int count = list?.Count ?? 0;
             if (count <= 0)
             {
@@ -408,6 +500,9 @@ namespace SO2RAccess
                     lines.Add(Loc.Get("quickheal_result_used_mp", m.Name, m.Mp - m.ChangeMp));
             }
 
+            // The heading key already ends in a full stop; trim so the join never
+            // produces "complete.." (heard 2026-09-06).
+            for (int i = 0; i < lines.Count; i++) lines[i] = lines[i].TrimEnd('.', ' ');
             ScreenReader.Say(string.Join(". ", lines) + ".");
             DebugLogger.LogState($"QuickRecovery: announced result ({_snapshot.Count} members).");
 

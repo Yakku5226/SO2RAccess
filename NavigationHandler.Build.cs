@@ -49,6 +49,11 @@ namespace SO2RAccess
             /// target object is off the NavMesh and shouldn't drive distance checks.
             /// </summary>
             public Vector3?  FacePosition;
+            /// <summary>
+            /// True for targets that are still listed but no longer worth a beacon:
+            /// an opened chest. Set by the builder so beacon code never parses labels.
+            /// </summary>
+            public bool      Consumed;
         }
 
         #endregion
@@ -91,6 +96,7 @@ namespace SO2RAccess
                     Distance      = dist,
                     Position      = pos,
                     LiveTransform = chest.transform,
+                    Consumed      = isOpened,
                 });
             }
 

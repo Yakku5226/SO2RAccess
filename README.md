@@ -11,6 +11,7 @@ The mod is built on [MelonLoader](https://melonwiki.xyz/) and uses the [Tolk](ht
 - Cutscene subtitles — the subtitle line under movie cutscenes and the caption text events show above characters are read as they appear. Can be turned off in the mod settings menu (F4).
 - Field navigation — a navigation menu lists nearby NPCs, exits, treasure chests, save points, stairs and climb points (ladders, ivy walls), and interactable objects; pick one and the mod walks you there automatically. When a target sits on a level the mod cannot walk to yet, it tells you how far away it is, and where the shape of the floor suggests the climb or descent begins.
 - Spoken directions — instead of being walked, be guided: pick an item and the mod calls out which way to push the stick and how far, leg by leg, as you walk it yourself. Where no walked route exists yet, it follows the shape of the floor and says so ("unverified route"); the route you then walk is remembered for next time.
+- Manual navigation sounds — walk by ear: four looping tones grow louder as a wall gets closer ahead, to the right, behind or to the left of the camera, and nearby NPCs, unopened chests, doors and exits, locations, save points and known jump ledges each have a repeating beacon that pans toward the object and grows louder as you approach. Every tone and beacon has its own on/off switch and volume in the mod settings menu (F4), under Wall sounds and Object beacons. Slopes and ramps are told apart from walls by the shape of the floor, so a climbable path never plays a wall tone.
 - World map navigation — pathfinding auto-walk to towns, dungeons, and fishing spots across the world map, with honest feedback when a destination cannot be reached on foot.
 - Battle accessibility — target announcements, enemy proximity cues, dodge notifications, and status readouts during real-time battles.
 - Fishing support — navigate to fishing spots and get an audio cue the moment you can cast.
@@ -92,8 +93,9 @@ In the battle pause menu the same four navigation keys change what you hear:
 Minus and Equals switch the amount of detail (info tier), and the
 brackets switch between characters.
 
-The mod settings menu opens on a short list of three submenus — Sound and
-announcements, Language and speech, and Key bindings. Up and Down arrows move
+The mod settings menu opens on a short list of five submenus — Sound and
+announcements, Wall sounds, Object beacons, Language and speech, and Key
+bindings. Up and Down arrows move
 between rows, Enter opens the highlighted submenu, and inside a submenu the
 Left and Right arrows change a setting's value. Escape goes back one level and
 saves; F4 closes the whole menu from anywhere.
@@ -106,6 +108,16 @@ In Sound and announcements, Space plays the sound the highlighted row controls,
 at its current volume, so you can set a level by ear without leaving the menu.
 It plays even when that sound is switched off. Rows that carry no sound of
 their own (the spoken announcements) say so instead.
+
+Wall sounds holds the four wall tones (ahead, right, behind, left), each with
+an on/off row and a volume row, plus Wall sound start distance (2 to 8 metres, the
+distance at which a tone begins; it is loudest when touching). Object beacons holds one on/off and volume pair
+per kind of object (NPCs, chests, doors and exits, locations, save points,
+jump points, stairs and ladders), the Beacon range (5 to 20 metres, how far away a beacon starts), and Beacons behind you:
+Muffled (the default) makes a beacon behind the camera sound as if through a
+wall; Quieter only just lowers it. Space on that row plays the NPC beacon as it
+would sound from behind, so the two can be compared. Wall tones start switched
+off; turn on the ones you want.
 
 Key bindings opens a submenu where every mod key can be
 changed: arrows move through the actions, Enter on an action asks for the
@@ -169,6 +181,13 @@ The notification sounds are sourced from [Freesound](https://freesound.org/) und
 - Mobile Phone Notification Sound (private action notification) by TheArbuzikYT — <https://freesound.org/s/840284/> — License: Creative Commons 0
 - Menu Beep (bonus gauge fill) by DrMrSir — <https://freesound.org/s/529560/> — License: Attribution 4.0
 - bubble_big (fishing spot arrival) by cdonahueucsd — <https://freesound.org/s/337133/> — License: Attribution 4.0
+- correct (NPC beacon) by ertfelda — <https://freesound.org/s/243701/> — License: Creative Commons 0
+- Bolt Lock 5 (chest beacon) by LordForklift — <https://freesound.org/s/448416/> — License: Creative Commons 0
+- Gate Latch (door and exit beacon) by mhtaylor67 — <https://freesound.org/s/126041/> — License: Creative Commons 0
+- GLEAM-GLOW-SFX-CHIME (location beacon) by newagesoup — <https://freesound.org/s/351408/> — License: Creative Commons 0
+- Jump_C_04 (jump point beacon) by cabled_mess — <https://freesound.org/s/350906/> — License: Creative Commons 0
+- Marimba note struck (save point beacon) by LloydEvans09 — <https://freesound.org/s/185833/> — License: Creative Commons 0
+- Wall proximity tones — generated for this mod
 
 ## License
 
