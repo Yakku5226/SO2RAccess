@@ -51,39 +51,25 @@ namespace SO2RAccess
         private void RefreshWmMapjumpCache()
         {
             _wmMapjumpCache.Clear();
-            try
-            {
-                var collisions = UnityEngine.Object
-                    .FindObjectsOfType<FieldMapjumpCollision>();
-                if (collisions == null) return;
+            _wmMapjumpCache.AddRange(WorldmapMapjumps.CollectAll());
+        }
 
-                for (int i = 0; i < collisions.Length; i++)
-                {
-                    var c = collisions[i];
-                    if (c == null) continue;
-
-                    var rings = new List<Collider>();
-                    var cols = c.GetComponents<Collider>();
-                    if (cols != null)
-                    {
-                        for (int k = 0; k < cols.Length; k++)
-                        {
-                            var col = cols[k];
-                            if (col == null || !col.isTrigger) continue;
-                            if (col.bounds.size.y > 20f) continue;
-                            rings.Add(col);
-                        }
-                    }
-                    _wmMapjumpCache.Add(
-                        (c.fieldmapID, c.transform.position, rings));
-                }
-            }
-            catch (Exception ex)
-            {
-                _wmMapjumpCache.Clear();
-                DebugLogger.LogState(
-                    $"NAV WM mapjump cache error: {ex.Message}");
-            }
+        /// <summary>
+        /// Re-scans when the cache is empty. The list build runs seconds after
+        /// a map load, before the towns' <c>FieldMapjumpCollision</c> objects
+        /// exist (2026-09-09: every plan after leaving Salva or Krosse swept
+        /// with an empty ring list and refused at the gate); a plan or audit
+        /// minutes later must not inherit that. Logged when still empty.
+        /// </summary>
+        private void EnsureWmMapjumpCache(string context)
+        {
+            if (WorldmapMapjumps.IsUsable(_wmMapjumpCache)) return;
+            string was = _wmMapjumpCache.Count == 0 ? "empty" : "stale (destroyed colliders after a scene change)";
+            RefreshWmMapjumpCache();
+            DebugLogger.LogState(
+                $"NAV WM mapjump cache was {was} at {context} — rescanned: " +
+                $"{_wmMapjumpCache.Count} map jumps" +
+                (WorldmapMapjumps.IsUsable(_wmMapjumpCache) ? "" : " (still unusable — town colliders not spawned yet?)") + ".");
         }
 
         /// <summary>

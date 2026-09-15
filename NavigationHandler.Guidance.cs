@@ -19,7 +19,12 @@ namespace SO2RAccess
     /// the same NavMesh/traversal pathfinder auto-walk uses, so anything
     /// auto-walk can reach can also be described.
     ///
-    /// Field and dungeon maps only — the world map is not covered yet.
+    /// Field and dungeon maps route through the NavMesh / breadcrumb / floor-grid
+    /// pathfinders and re-plan every second (this file). The world map (since
+    /// 2026-09-06) routes through the grid A* once and follows that route without
+    /// re-planning unless there is evidence it went wrong — see
+    /// <c>NavigationHandler.Guidance.Worldmap.cs</c>. Battle resume lives in
+    /// <c>NavigationHandler.Guidance.Resume.cs</c>.
     ///
     /// TRIGGER (see Main.ProcessGamepad):
     /// Hold L2 to open the navigation list, highlight a target, then push
@@ -74,6 +79,16 @@ namespace SO2RAccess
 
         /// <summary>Minimum seconds between two spoken directions (anti-chatter).</summary>
         private const float GuideMinSpeakGap = 1.2f;
+
+        /// <summary>
+        /// On the last leg, within this distance (m) of the destination, the
+        /// bearing swings wildly as the player moves around it, so direction
+        /// changes are spoken no more often than <see cref="GuideCloseSpeakGap"/>
+        /// (log 2026-09-06: "West, South West, West, South West" every second
+        /// beside an unreachable chest).
+        /// </summary>
+        private const float GuideCloseMeters = 5f;
+        private const float GuideCloseSpeakGap = 4f;
 
         /// <summary>
         /// Seconds of silence after which the current leg (direction and remaining
@@ -185,11 +200,9 @@ namespace SO2RAccess
                 return;
             }
 
-            if (_isWorldmap)
-            {
-                ScreenReader.Say(Loc.Get("nav_guide_not_worldmap"));
-                return;
-            }
+            // The scan that built the open list decided whether this is the
+            // world map; remembered here because CancelAutoWalk clears the flag.
+            bool onWorldmap = _isWorldmap;
 
             Vector3 playerPos;
             if (!TryGetPlayerPosition(out playerPos))
@@ -210,25 +223,36 @@ namespace SO2RAccess
             // time. Cancelled first, because CancelAutoWalk drops the stored
             // route and would throw away a path computed before it.
             if (_isAutoWalking) CancelAutoWalk();
+            _isWorldmap = onWorldmap; // the world map planner reads it
 
             ClearGuideResume();
-            if (!TryRouteForGuidance(playerPos, target, _currentCategoryIndex,
-                    item.IsCounterNpc, out bool unverified))
+            bool unverified = false;
+            string startMessage = null;
+            bool routed = onWorldmap
+                ? TryRouteForWorldmapGuidance(ref item, playerPos, _currentCategoryIndex,
+                    out target, out startMessage)
+                : TryRouteForGuidance(playerPos, target, _currentCategoryIndex,
+                    item.IsCounterNpc, out unverified);
+            if (!routed)
             {
                 string failKey = _lastPathBlockedByExit
-                    ? "nav_autowalk_route_exits" : "nav_autowalk_unreachable";
+                    ? "nav_autowalk_route_exits"
+                    : (onWorldmap && WorldmapPathfinder.LastNoPathWasDisconnected)
+                        ? "nav_autowalk_no_land_route"
+                        : "nav_autowalk_unreachable";
                 ScreenReader.Say(Loc.Get(failKey, item.Label));
                 return;
             }
 
             // Close the list — the player is now following directions, not
-            // browsing. The gamepad overlay rebuilds on the next L2 hold.
+            // browsing. The gamepad overlay rebuilds on the next L2 hold; the
+            // items stay so the beacons need not rebuild (see GamepadCloseNav).
             _isOpen = false;
-            for (int i = 0; i < CAT_COUNT; i++) _categories[i].Clear();
 
             StartGuidance(playerPos, target, item.Label, item.LiveTransform,
-                _currentCategoryIndex, item.IsCounterNpc, unverified,
-                Loc.Get(unverified ? "nav_guide_unverified_start" : "nav_guide_start", item.Label));
+                _currentCategoryIndex, item.IsCounterNpc, unverified, onWorldmap,
+                startMessage ?? Loc.Get(unverified ? "nav_guide_unverified_start" : "nav_guide_start", item.Label));
+            if (item.IsFishing) WarnIfNoFishingSkill();
         }
 
         /// <summary>
@@ -269,13 +293,14 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Activates directions toward a destination whose route is already in
-        /// <see cref="_pathCorners"/>, speaks <paramref name="startMessage"/>, then
-        /// the first leg. Shared by a fresh start and a resume after battle.
+        /// Activates directions toward a destination whose route is already
+        /// computed (<see cref="_pathCorners"/> on a field, the world map route
+        /// fields otherwise), speaks <paramref name="startMessage"/>, then the
+        /// first leg. Shared by a fresh start and a resume after battle.
         /// </summary>
         private void StartGuidance(Vector3 playerPos, Vector3 target, string label,
             Transform liveTransform, int categoryIndex, bool isCounter, bool unverified,
-            string startMessage)
+            bool onWorldmap, string startMessage)
         {
             _guideActive        = true;
             _guideTarget        = target;
@@ -286,143 +311,26 @@ namespace SO2RAccess
             _guideRepathAt      = Time.time + GuideRepathInterval;
             _guideRouteLost     = false;
             _guideUnverified    = unverified;
+            _guideOnWorldmap    = onWorldmap;
             ResetGuideSpeech();
-            BuildGuideLegs(playerPos, target);
+            if (onWorldmap)
+            {
+                ResetWorldmapGuideState(playerPos);
+                BuildWorldmapGuideLegs(playerPos);
+            }
+            else
+            {
+                BuildGuideLegs(playerPos, target);
+            }
 
             ScreenReader.Say(startMessage);
             DebugLogger.LogState(
                 $"NAV guidance started. target={label} " +
                 $"pos=({target.x:F1},{target.y:F1},{target.z:F1}) " +
-                $"legs={_guideLegs.Count} unverified={unverified}");
+                $"legs={_guideLegs.Count} unverified={unverified} worldmap={onWorldmap}");
 
             // Speak the first leg immediately, queued behind the start message.
             SpeakGuideStep(playerPos, interrupt: false);
-        }
-
-        #endregion
-
-        #region Battle Resume
-
-        /// <summary>True when directions were interrupted by a scene change and may resume.</summary>
-        private bool _guideResumePending;
-        /// <summary>True once a battle was detected during the pending window.</summary>
-        private bool _guideResumeBattleSeen;
-        /// <summary>Seconds the field has been free without a battle having been seen.</summary>
-        private float _guideResumeFreeTimer;
-        private Vector3   _guideResumeTarget;
-        private string    _guideResumeLabel;
-        private Transform _guideResumeTransform;
-        private int       _guideResumeCategoryIndex;
-        private bool      _guideResumeIsCounter;
-        private FieldmapID _guideResumeMapId;
-
-        /// <summary>
-        /// Scene change while directions run (a battle scene loading, most of
-        /// the time): remembers the destination so the directions come back on
-        /// their own once the battle is over, then stops. Mirrors the auto-walk
-        /// battle resume — only a battle resumes; anything else is dropped.
-        /// </summary>
-        public void OnSceneChangeGuidance()
-        {
-            if (_guideActive)
-            {
-                _guideResumePending       = true;
-                _guideResumeBattleSeen    = false;
-                _guideResumeFreeTimer     = 0f;
-                _guideResumeTarget        = _guideTarget;
-                _guideResumeLabel         = _guideLabel;
-                _guideResumeTransform     = _guideTransform;
-                _guideResumeCategoryIndex = _guideCategoryIndex;
-                _guideResumeIsCounter     = _guideIsCounter;
-                try { _guideResumeMapId = FieldManager.Instance?.currentFieldmapID ?? FieldmapID.INVALID; }
-                catch { _guideResumeMapId = FieldmapID.INVALID; }
-                DebugLogger.LogState($"NAV guidance: scene change, saving potential resume for '{_guideLabel}'.");
-            }
-            StopGuidance("scene change");
-        }
-
-        /// <summary>Drops a pending directions resume.</summary>
-        private void ClearGuideResume()
-        {
-            _guideResumePending    = false;
-            _guideResumeBattleSeen = false;
-            _guideResumeFreeTimer  = 0f;
-            _guideResumeTransform  = null;
-        }
-
-        /// <summary>
-        /// Per-frame handler for a pending directions resume (called from Update
-        /// while nothing else is guiding or walking). Resumes once a battle was
-        /// seen and the field is free again on the same map; a non-battle
-        /// interruption is dropped after a short grace period.
-        /// </summary>
-        private void UpdateGuideResume()
-        {
-            try
-            {
-                if (IsBattleActive())
-                {
-                    _guideResumeBattleSeen = true;
-                    _guideResumeFreeTimer = 0f;
-                }
-                if (!IsFieldFree())
-                {
-                    _guideResumeFreeTimer = 0f;
-                    return;
-                }
-
-                var fm = FieldManager.Instance;
-                if (fm != null && _guideResumeMapId != FieldmapID.INVALID
-                    && fm.currentFieldmapID != _guideResumeMapId)
-                {
-                    DebugLogger.LogState("NAV guidance resume: map changed, discarding.");
-                    ClearGuideResume();
-                    return;
-                }
-
-                if (_guideResumeBattleSeen)
-                {
-                    ResumeGuidance();
-                    return;
-                }
-
-                _guideResumeFreeTimer += Time.deltaTime;
-                if (_guideResumeFreeTimer >= GuideResumeDiscardDelay)
-                {
-                    DebugLogger.LogState("NAV guidance resume: non-battle interruption, discarding.");
-                    ClearGuideResume();
-                }
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"NAV guidance resume error: {ex.Message}");
-                ClearGuideResume();
-            }
-        }
-
-        /// <summary>Re-routes from the player's current position and restarts the directions.</summary>
-        private void ResumeGuidance()
-        {
-            Vector3 target = _guideResumeTarget;
-            if (_guideResumeTransform != null)
-            {
-                try { target = _guideResumeTransform.position; }
-                catch { _guideResumeTransform = null; }
-            }
-            string label = _guideResumeLabel;
-            var transform = _guideResumeTransform;
-            int category = _guideResumeCategoryIndex;
-            bool isCounter = _guideResumeIsCounter;
-            ClearGuideResume();
-
-            if (!TryGetPlayerPosition(out Vector3 playerPos)) return;
-            if (!TryRouteForGuidance(playerPos, target, category, isCounter, out bool unverified))
-            {
-                DebugLogger.LogState($"NAV guidance resume: no route to '{label}' after battle, discarding.");
-                return;
-            }
-            StartGuidance(playerPos, target, label, transform, category, isCounter, unverified,
-                Loc.Get("nav_guide_resuming", label));
         }
 
         #endregion
@@ -437,11 +345,13 @@ namespace SO2RAccess
         public void StopGuidance(string reason)
         {
             if (!_guideActive) return;
-            _guideActive    = false;
-            _guideTransform = null;
-            _guideLabel     = null;
+            _guideActive     = false;
+            _guideTransform  = null;
+            _guideLabel      = null;
+            _guideOnWorldmap = false;
+            _guideWmRaw      = null;
             _guideLegs.Clear();
-            _guideLegIndex  = 0;
+            _guideLegIndex   = 0;
             ResetGuideSpeech();
             DebugLogger.LogState($"NAV guidance stopped ({reason}).");
         }
@@ -515,6 +425,12 @@ namespace SO2RAccess
         /// </summary>
         private void GuidanceTick()
         {
+            if (_guideOnWorldmap)
+            {
+                WorldmapGuidanceTick();
+                return;
+            }
+
             // The held-L2 overlay is reading the item list out loud; directions
             // would interrupt it mid-word. The gamepad nav list is also how the
             // player re-targets or stops guidance, so this pause is on the
@@ -651,18 +567,29 @@ namespace SO2RAccess
         /// </summary>
         private void BuildGuideLegs(Vector3 playerPos, Vector3 target)
         {
+            // corners[0] is the player's own snapped position — the first
+            // real waypoint is index 1 (matching _pathCornerIndex).
+            BuildGuideLegsFrom(_pathCorners, 1, playerPos, target, GuideLegMergeDegrees, GuideMinLegLength);
+        }
+
+        /// <summary>
+        /// The leg builder proper, shared with the world map: walks
+        /// <paramref name="corners"/> from <paramref name="firstIndex"/>, merging
+        /// corners that bend less than <paramref name="mergeDegrees"/> and folding
+        /// stretches shorter than <paramref name="minLegLength"/>.
+        /// </summary>
+        private void BuildGuideLegsFrom(IReadOnlyList<Vector3> corners, int firstIndex, Vector3 playerPos,
+            Vector3 target, float mergeDegrees, float minLegLength)
+        {
             _guideLegs.Clear();
             _guideLegIndex = 0;
 
-            var corners = _pathCorners;
-            if (corners != null && corners.Length > 1)
+            if (corners != null && corners.Count > firstIndex)
             {
-                // corners[0] is the player's own snapped position — the first
-                // real waypoint is index 1 (matching _pathCornerIndex).
                 Vector3 from = playerPos;
                 Vector3 legHeading = Vector3.zero;
 
-                for (int i = 1; i < corners.Length; i++)
+                for (int i = firstIndex; i < corners.Count; i++)
                 {
                     Vector3 heading = FlatDirection(from, corners[i]);
                     if (heading == Vector3.zero) continue;
@@ -676,7 +603,7 @@ namespace SO2RAccess
                         continue;
                     }
 
-                    if (Vector3.Angle(legHeading, heading) < GuideLegMergeDegrees)
+                    if (Vector3.Angle(legHeading, heading) < mergeDegrees)
                     {
                         // Same straight stretch — extend it instead of turning.
                         _guideLegs[_guideLegs.Count - 1] = corners[i];
@@ -694,7 +621,7 @@ namespace SO2RAccess
             // NPCs, a target just off the mesh) ends short of it, and the last
             // few meters still have to be described.
             if (_guideLegs.Count == 0
-                || FlatDistance(_guideLegs[_guideLegs.Count - 1], target) > GuideMinLegLength)
+                || FlatDistance(_guideLegs[_guideLegs.Count - 1], target) > minLegLength)
             {
                 _guideLegs.Add(target);
             }
@@ -703,21 +630,21 @@ namespace SO2RAccess
                 _guideLegs[_guideLegs.Count - 1] = target;
             }
 
-            DropShortGuideLegs(playerPos);
+            DropShortGuideLegs(playerPos, minLegLength);
         }
 
         /// <summary>
-        /// Folds stretches shorter than <see cref="GuideMinLegLength"/> into the
+        /// Folds stretches shorter than <paramref name="minLegLength"/> into the
         /// one that follows. A one-meter jog is not a turn worth announcing, and
         /// speaking it would bury the instruction that matters. The final leg is
         /// always kept — it ends at the destination.
         /// </summary>
-        private void DropShortGuideLegs(Vector3 playerPos)
+        private void DropShortGuideLegs(Vector3 playerPos, float minLegLength)
         {
             Vector3 from = playerPos;
             for (int i = 0; i < _guideLegs.Count - 1; )
             {
-                if (FlatDistance(from, _guideLegs[i]) < GuideMinLegLength)
+                if (FlatDistance(from, _guideLegs[i]) < minLegLength)
                 {
                     _guideLegs.RemoveAt(i);
                     continue;
@@ -771,8 +698,11 @@ namespace SO2RAccess
             // rule: repeat directions only when a direction change is necessary).
             bool reworded = !first && sector != _guideSpokenSector
                 && Mathf.Abs(Mathf.DeltaAngle(_guideSpokenBearing, bearing)) >= GuideTurnDegrees;
+            bool closeIn = _guideLegIndex == _guideLegs.Count - 1
+                && FlatDistance(playerPos, aim) <= GuideCloseMeters;
+            float speakGap = closeIn ? GuideCloseSpeakGap : GuideMinSpeakGap;
 
-            if (first || (reworded && sinceSpoke >= GuideMinSpeakGap))
+            if (first || (reworded && sinceSpoke >= speakGap))
             {
                 _guideSpokenSector  = sector;
                 _guideSpokenBearing = bearing;
@@ -804,9 +734,18 @@ namespace SO2RAccess
             }
         }
 
-        /// <summary>Whole meters to the aim point, never rounded down to zero.</summary>
-        private static int GuideMeters(Vector3 playerPos, Vector3 aim) =>
-            Mathf.Max(1, Mathf.RoundToInt(FlatDistance(playerPos, aim)));
+        /// <summary>
+        /// Meters to the aim point, never rounded down to zero. World map legs
+        /// run to hundreds of meters, where "137" is noise: there the value is
+        /// rounded to 5 m up to 100 m and to 10 m beyond.
+        /// </summary>
+        private int GuideMeters(Vector3 playerPos, Vector3 aim)
+        {
+            float d = FlatDistance(playerPos, aim);
+            if (!_guideOnWorldmap || d < 20f) return Mathf.Max(1, Mathf.RoundToInt(d));
+            int step = d < 100f ? 5 : 10;
+            return Mathf.RoundToInt(d / step) * step;
+        }
 
         #endregion
 

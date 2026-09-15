@@ -42,7 +42,7 @@ namespace SO2RAccess
         /// are what differs between them. The slope penalty
         /// (SlopePenaltyStartCm) still steers the A* toward flat roads.
         /// </summary>
-        private const int MaxClimbCm = 500;
+        internal const int MaxClimbCm = 500;
 
         /// <summary>
         /// Height difference above which movement gets a cost penalty.
@@ -86,7 +86,7 @@ namespace SO2RAccess
         /// destination less reachable than before: the fallback pass is
         /// identical to the original behavior.
         /// </summary>
-        private const float PreferredMinClearance = 0.60f;
+        internal const float PreferredMinClearance = 0.60f;
 
         /// <summary>
         /// Expansion cap for the FIRST (preferred-clearance) pass only.
@@ -147,7 +147,8 @@ namespace SO2RAccess
         private static readonly List<(float f, int x, int z)> _heap
             = new List<(float f, int x, int z)>();
 
-        private static WorldmapGridFormat.CachedGrid GetCachedGrid(
+        /// <summary>The cached grid for a world map (loading it and its foot regions on first use), or null.</summary>
+        internal static WorldmapGridFormat.CachedGrid GetCachedGrid(
             WorldmapID wmID)
         {
             if (wmID == WorldmapID.EXPEL)
@@ -169,6 +170,26 @@ namespace SO2RAccess
                     if (_cachedNede != null) BuildFootRegions(_cachedNede);
                 }
                 return _cachedNede;
+            }
+        }
+
+        /// <summary>
+        /// True when a walkability grid exists for the given world map (loading
+        /// and caching it on first use). Lets callers choose a fallback quietly
+        /// instead of hitting <see cref="FindPath"/>'s spoken "grid not found".
+        /// </summary>
+        public static bool HasGridFor(WorldmapID wmID)
+        {
+            try
+            {
+                var fm = FieldManager.Instance;
+                if (fm == null || !fm.IsExistWorldGridData()) return false;
+                return GetCachedGrid(wmID) != null;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV WM HasGridFor error: {ex.Message}");
+                return false;
             }
         }
 
@@ -365,9 +386,7 @@ namespace SO2RAccess
                 DebugLogger.LogState(
                     "NAV WM pathfinder: no cached grid. " +
                     "Press F9 in debug mode on the world map to generate.");
-                ScreenReader.Say(
-                    "World map grid not found. Enable debug mode " +
-                    "with F12, then press F9 to generate the map grid.");
+                ScreenReader.Say(Loc.Get("nav_wm_grid_missing"));
                 return null;
             }
 

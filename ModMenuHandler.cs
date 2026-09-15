@@ -398,14 +398,18 @@ namespace SO2RAccess
             };
         }
 
-        /// <summary>A distance row in whole metres, stepped by 1 per left/right press, stopping at the ends.</summary>
-        private static ModMenuItem Metres(string labelKey, Func<int> get, Action<int> set, int min, int max)
+        /// <summary>
+        /// A distance row in whole metres, stepped by <paramref name="step"/> per
+        /// left/right press (1 m unless told otherwise), stopping at the ends.
+        /// </summary>
+        private static ModMenuItem Metres(string labelKey, Func<int> get, Action<int> set, int min, int max,
+            int step = 1)
         {
             return new ModMenuItem
             {
                 LabelKey = labelKey,
                 GetValue = () => Loc.Get("mod_menu_metres", get()),
-                Change = delta => set(Math.Clamp(get() + delta, min, max))
+                Change = delta => set(Math.Clamp(get() + delta * step, min, max))
             };
         }
 

@@ -12,7 +12,7 @@ using Il2CppGame;
 // Accessing game code before the game is fully loaded will crash.
 // Safe access begins in OnSceneWasLoaded() or when CheckGameReady() passes.
 
-[assembly: MelonInfo(typeof(SO2RAccess.Main), "SO2RAccess", "0.4.0", "Accessibility Mod")]
+[assembly: MelonInfo(typeof(SO2RAccess.Main), "SO2RAccess", "0.5.0", "Accessibility Mod")]
 // Universal: no game-name check, so the mod loads on both the full game and the
 // demo (their internal product names may differ, but the game code is identical).
 [assembly: MelonGame]
@@ -312,7 +312,7 @@ namespace SO2RAccess
             if (_modMenuHandler.IsOpen)
                 return _modMenuHandler.ProcessKeyboard(kb);
 
-            // Debug-only investigation hotkeys (F5–F11) — see DebugHotkeys.cs.
+            // Debug-only investigation hotkeys (F5–F11, Insert) — see DebugHotkeys.cs.
             if (DebugMode && _debugHotkeys.Process(kb))
                 return true;
 

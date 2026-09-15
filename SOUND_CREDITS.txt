@@ -56,6 +56,19 @@ Manual navigation beacons (looping, panned toward nearby objects):
     https://freesound.org/s/185833/
     License: Creative Commons 0
 
+  "Busy Room Ambience / Small crowd / People talking in background" used for the
+  town beacon (NavCity.wav) by Breviceps
+    https://freesound.org/s/457043/
+    License: Creative Commons 0
+
+  "Twin Bells" used for the dungeon beacon (NavDungeon.wav) by Streetpoptunez
+    https://freesound.org/s/653752/
+    License: Creative Commons 0
+
+  "waves-lapping" used for the fishing spot beacon (NavFishing.wav) by cyoung510
+    https://freesound.org/s/523399/
+    License: Creative Commons 0
+
 Wall proximity tones (Wall_front.wav, Wall_right.wav, Wall_behind.wav,
 Wall_left.wav) were generated for this mod: band-passed noise "breath" loops
 at 587, 494, 294 and 392 Hz.
@@ -88,6 +101,9 @@ survives mod updates. The file names are:
     NavLocation.wav    location and warp beacon (loop)
     NavSave.wav        save point beacon (loop)
     NavJump.wav        jump-down ledge beacon (loop)
+    NavDungeon.wav     dungeon beacon on the world map (loop)
+    NavFishing.wav     fishing spot beacon (continuous water loop)
+    NavCity.wav        town beacon on the world map (soft crowd loop)
     NavStairs.wav      stairs and ladder beacon (loop) — NOT bundled; drop
                        your own file here to give stairs a sound
     NavBump.wav        wall bump (one short hit) — NOT bundled and not yet in

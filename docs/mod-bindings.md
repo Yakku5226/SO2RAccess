@@ -60,7 +60,7 @@ These menu keys are fixed — rebinding never changes them.
 ### Key bindings submenu (last item of the settings menu)
 
 - Up and Down arrows — previous / next action (all mod actions except the
-  debug-only hotkeys (F5–F11 and Semicolon), then "Reset all keys to defaults" and
+  debug-only hotkeys (F5–F11, Semicolon, Insert and Delete), then "Reset all keys to defaults" and
   "Save and go back")
 - Enter on an action — capture mode: the next key pressed becomes the
   pending binding; Escape cancels the capture
@@ -81,7 +81,9 @@ goes back; pad buttons cannot be captured — rebinding is keyboard-only.
 F5 obstacle scan, F6 collision streaming trace, F7 route auditor,
 F8 CharaWall scan, F9 grid bake, F10 travel mask diagnostics,
 F11 pathfinding diagnostics, Semicolon on-screen text dump (logs every visible
-text with its object path — use it to find text the mod is not reading).
+text with its object path — use it to find text the mod is not reading),
+Insert world map fishing stand bake (writes UserData\SO2RAccess\stands\worldmap_*.json).
+Delete world map gate wall patch (re-probes the entrance trigger boxes of the ACTIVE grid, blocks wall cells, never opens; backs the grid up first).
 These keys are fixed — they do not appear in the key bindings submenu.
 
 ## Gamepad

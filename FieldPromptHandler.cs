@@ -587,18 +587,43 @@ namespace SO2RAccess
         private static void LogFishingDiag(bool bubble, string visibleIcons)
         {
             int contactId = 0;
+            string gameCheck = "n/a";
             try
             {
                 var fm = FieldManager.Instance;
-                if (fm != null && fm.GetControlPlayer() != null)
+                var player = fm?.GetControlPlayer();
+                if (player != null)
+                {
                     contactId = fm.GetContactFishingWaterPlaceID();
+                    // The game's own per-frame world map test from the player's
+                    // feet and facing (2026-09-06: does it agree with the bubble?).
+                    if (fm.IsWorldmap())
+                    {
+                        UnityEngine.Vector3 feet = player.transform.position;
+                        UnityEngine.Vector3 forward = player.transform.forward;
+                        gameCheck = fm.CheckWorldmapFishingPoint(ref feet, ref forward).ToString();
+                        // The game's own player-based entry (2026-09-09): does it
+                        // agree with the feet+forward call, which flickered?
+                        try { gameCheck += "/p" + fm.CheckFishingPoint(player); }
+                        catch (Exception ex) { gameCheck += "/p-err:" + ex.Message; }
+                    }
+                    if (!_fishParamsLogged)
+                    {
+                        _fishParamsLogged = true;
+                        DebugLogger.LogGameValue("FieldPrompt",
+                            $"FISHPARAMS wmCharacterHeight={fm.WorldmapFishingCharacterHeight:F2} " +
+                            $"wmFrontDistance={fm.WorldmapFishingFrontDistance:F2} " +
+                            $"groundDistance={fm.FishingGroundDistance:F2} " +
+                            $"collisionDistanceRate={fm.FishingCollisionDistanceRate:F2}");
+                    }
+                }
             }
-            catch
+            catch (Exception ex)
             {
-                // Scene teardown — leave 0; diagnostic only.
+                gameCheck = "error:" + ex.Message;
             }
 
-            string signature = $"{bubble}|{contactId}|{visibleIcons}";
+            string signature = $"{bubble}|{contactId}|{gameCheck}|{visibleIcons}";
             if (signature == _lastFishDiagSignature) return;
             _lastFishDiagSignature = signature;
 
@@ -606,9 +631,11 @@ namespace SO2RAccess
                 ? $"({p.x:F1},{p.y:F1},{p.z:F1})" : "?";
 
             DebugLogger.LogGameValue("FieldPrompt",
-                $"FISHDIAG bubble={bubble} contactID={contactId} " +
+                $"FISHDIAG bubble={bubble} contactID={contactId} gameCheck={gameCheck} " +
                 $"icons=[{visibleIcons}] pos={pos}");
         }
+
+        private static bool _fishParamsLogged;
 
         /// <summary>
         /// Speaks a label-operation prompt once via the screen reader, honouring its F4 toggle.

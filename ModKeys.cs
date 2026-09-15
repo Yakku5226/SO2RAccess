@@ -44,6 +44,8 @@ namespace SO2RAccess
         DebugTravelMask,       // F10
         DebugPathDiagnostics,  // F11
         DebugTextDump,         // Semicolon — dump every visible on-screen text
+        DebugFishingBake,      // Insert — bake the world map fishing stands
+        DebugGateWallPatch,    // Delete — restore town-gate walls in the active grid
     }
 
     /// <summary>
@@ -116,6 +118,8 @@ namespace SO2RAccess
             { ModAction.DebugTravelMask,      Key.F10 },
             { ModAction.DebugPathDiagnostics, Key.F11 },
             { ModAction.DebugTextDump,        Key.Semicolon },
+            { ModAction.DebugFishingBake,     Key.Insert },
+            { ModAction.DebugGateWallPatch,   Key.Delete },
         };
 
         private static readonly Dictionary<ModAction, ModKeyContext> _contexts = new Dictionary<ModAction, ModKeyContext>
@@ -148,6 +152,8 @@ namespace SO2RAccess
             { ModAction.DebugTravelMask,      ModKeyContext.DebugOnly },
             { ModAction.DebugPathDiagnostics, ModKeyContext.DebugOnly },
             { ModAction.DebugTextDump,        ModKeyContext.DebugOnly },
+            { ModAction.DebugFishingBake,     ModKeyContext.DebugOnly },
+            { ModAction.DebugGateWallPatch,   ModKeyContext.DebugOnly },
         };
 
         /// <summary>

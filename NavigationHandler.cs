@@ -251,6 +251,12 @@ namespace SO2RAccess
         /// Optional position to face on arrival (e.g. water center for fishing spots).
         /// </summary>
         private Vector3? _autoWalkFacePosition;
+        /// <summary>
+        /// True while walking to a fishing spot: arrival is confirmed by the game's
+        /// fishing bubble (world map: after creeping onto the baked stand), never
+        /// by distance alone.
+        /// </summary>
+        private bool _autoWalkIsFishing;
 
         /// <summary>
         /// True when auto-walking to a target on a different floor (significant Y difference).
@@ -390,6 +396,8 @@ namespace SO2RAccess
         private TraversalGraph _traversal = new TraversalGraph();
         /// <summary>Timer for periodic traversal autosave.</summary>
         private float _traversalSaveTimer;
+        /// <summary>Debug-only world map walk record for the F11 wall audit (see <see cref="WorldmapTrail"/>).</summary>
+        private readonly WorldmapTrail _wmTrail = new WorldmapTrail();
 
         /// <summary>
         /// True when recorded traversals can drive reachability/pathfinding for
@@ -580,7 +588,7 @@ namespace SO2RAccess
                         _autoWalkLabel = _wmResumeLabel;
                         _autoWalkCategoryIndex = _wmResumeCategoryIndex;
                         _autoWalkTransform = _wmResumeTransform;
-                        _autoWalkTriggerBounds = _wmResumeTriggerBounds;
+                        _autoWalkIsFishing = _wmResumeIsFishing;
                         _autoWalkFacePosition = _wmResumeFacePosition;
                         _isWorldmap = true;
 
@@ -688,7 +696,7 @@ namespace SO2RAccess
                         // Fishing identity too — CancelAutoWalk clears both,
                         // and without them the resumed walk skips the
                         // bubble-confirmed arrival (false "Arrived").
-                        _wmResumeTriggerBounds = _autoWalkTriggerBounds;
+                        _wmResumeIsFishing = _autoWalkIsFishing;
                         _wmResumeFacePosition = _autoWalkFacePosition;
                         // Keep blocked positions across battles.
                         DebugLogger.LogState(

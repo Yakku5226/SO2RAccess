@@ -31,6 +31,8 @@ namespace SO2RAccess
         private const float AuditBodyHeight = 1.7f;
         /// <summary>Max wedge lines logged per route.</summary>
         private const int AuditMaxWedgeLogs = 8;
+        /// <summary>Fishing stands audited per water place (designated + first alternate).</summary>
+        private const int AuditMaxStandsPerPlace = 2;
 
         /// <summary>
         /// Runs the full route audit from the player's current position.
@@ -65,8 +67,10 @@ namespace SO2RAccess
 
             // Same list build the nav menu uses (logs its own [WMReach] lines).
             BuildWorldmapLocations(playerPos, fm.WorldmapID);
+            EnsureWmMapjumpCache("route audit");
             var locations = _categories[CAT_LOCATION];
-            sb.AppendLine($"[RouteAudit] {locations.Count} locations to audit.");
+            sb.AppendLine($"[RouteAudit] {locations.Count} locations to audit; " +
+                $"{_wmMapjumpCache.Count} map jumps for the gate pinch rule.");
             MelonLogger.Msg(sb.ToString());
             sb.Clear();
 
@@ -94,29 +98,81 @@ namespace SO2RAccess
                 sb.Clear();
             }
 
+            // Fishing stands from the baked file: the designated stand and the
+            // first alternate of every place (capped — each audit is an A* plus
+            // a sweep). Tells whether a refused fishing walk fails on the start
+            // side (wedges near the player) or at the stand.
+            int fClean = 0, fWedgy = 0, fNoRoute = 0;
+            var standsFile = WorldmapFishingStands.Load(fm.WorldmapID);
+            if (standsFile != null)
+            {
+                sb.AppendLine(
+                    $"[RouteAudit] fishing stands: {standsFile.Places.Count} places, " +
+                    (standsFile.ProofsBaked ? $"proofs baked from {standsFile.ProofAnchors} anchors" : "no route proofs") + ".");
+                foreach (var place in standsFile.Places)
+                {
+                    int count = Math.Min(place.Stands.Count, AuditMaxStandsPerPlace);
+                    for (int k = 0; k < count; k++)
+                    {
+                        var stand = place.Stands[k];
+                        string label = $"Fishing place {place.WaterPlaceId} stand {k}" +
+                            (stand.Proven
+                                ? $" (proven from {stand.ProvenFrom}, {stand.ProofTier})"
+                                : standsFile.ProofsBaked && place.ProofAttempted ? " (UNPROVEN)" : "") +
+                            (stand.WallClearance >= 0f ? $" wallClear={stand.WallClearance:F1} m" : "") +
+                            (stand.RingDistance >= 0f ? $" ring={stand.RingDistance:F1} m" : "");
+                        try
+                        {
+                            bool hasWedge = AuditOneTarget(label, stand.Position, playerPos,
+                                mode, wallMask, sb, out bool routed);
+                            if (!routed) fNoRoute++;
+                            else if (hasWedge) fWedgy++;
+                            else fClean++;
+                        }
+                        catch (Exception ex)
+                        {
+                            sb.AppendLine($"[RouteAudit] {label}: AUDIT ERROR {ex.Message}");
+                        }
+                        MelonLogger.Msg(sb.ToString());
+                        sb.Clear();
+                    }
+                }
+            }
+
             swTotal.Stop();
             string summary =
                 $"[RouteAudit] ===== SUMMARY: {clean} clean, {wedgy} with wedge " +
-                $"points, {noRoute} no-route, in {swTotal.ElapsedMilliseconds}ms =====";
+                $"points, {noRoute} no-route; fishing stands {fClean} clean, {fWedgy} wedgy, " +
+                $"{fNoRoute} no-route; in {swTotal.ElapsedMilliseconds}ms =====";
             if (wedgyNames.Count > 0)
                 summary += $" wedgy: {string.Join(", ", wedgyNames)}";
             MelonLogger.Msg(summary);
             ScreenReader.Say(
                 $"Route audit complete. {clean} routes clean, {wedgy} with " +
-                $"wedge points, {noRoute} without a route. Check log.");
+                $"wedge points, {noRoute} without a route. Fishing stands: {fClean} clean, " +
+                $"{fWedgy} with wedge points, {fNoRoute} without a route. Check log.");
         }
 
-        /// <summary>Plans and physics-validates the route to one location.
-        /// Returns true when the planned route has wedge points;
-        /// <paramref name="routed"/> is false when no route exists.</summary>
+        /// <summary>Plans and physics-validates the route to one location
+        /// (target = its enter-trigger ring point, as in a real walk).</summary>
         private bool AuditOneLocation(string label, Vector3 locationPos,
             Vector3 playerPos, WorldmapTravelMode mode, int wallMask,
             StringBuilder sb, out bool routed)
         {
-            routed = false;
-
             // 1. Same target resolution as a real walk.
             Vector3 target = ComputeEnterTriggerTarget(locationPos, playerPos);
+            return AuditOneTarget(label, target, playerPos, mode, wallMask, sb, out routed);
+        }
+
+        /// <summary>Plans and physics-validates the route to one exact target
+        /// (a ring point or a fishing stand). Returns true when the planned
+        /// route has wedge points; <paramref name="routed"/> is false when no
+        /// route exists.</summary>
+        private bool AuditOneTarget(string label, Vector3 target,
+            Vector3 playerPos, WorldmapTravelMode mode, int wallMask,
+            StringBuilder sb, out bool routed)
+        {
+            routed = false;
 
             // 2. Same safe-exit logic.
             Vector3 safeExit = ComputeSafeExitPoint(playerPos);
@@ -156,30 +212,44 @@ namespace SO2RAccess
                 ? "FLOOR" : "comfort";
 
             // 4. Physics sweep over both legs.
-            int wedges = 0, heightMismatches = 0;
+            int wedges = 0, heightMismatches = 0, forgiven = 0;
             float worstMismatch = 0f;
+            Vector3? firstWedge = null;
             if (exitLeg != null)
                 SweepLeg(exitLeg, "exit", label, wallMask, sb,
-                    ref wedges, ref heightMismatches, ref worstMismatch);
+                    ref wedges, ref heightMismatches, ref worstMismatch, ref firstWedge, ref forgiven);
             SweepLeg(mainLeg, "main", label, wallMask, sb,
-                ref wedges, ref heightMismatches, ref worstMismatch);
+                ref wedges, ref heightMismatches, ref worstMismatch, ref firstWedge, ref forgiven);
 
             int totalWps = (exitLeg?.Length ?? 0) + mainLeg.Length;
+            string firstWedgeNote = "";
+            if (firstWedge.HasValue)
+            {
+                Vector3 w = firstWedge.Value;
+                firstWedgeNote = $" | first wedge {FlatDistance(w, playerPos):F0}m from player, " +
+                    $"{FlatDistance(w, target):F0}m from target";
+            }
             sb.AppendLine(
                 $"[RouteAudit] {label}: " +
                 (wedges == 0 ? "WALKABLE" : $"{wedges} WEDGE SEGMENTS") +
+                (forgiven > 0 ? $" ({forgiven} gate pinch segments forgiven, within " +
+                    $"{WorldmapMapjumps.RingWedgeMeters:F0}m of an entrance ring)" : "") +
                 $" | legs: exit={exitTier}({exitLeg?.Length ?? 0}wp) " +
                 $"main={mainTier}({mainLeg.Length}wp) total={totalWps}wp" +
                 $" | grid-vs-live height mismatches>1m: {heightMismatches}" +
-                (heightMismatches > 0 ? $" (worst {worstMismatch:F1}m)" : ""));
+                (heightMismatches > 0 ? $" (worst {worstMismatch:F1}m)" : "") +
+                firstWedgeNote);
             return wedges > 0;
         }
 
         /// <summary>Sweeps the body capsule along every segment of one leg,
-        /// logging each blocked segment (capped) and height mismatches.</summary>
+        /// logging each blocked segment (capped) and height mismatches.
+        /// <paramref name="firstWedge"/> receives the first blocked segment's
+        /// start when it is still unset.</summary>
         private void SweepLeg(Vector3[] leg, string legName, string label,
             int wallMask, StringBuilder sb, ref int wedges,
-            ref int heightMismatches, ref float worstMismatch)
+            ref int heightMismatches, ref float worstMismatch,
+            ref Vector3? firstWedge, ref int forgiven)
         {
             int unresolved = 0;
             for (int i = 0; i < leg.Length - 1; i++)
@@ -201,7 +271,19 @@ namespace SO2RAccess
                         continue;
                     }
 
+                    if (WorldmapMapjumps.IsGatePinch(_wmMapjumpCache, leg[i], blocker, out string why))
+                    {
+                        // Same rule as the walk: a gate pinch is not a wedge.
+                        forgiven++;
+                        if (forgiven <= 2)
+                            sb.AppendLine(
+                                $"[RouteAudit] {label}: GATE PINCH {legName} wp[{i}] " +
+                                $"({leg[i].x:F1},{leg[i].z:F1}) hit '{blocker.name}' " +
+                                $"L{blocker.gameObject.layer}, {why} — forgiven.");
+                        continue;
+                    }
                     wedges++;
+                    firstWedge ??= leg[i];
                     if (wedges <= AuditMaxWedgeLogs)
                     {
                         sb.AppendLine(
@@ -210,7 +292,7 @@ namespace SO2RAccess
                             $"({leg[i + 1].x:F1},{leg[i + 1].z:F1}) " +
                             $"hit '{blocker.name}' " +
                             $"L{blocker.gameObject.layer} tag={blocker.tag} " +
-                            $"(liveY={liveY:F1} gridY={leg[i].y:F1})");
+                            $"(liveY={liveY:F1} gridY={leg[i].y:F1}) {why}");
                     }
                     else if (wedges == AuditMaxWedgeLogs + 1)
                     {
@@ -279,6 +361,89 @@ namespace SO2RAccess
             }
             blocker = col;
             return true;
+        }
+
+        /// <summary>
+        /// Horizontal distance (m) the player's body capsule can move from
+        /// <paramref name="pos"/> before a wall-mask collider stops it, over
+        /// the 8 compass directions, capped at <see cref="BodyClearanceCap"/>.
+        /// Returns 0 with <paramref name="blocker"/> set when the capsule
+        /// already overlaps a collider standing still — nobody can stand
+        /// there whatever route reaches it (2026-09-13: the Arlia stand 5 m
+        /// south of the town gate sat 0.2 m inside the town's own wall boxes;
+        /// the game's bubble ray from that cell saw water, the player never
+        /// could reach the cell). Same capsule, ground probe and mask as
+        /// <see cref="SweepSegmentBlocked"/>, so the answer matches what the
+        /// walk experiences.
+        /// </summary>
+        internal static float BodyWallClearance(Vector3 pos, int wallMask, out Collider blocker)
+        {
+            blocker = null;
+            var probe = new Vector3(pos.x, pos.y + 2f, pos.z);
+            float liveY = GameUtility.CalcHeight(probe, out bool ok, 8f);
+            if (!ok) liveY = pos.y;
+            Vector3 p1 = new Vector3(pos.x, liveY + AuditStepAllowance + StandBodyRadius, pos.z);
+            Vector3 p2 = new Vector3(pos.x, liveY + AuditBodyHeight - StandBodyRadius, pos.z);
+
+            var overlaps = UnityEngine.Physics.OverlapCapsule(p1, p2, StandBodyRadius,
+                wallMask, QueryTriggerInteraction.Ignore);
+            if (overlaps != null)
+            {
+                for (int i = 0; i < overlaps.Length; i++)
+                {
+                    if (overlaps[i] == null) continue;
+                    blocker = overlaps[i];
+                    return 0f;
+                }
+            }
+
+            float nearest = BodyClearanceCap;
+            for (int i = 0; i < BodyClearanceDirections.Length; i++)
+            {
+                if (UnityEngine.Physics.CapsuleCast(p1, p2, StandBodyRadius,
+                        BodyClearanceDirections[i], out RaycastHit hit, BodyClearanceCap,
+                        wallMask, QueryTriggerInteraction.Ignore)
+                    && hit.collider != null && hit.distance < nearest)
+                {
+                    nearest = hit.distance;
+                    blocker = hit.collider;
+                }
+            }
+            return nearest;
+        }
+
+        /// <summary>Cap (m) of <see cref="BodyWallClearance"/>: "at least this far" is all a stand needs to know.</summary>
+        internal const float BodyClearanceCap = 2f;
+
+        /// <summary>
+        /// Body radius for the standing-still fit test: the game's own character
+        /// capsule (bounds 1.0 m wide), not the route sweep's slightly slimmer
+        /// 0.45 m. A stand where the game's body does not fit cannot be stood on;
+        /// the Arlia stand at (−44.5,−414) read 0.03 m with the slim capsule and
+        /// stuck the 2026-09-09 walk. The route sweep keeps its own radius.
+        /// </summary>
+        internal const float StandBodyRadius = 0.5f;
+
+        /// <summary>The 8 compass directions the clearance casts along.</summary>
+        private static readonly Vector3[] BodyClearanceDirections =
+        {
+            new Vector3(0, 0, 1), new Vector3(0.7071f, 0, 0.7071f), new Vector3(1, 0, 0),
+            new Vector3(0.7071f, 0, -0.7071f), new Vector3(0, 0, -1), new Vector3(-0.7071f, 0, -0.7071f),
+            new Vector3(-1, 0, 0), new Vector3(-0.7071f, 0, 0.7071f),
+        };
+
+        /// <summary>Joins up to 6 ancestor names of a collider, nearest parent first (log evidence).</summary>
+        internal static string ColliderChain(Collider col)
+        {
+            if (col == null) return "(none)";
+            var parts = new System.Collections.Generic.List<string> { col.name };
+            var cur = col.transform.parent;
+            for (int i = 0; i < 6 && cur != null; i++)
+            {
+                parts.Add(cur.name);
+                cur = cur.parent;
+            }
+            return string.Join("/", parts);
         }
 
         /// <summary>Resolves the collision mask the sweep uses: the game's

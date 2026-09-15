@@ -10,11 +10,11 @@ The mod is built on [MelonLoader](https://melonwiki.xyz/) and uses the [Tolk](ht
 - Dialogue readout — conversation text is read aloud, including unvoiced lines the game only shows on screen.
 - Cutscene subtitles — the subtitle line under movie cutscenes and the caption text events show above characters are read as they appear. Can be turned off in the mod settings menu (F4).
 - Field navigation — a navigation menu lists nearby NPCs, exits, treasure chests, save points, stairs and climb points (ladders, ivy walls), and interactable objects; pick one and the mod walks you there automatically. When a target sits on a level the mod cannot walk to yet, it tells you how far away it is, and where the shape of the floor suggests the climb or descent begins.
-- Spoken directions — instead of being walked, be guided: pick an item and the mod calls out which way to push the stick and how far, leg by leg, as you walk it yourself. Where no walked route exists yet, it follows the shape of the floor and says so ("unverified route"); the route you then walk is remembered for next time.
-- Manual navigation sounds — walk by ear: four looping tones grow louder as a wall gets closer ahead, to the right, behind or to the left of the camera, and nearby NPCs, unopened chests, doors and exits, locations, save points and known jump ledges each have a repeating beacon that pans toward the object and grows louder as you approach. Every tone and beacon has its own on/off switch and volume in the mod settings menu (F4), under Wall sounds and Object beacons. Slopes and ramps are told apart from walls by the shape of the floor, so a climbable path never plays a wall tone.
-- World map navigation — pathfinding auto-walk to towns, dungeons, and fishing spots across the world map, with honest feedback when a destination cannot be reached on foot.
+- Spoken directions — instead of being walked, be guided: pick an item and the mod calls out which way to push the stick and how far, leg by leg, as you walk it yourself. Where no walked route exists yet, it follows the shape of the floor and says so ("unverified route"); the route you then walk is remembered for next time. On the world map the directions follow the same route auto-walk would take and re-plan only when you get stuck or stray far off it.
+- Manual navigation sounds — walk by ear: four looping tones grow louder as a wall gets closer ahead, to the right, behind or to the left of the camera, and nearby NPCs, unopened chests, doors and exits, locations, save points, fishing spots and known jump ledges each have a repeating beacon that pans toward the object and grows louder as you approach. On the world map, towns and dungeons have beacons of their own, with a longer range. Every tone and beacon has its own on/off switch and volume in the mod settings menu (F4), under Wall sounds and Object beacons. Slopes and ramps are told apart from walls by the shape of the floor, so a climbable path never plays a wall tone.
+- World map navigation — pathfinding auto-walk or spoken directions to towns, dungeons, undiscovered landmarks and fishing spots across the world map, with honest feedback when a destination cannot be reached on foot.
 - Battle accessibility — target announcements, enemy proximity cues, dodge notifications, and status readouts during real-time battles.
-- Fishing support — navigate to fishing spots and get an audio cue the moment you can cast.
+- Fishing support — navigate to fishing spots and get an audio cue the moment you can cast. When no fishing prompt can appear, the mod says why: the party leader lacks the Fishing skill, or the last step onto the shore is blocked ("Stopped N meters short").
 - Audio cues — distinct sounds for events like a nearby enemy, a dodge window, save points, private actions, and bonus gauge progress. Sound and speech output can be toggled independently.
 - Community translations — all spoken text lives in a plain JSON file; anyone can translate the mod without code changes, and the mod can follow the game's own language setting automatically. See [TRANSLATING.md](TRANSLATING.md).
 
@@ -111,9 +111,13 @@ their own (the spoken announcements) say so instead.
 
 Wall sounds holds the four wall tones (ahead, right, behind, left), each with
 an on/off row and a volume row, plus Wall sound start distance (2 to 8 metres, the
-distance at which a tone begins; it is loudest when touching). Object beacons holds one on/off and volume pair
-per kind of object (NPCs, chests, doors and exits, locations, save points,
-jump points, stairs and ladders), the Beacon range (5 to 20 metres, how far away a beacon starts), and Beacons behind you:
+distance at which a tone begins; it is loudest when touching) and Wall tones on the
+world map (off by default; on the world map the tones react only to real
+obstacles and the water's edge, never to slopes). Object beacons holds one on/off and volume pair
+per kind of object (NPCs, chests, doors and exits, locations, towns, dungeons, save points,
+jump points, stairs and ladders, fishing spots), the Beacon range (5 to 20 metres, how far away a beacon starts),
+the World map beacon range (10 to 100 metres, default 30, for chests, landmarks and fishing spots on the world map),
+the World map town and dungeon range (20 to 300 metres, default 100), and Beacons behind you:
 Muffled (the default) makes a beacon behind the camera sound as if through a
 wall; Quieter only just lowers it. Space on that row plays the NPC beacon as it
 would sound from behind, so the two can be compared. Wall tones start switched
@@ -123,7 +127,7 @@ Key bindings opens a submenu where every mod key can be
 changed: arrows move through the actions, Enter on an action asks for the
 new key — the next key you press becomes the binding. If the new key is already
 used by the game or by another mod action, you hear a warning but the key is
-still accepted. F5 through F11 are reserved for the mod's debugging
+still accepted. F5 through F11, Insert and Delete are reserved for the mod's debugging
 hotkeys — they are not listed in the submenu, and binding one of them to an
 action gives a warning that the key will only work while debug mode is off.
 Changes only take effect when you activate Save and go back
@@ -187,6 +191,9 @@ The notification sounds are sourced from [Freesound](https://freesound.org/) und
 - GLEAM-GLOW-SFX-CHIME (location beacon) by newagesoup — <https://freesound.org/s/351408/> — License: Creative Commons 0
 - Jump_C_04 (jump point beacon) by cabled_mess — <https://freesound.org/s/350906/> — License: Creative Commons 0
 - Marimba note struck (save point beacon) by LloydEvans09 — <https://freesound.org/s/185833/> — License: Creative Commons 0
+- Busy Room Ambience, Small crowd (town beacon) by Breviceps — <https://freesound.org/s/457043/> — License: Creative Commons 0
+- Twin Bells (dungeon beacon) by Streetpoptunez — <https://freesound.org/s/653752/> — License: Creative Commons 0
+- waves-lapping (fishing spot beacon) by cyoung510 — <https://freesound.org/s/523399/> — License: Creative Commons 0
 - Wall proximity tones — generated for this mod
 
 ## License

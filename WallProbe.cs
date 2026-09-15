@@ -56,9 +56,93 @@ namespace SO2RAccess
     ///    probe fault. The audit now reports short links (≤ 2 m) separately, where
     ///    that error is small.
     /// Range is capped at 8 m (<see cref="MaxRange"/>) on the user's request.
+    ///
+    /// WORLD MAP (2026-09-06): a <see cref="ProbeProfile"/> chooses the rules. The
+    /// world map allows ~84° climbs on foot — blocking there comes from colliders
+    /// (rock, invisible region walls) and the ocean, never from grade — so its
+    /// profile skips every slope verdict, finds the floor with the game's own
+    /// height query (a 2 m ray window loses the floor on such climbs) and reports
+    /// only "no ground" (ocean, void) plus face hits on the live per-form wall mask
+    /// (the bunny ignores region walls). Audited with the F11 world map trail.
     /// </summary>
     public static class WallProbe
     {
+        #region Profiles
+
+        /// <summary>How a profile finds the floor along the walk.</summary>
+        public enum FloorTest
+        {
+            /// <summary>Downward rays tracking the nearest floor (fields).</summary>
+            RaycastWalk,
+            /// <summary>The game's own ground height query; only "no ground" counts (world map).</summary>
+            GameHeight
+        }
+
+        /// <summary>The rule set for one kind of map.</summary>
+        public sealed class ProbeProfile
+        {
+            public string Name;
+            /// <summary>Layers the face rays may hit.</summary>
+            public int FaceMask;
+            /// <summary>Whether a height step between floor samples is an obstacle.</summary>
+            public bool JudgeFloorSteps;
+            public FloorTest Floor;
+            public override string ToString() => $"{Name} face 0x{FaceMask:X8}";
+        }
+
+        private static ProbeProfile _field;
+
+        /// <summary>Field, town and dungeon rules — exactly the audited behaviour.</summary>
+        public static ProbeProfile Field =>
+            _field ??= new ProbeProfile
+            {
+                Name = "field", FaceMask = FaceMask, JudgeFloorSteps = true, Floor = FloorTest.RaycastWalk
+            };
+
+        /// <summary>
+        /// World map rules for a live wall mask (<c>FieldPlayer.GetLayerMaskWall()</c>,
+        /// per form). Layer 24 (streamed rock bodies) is added: those colliders are
+        /// physically solid even though the movement masks omit them, and the
+        /// near-vertical-normal rule keeps their walkable slopes out of the verdict.
+        /// </summary>
+        public static ProbeProfile Worldmap(int liveWallMask) =>
+            new ProbeProfile
+            {
+                Name = "worldmap",
+                FaceMask = (liveWallMask | (1 << 24)) & ~(1 << PlayerLayer),
+                JudgeFloorSteps = false,
+                Floor = FloorTest.GameHeight
+            };
+
+        /// <summary>Documented bunny wall mask (L17 PsynardWall, L21 GimmickWall, L22 Wall).</summary>
+        private const int FallbackBunnyWallMask = 0x00620000;
+
+        /// <summary>
+        /// The game's static wall mask for a world map travel mode, for callers that
+        /// have no live player (the audit's recorded trail). Falls back to the
+        /// documented values when the game values cannot be read.
+        /// </summary>
+        public static int WorldmapMaskFor(WorldmapTravelMode mode)
+        {
+            try
+            {
+                int m = mode == WorldmapTravelMode.Bunny
+                    ? Il2CppGame.GameRenderManager.LayerMaskBunnyWall
+                    : Il2CppGame.GameRenderManager.LayerMaskWall;
+                if (m != 0) return m;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"WallProbe: world map mask for {mode} unavailable ({ex.Message}) — using the documented mask.");
+            }
+            return mode == WorldmapTravelMode.Bunny ? FallbackBunnyWallMask : FallbackWallMask;
+        }
+
+        /// <summary>Height above the sample point (m) from which the world map ground query looks down.</summary>
+        private const float GameHeightRayUp = 25f;
+
+        #endregion
+
         #region Tuning
 
         /// <summary>
@@ -198,17 +282,17 @@ namespace SO2RAccess
         /// forward. <paramref name="describe"/> adds collider names for logs.
         /// </summary>
         public static Reading[] ProbeAround(Vector3 feetPos, Vector3 cameraForwardFlat, float range = Range,
-            bool describe = false)
+            bool describe = false, ProbeProfile profile = null)
         {
             Vector3 fwd = Flatten(cameraForwardFlat, Vector3.forward);
             Vector3 right = new Vector3(fwd.z, 0f, -fwd.x); // 90° clockwise seen from above
 
             return new[]
             {
-                ProbeDirection(feetPos, fwd, range, describe),
-                ProbeDirection(feetPos, right, range, describe),
-                ProbeDirection(feetPos, -fwd, range, describe),
-                ProbeDirection(feetPos, -right, range, describe)
+                ProbeDirection(feetPos, fwd, range, describe, profile),
+                ProbeDirection(feetPos, right, range, describe, profile),
+                ProbeDirection(feetPos, -fwd, range, describe, profile),
+                ProbeDirection(feetPos, -right, range, describe, profile)
             };
         }
 
@@ -219,53 +303,77 @@ namespace SO2RAccess
         /// <param name="direction">Horizontal direction; Y is ignored.</param>
         /// <param name="range">How far to look (m), at most <see cref="Range"/>.</param>
         /// <param name="describe">Fill in collider name and layer for logging.</param>
+        /// <param name="profile">The map's rules; null = <see cref="Field"/>.</param>
         public static Reading ProbeDirection(Vector3 feetPos, Vector3 direction, float range = Range,
-            bool describe = false)
+            bool describe = false, ProbeProfile profile = null)
         {
+            profile ??= Field;
             Vector3 dir = Flatten(direction, Vector3.zero);
             range = Mathf.Clamp(range, SampleStep, MaxRange);
             var result = new Reading { Distance = range, Test = Test.None, Layer = -1 };
             if (dir == Vector3.zero) return result;
 
             // Test A: floor walk.
-            if (!TryFloorY(feetPos, feetPos.y, out float floorY, out _))
+            if (profile.Floor == FloorTest.GameHeight)
             {
-                result.Test = Test.NoStart;
-                return result;
-            }
-
-            float prevY = floorY, prev2Y = floorY;
-            for (float s = SampleStep; s <= range + 0.001f; s += SampleStep)
-            {
-                Vector3 at = feetPos + dir * s;
-                if (!TryFloorY(at, prevY, out float y, out Collider floorCol))
+                // World map: only the absence of ground (ocean, void) is an obstacle.
+                if (!TryGameHeight(feetPos, out _))
                 {
+                    result.Test = Test.NoStart;
+                    return result;
+                }
+                for (float s = SampleStep; s <= range + 0.001f; s += SampleStep)
+                {
+                    if (TryGameHeight(feetPos + dir * s, out _)) continue;
                     result.Distance = s - SampleStep * 0.5f;
                     result.Test = Test.FloorGap;
                     break;
                 }
-                // Validated grid rule over a 1.5 m window, plus a per-sample cap.
-                if (Mathf.Abs(y - prevY) > MaxStepY || Mathf.Abs(y - prev2Y) > MaxWindowY)
+            }
+            else
+            {
+                if (!TryFloorY(feetPos, feetPos.y, out float floorY, out _))
                 {
-                    result.Distance = s - SampleStep * 0.5f;
-                    result.Test = Test.FloorStep;
-                    if (describe) Describe(ref result, floorCol);
-                    break;
+                    result.Test = Test.NoStart;
+                    return result;
                 }
-                prev2Y = prevY;
-                prevY = y;
+
+                float prevY = floorY, prev2Y = floorY;
+                for (float s = SampleStep; s <= range + 0.001f; s += SampleStep)
+                {
+                    Vector3 at = feetPos + dir * s;
+                    if (!TryFloorY(at, prevY, out float y, out Collider floorCol))
+                    {
+                        result.Distance = s - SampleStep * 0.5f;
+                        result.Test = Test.FloorGap;
+                        break;
+                    }
+                    // Validated grid rule over a 1.5 m window, plus a per-sample cap.
+                    if (profile.JudgeFloorSteps
+                        && (Mathf.Abs(y - prevY) > MaxStepY || Mathf.Abs(y - prev2Y) > MaxWindowY))
+                    {
+                        result.Distance = s - SampleStep * 0.5f;
+                        result.Test = Test.FloorStep;
+                        if (describe) Describe(ref result, floorCol);
+                        break;
+                    }
+                    prev2Y = prevY;
+                    prevY = y;
+                }
             }
 
             // Test B: face rays at knee and waist. Nearer verdict wins.
             float faceLimit = result.HasObstacle ? result.Distance : range;
-            if (TryFace(feetPos + Vector3.up * KneeHeight, dir, faceLimit, out float dKnee, out Collider cKnee))
+            if (TryFace(feetPos + Vector3.up * KneeHeight, dir, faceLimit, profile.FaceMask,
+                    out float dKnee, out Collider cKnee))
             {
                 result.Distance = dKnee;
                 result.Test = Test.Face;
                 if (describe) Describe(ref result, cKnee);
                 faceLimit = dKnee;
             }
-            if (TryFace(feetPos + Vector3.up * WaistHeight, dir, faceLimit, out float dWaist, out Collider cWaist))
+            if (TryFace(feetPos + Vector3.up * WaistHeight, dir, faceLimit, profile.FaceMask,
+                    out float dWaist, out Collider cWaist))
             {
                 result.Distance = dWaist;
                 result.Test = Test.Face;
@@ -324,12 +432,12 @@ namespace SO2RAccess
         /// Nearest near-vertical solid surface along a horizontal ray, within
         /// <paramref name="limit"/>. Floor-like and ceiling-like hits are skipped.
         /// </summary>
-        private static bool TryFace(Vector3 origin, Vector3 dir, float limit, out float distance,
-            out Collider collider)
+        private static bool TryFace(Vector3 origin, Vector3 dir, float limit, int faceMask,
+            out float distance, out Collider collider)
         {
             distance = limit;
             collider = null;
-            var hits = Physics.RaycastAll(origin, dir, limit, FaceMask, QueryTriggerInteraction.Ignore);
+            var hits = Physics.RaycastAll(origin, dir, limit, faceMask, QueryTriggerInteraction.Ignore);
             if (hits == null || hits.Length == 0) return false;
 
             bool found = false;
@@ -347,6 +455,31 @@ namespace SO2RAccess
                 }
             }
             return found;
+        }
+
+        /// <summary>
+        /// Ground under a horizontal position by the game's own height query — the
+        /// rule the world map grid bake uses for ocean cells ("no ground blocks all
+        /// modes"). Looks from well above the feet so an 84° climb is still found.
+        /// </summary>
+        private static bool TryGameHeight(Vector3 at, out float groundY)
+        {
+            groundY = 0f;
+            try
+            {
+                // CalcHeight(position, out ok, rayStartPoint): the ray starts
+                // rayStartPoint ABOVE position (the third argument is not a length).
+                // The first build passed a point already 25 m up plus 50 → "no floor"
+                // under the player's own feet everywhere (log 2026-09-06 18:43).
+                // Same form as the proven stuck diagnostics: point at foot height.
+                groundY = Il2CppGame.GameUtility.CalcHeight(at, out bool hasGround, GameHeightRayUp);
+                return hasGround;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"WallProbe: CalcHeight failed ({ex.Message})");
+                return true; // fail open: no tone rather than a false wall
+            }
         }
 
         private static void Describe(ref Reading r, Collider col)

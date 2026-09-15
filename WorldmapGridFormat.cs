@@ -41,6 +41,45 @@ namespace SO2RAccess
             Dictionary<long, float> clearanceValues,
             int footMask, int bunnyMask, float footFloor, float bunnyFloor)
         {
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            // Never destroy the last known-good grid: back it up first, and
+            // write through a temp file so a failure mid-write cannot leave a
+            // truncated grid behind (same pattern as WorldmapFishingStands.Save).
+            if (File.Exists(path))
+            {
+                string previous = PreviousGridPath(path);
+                File.Copy(path, previous, true);
+                MelonLoader.MelonLogger.Msg(
+                    $"[GridGen] Previous grid backed up to: {previous} " +
+                    $"({new FileInfo(previous).Length} bytes, last baked " +
+                    $"{File.GetLastWriteTime(previous):yyyy-MM-dd HH:mm})");
+            }
+            string tmp = path + ".tmp";
+            WriteGrid(tmp, worldMinX, worldMinZ, cellSize, gridW, gridH, height, flags,
+                clearanceOffsets, clearanceValues, footMask, bunnyMask, footFloor, bunnyFloor);
+            File.Move(tmp, path, true);
+        }
+
+        /// <summary>UserData folder holding the grid files.</summary>
+        public static string UserDir =>
+            Path.Combine(Directory.GetCurrentDirectory(), "UserData", "SO2RAccess");
+
+        /// <summary>Path of the user-side grid for a map name ("expel" / "nede").</summary>
+        public static string UserGridPath(string mapName) =>
+            Path.Combine(UserDir, $"worldmap_{mapName}.grid");
+
+        /// <summary>Backup a bake copies the previous grid to before overwriting it (next to the grid).</summary>
+        public static string PreviousGridPath(string gridPath) =>
+            Path.ChangeExtension(gridPath, ".previous.grid");
+
+        /// <summary>Writes the WMGI file body (see <see cref="SaveGrid"/> for the layout).</summary>
+        private static void WriteGrid(string path, float worldMinX,
+            float worldMinZ, float cellSize, int gridW, int gridH,
+            ushort[,] height, byte[] flags,
+            Dictionary<long, (float, float)> clearanceOffsets,
+            Dictionary<long, float> clearanceValues,
+            int footMask, int bunnyMask, float footFloor, float bunnyFloor)
+        {
             using var stream = new FileStream(path, FileMode.Create);
             using var writer = new BinaryWriter(stream);
 
@@ -125,10 +164,9 @@ namespace SO2RAccess
         /// </summary>
         public static CachedGrid LoadGrid(WorldmapID wmID)
         {
-            string mapName = wmID == WorldmapID.EXPEL ? "expel" : "nede";
-            string dir = Path.Combine(
-                Directory.GetCurrentDirectory(), "UserData", "SO2RAccess");
-            string filePath = Path.Combine(dir, $"worldmap_{mapName}.grid");
+            string mapName = WorldmapFishingStands.MapName(wmID);
+            string dir = UserDir;
+            string filePath = UserGridPath(mapName);
 
             if (!File.Exists(filePath) &&
                 !TryExtractEmbeddedGrid(mapName, dir, filePath))
@@ -331,9 +369,20 @@ namespace SO2RAccess
             /// <summary>Per-cell flag: blocked for the bunny mount.</summary>
             public const byte FlagBunnyBlocked = 2;
 
-            /// <summary>Per-cell flag (diagnostic): cell was sealed by the
-            /// town-interior flood fill rather than a direct collider hit.</summary>
+            /// <summary>
+            /// Per-cell flag: the FOOT blocked bit came from the town-interior
+            /// flood fill, not from a collider the probe saw. The entrance
+            /// clearing may lift a seal; it must never lift a probe wall
+            /// (2026-09-13: it lifted both, which opened Arlia's wall strips).
+            /// </summary>
             public const byte FlagSealedInterior = 4;
+
+            /// <summary>Per-cell flag: the BUNNY blocked bit came from the flood fill (see <see cref="FlagSealedInterior"/>).</summary>
+            public const byte FlagBunnySealed = 8;
+
+            /// <summary>The seal bit that accompanies a mode's blocked bit.</summary>
+            public static byte SealedBitFor(byte modeBit) =>
+                modeBit == FlagBunnyBlocked ? FlagBunnySealed : FlagSealedInterior;
 
             /// <summary>Both travel-mode blocked bits — used by runtime
             /// stamps/clears that apply regardless of mode.</summary>

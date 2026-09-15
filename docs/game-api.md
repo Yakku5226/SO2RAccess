@@ -1104,8 +1104,251 @@ at a time per process (`AudioCuePlayer`). Loops and anything simultaneous go thr
 `short[]` and resamples. A voice not `Set()` for 0.5 s fades itself — handlers stall when
 the mod menu is open (`Main.UpdateHandlers` is skipped), so never rely on a Stop() call.
 
+## 21. World Map Manual Navigation (beacons, wall tones, spoken directions)
+
+Added 2026-09-06 when the manual-navigation aids were extended to the world map.
+
+**What exists on the world map (survey + data).** `ConstWorldmapSymbolParameter` (via
+`ParameterManager.GetWorldmapSymbolParameter(WorldmapID)`) carries `mapIconType`; the shared
+`Il2CppGame.MapIconType` enum has 31 members but the world map data only ever yields `CITY`
+(12) and `DUNGEON` (13) plus a few `INVALID` `ob_*` objects — no ports, ships, stables or
+castles. `ConstLocalityParameter.isDungeon` / `isPrivateAction` are cleaner flags than the
+icon. `FieldManager.FieldLocationPointList` holds the 6 Expel discovery landmarks (class has
+`worldmapVisibleDistance` fields — a world map feature by design); chests (`FieldTreasureBox`)
+and enemy symbols (`FieldEnemy`) exist as scene objects; fishing spots come from
+`ConstFishingWaterPlaceParameter` (no scene objects). A landed psynard (`FieldManager.FieldPsynard`,
+`IsContactPsynard()`) and the world edge (`FieldManager.IsWorldMapOutsideArea(obj, out dir)`)
+are the only other point-like things — unused so far.
+
+**Beacons.** `NavigationHandler.Beacons.cs` maps `CAT_LOCATION` → `NavCueKind.City`/`Dungeon`
+(by `NavItem.IsDungeon`), `CAT_MARKER` → `Location`, `CAT_CHEST` → `Chest`, fishing
+(`NavItem.IsFishing`, any map) → `Fishing` sounding from `FacePosition` (the water). Range
+comes from `ModSettings.WorldmapBeaconRangeMeters` (20–300, default 100) with a 10 m
+full-volume distance. Every spatial cue pans through `SpatialPan.Compute` (camera-relative).
+Psynard flight mutes the whole handler (`WorldmapTravel.CurrentMode()`).
+
+**Wall tones.** `WallProbe.ProbeProfile`: `Field` = the audited field rules; `Worldmap(mask)`
+= no slope verdicts at all (the map allows ~84° climbs; blocking is colliders), floor found
+with `GameUtility.CalcHeight(origin 25 m up, 50 m)` so only "no ground" (ocean, void) is a
+`FloorGap`, face rays on the LIVE per-form mask `player.GetLayerMaskWall()` (foot
+`0x04E28000`, bunny `0x00620000` — the bunny crosses region walls) plus L24 streamed rock
+bodies. Own switch `ModSettings.WorldmapWallTonesEnabled` (default off). Audit: `WorldmapTrail`
+records a debug-only session trail (1.5 m spacing, links ≤ 4 m, same travel mode); F11 on
+the world map runs `RunWorldmapWallProbeAudit` (`[WMWALLAUDIT]`, steep edges judged too)
+before the pathfinding diagnostics.
+
+**Spoken directions.** `NavigationHandler.Guidance.Worldmap.cs`. Route = `PlanWorldmapRoute`
+(shared with auto-walk: entrance ring via `ComputeEnterTriggerTarget`; fishing items already
+carry their baked stand, §23) then a private copy of `_wmPathWaypoints`. Simplify with
+Douglas–Peucker (1.5 m) + a per-chord `WorldmapPathfinder.IsWalkableWorld` check, then the
+shared leg builder (min leg 3 m, reached 2.5 m; 1 m each in `_wmTightTerrain`). No timed
+re-plan: only stuck (`ManualNavHandler.TryGetMoveIntent` + no displacement 0.6 s → stamp
+`_wmBlockedPositions`, max 5), drift (> 12 m / 4 m tight for 1.5 s) or a blocked straight
+line to the aim, all via `WorldmapPathfinder.FindPath(..., skipComfortTier: floorTier)`,
+min 4 s apart. Arrival: location = `EnterPromptMatches(label)` only (within 4 m of the ring
+the legs aim at the town centre and say so); fishing = `FieldPromptHandler.FishPromptShowing`,
+else a "face the water" hold with an 8 s timeout; others by radius. `CancelAutoWalk()` clears
+`_isWorldmap`, so `GuideTo` restores it before planning. Traps: `_pathCorners` is a stub on
+the world map; `IsFieldFree` flickers ~10 frames at terrain transitions (tolerated).
+
+## 22. Private Action Availability (the real gate)
+
+Added 2026-09-07 after a bug report: the PA cue played in Kurik (MF_0009_41A, main scenario
+progress 1500000) although Square did nothing there.
+
+- `ConstLocalityParameter.IsPrivateAction` is a **static** per-town flag: "this town has PAs
+  at all". It never changes and is NOT the gate the game uses.
+- The game gate is `GameManager.CanChangeToPrivateAction(FieldmapID)` (static; the overload
+  the game itself calls, 5 callers; `LocalityID` and parameterless overloads also exist, plus
+  an instance `FieldManager.CanChangeToPrivateAction()`). Native body, but its lambda
+  `_CanChangeToPrivateAction_b__107_0(ConstDisableSystemParameter x)` shows it walks
+  `ParameterManager.GetDisableSystemParameter(LocalityID)`.
+- `ConstDisableSystemParameter` = per-locality scenario windows (`StartScenarioProgress`..
+  `EndScenarioProgress`, optional `ScenarioFlag` list, optional `HeroID`) with switches
+  `IsDisablePrivateAction`, `IsDisableSave`, `IsDisableAutoSave`, `IsDisableFastTravel`,
+  `IsDisableCampMenu`, `IsDisableGuideMap`. Sibling gates: `GameManager.CanBeSave(bool)`,
+  `FieldManager.CanBeFastTravel()`.
+- "Currently IN PA mode" is a different thing: `GameManager.IsPrivateAction()` /
+  `FieldManager.IsPrivateAction()`, and `FieldBitFlag.PrivateAction` (5) /
+  `PrivateActionChanging` (10).
+- `PrivateActionHandler` now polls the FieldmapID overload once a second and plays the cue on
+  every false-to-true transition (re-arms when a town opens up mid-visit).
+
+## 23. World Grid Data, Fishing Truth and the Baked Fishing Stands
+
+Added 2026-09-07 (session 16) when the world map fishing spots moved from runtime shoreline
+scans to a one-off bake. All game methods are native (stubs only) — behaviour below is from
+the data model and the logs.
+
+**The painted world grid.** `FieldManager.GetWorldGridData(ref Vector3)` (and the
+parameterless overload = the player) returns a `WorldGridData` cell from a quadtree
+(`ScriptableGridUnitData<WorldGridData>`, cell size via `GetGridSize()`): fields
+`FishingWaterPlaceID` (byte, 0 = none — THE fishing paint, covering the water and its shore
+band: contact ID 30 was reported 4 m up a bank), `ContinentID` (byte, land vs. sea),
+`FootstepType`, `AlightFlag` (psynard landing), `EncountIDList`, `SurvivalAreaID`,
+`LocationID`. Pure data lookup: no ray, no streamed chunks. Related:
+`IsExistWorldGridData()`, `CanMove(int x, int y)` (the game's own grid walkability),
+`GetWorldGridDataGridPosition(ref pos)`, `GetWorldGridDataPosition(x, y)`.
+`GetContactFishingWaterPlaceID()` is simply this paint under the player — NOT "can fish".
+
+**The bubble's own test.** `FieldManager.CheckWorldmapFishingPoint(ref Vector3 position,
+ref Vector3 direction)` from the feet + facing (`FieldPromptHandler` FISHDIAG proves it returns
+True at real spots). Static inputs `worldmapFishingFrontDistance` (5 m ahead must be painted
+water), `fishingGroundDistance` (7 m max drop), `fishingCollisionDistanceRate` (1.4),
+`worldmapFishingCharacterHeight` (10). Contains a physics ray, so far from the player it needs
+the streamed collision loaded (bake: `WorldmapChunkLoader.LoadTile`). Pass COPIES by ref.
+`IsWorldmapFishingPoint(point, out hitPosition)` is its water probe. The game's own per-frame
+flag: `FieldManager.IsFieldFlag(FieldBitFlag.FishingPoint)` (= 3); `DisableFishingCheck` (= 23)
+switches the check off. Per-map whitelists: `ParameterManager.GetFishingEnableAreaParameterList /
+GetFishingDisableAreaParameterList(FieldmapID)`. `FlavorChatManager.disableFishingPointIDList` is
+flavour-chat de-dup by GameObject instance ID — not a water place disable.
+
+**Fishing skill gate (readable).** `ParameterManager.Instance.UserParameter.PartyParameter.LeaderID`
+→ `UserParameter.GetCharacterParameter(PlayerID)` → `CharacterParameter.IsLearnedSpecialSkill(
+SpecialSkillID.FISHING)` (FISHING = 18). `PartyManager` has NO static Instance. Used by
+`NavigationHandler.LeaderHasFishingSkill` (fail open: unreadable = has the skill).
+
+**Water height helpers (unused so far).** `FieldFishShadow.CheckWaterSurface(pos, out hit,
+isMinHeight, radius, checkDistance)` [10 callers], `GameRenderManager.LayerMaskFishingAndHeight`,
+`GetSeaWaterHeight(pos)`, `IsSeaCollider(col)`.
+
+**The bake (Insert, debug mode, world map).** `WorldmapFishingStandBaker`: shoreline cells of
+the mod grid (foot-passable with a non-passable 4-neighbour) inside each water box + 16 m whose
+neighbour (or the cell itself) is painted → `CheckWorldmapFishingPoint` per tile with chunks
+loaded, toward-water direction first then the compass → comfort regions (`BuildRegions` with a
+0.60 m clearance floor) → one designated stand per water place (largest comfort region, widest
+clearance, nearest the parameter position) + ≤ 5 alternates ≥ 16 m apart. File:
+`UserData\SO2RAccess\stands\worldmap_expel.json` (wins) or the embedded `stands\*.json`;
+`WorldmapFishingStands.Load`. Runtime (`CollectWorldmapFishingSpots`): designated stand unless
+its region is proven off the player's start regions and an alternate matches (O(1)
+`GetRegionId`); bunny needs `BunnyOk`; unreachable = annotated like towns. One route per walk
+(`FindPath` falls to the floor tier itself). Arrival: creep onto the stand (0.3 m), face the
+baked water point, 2 s bubble wait, then the skill-aware verdict.
+
+**Phase 5 — the route proof (added 2026-09-08, session 18).** Why: the grid cannot tell a
+beach from a ledge. Rock bodies (layer 24 `Mesh_Col` / `Mesh_L0`) are GROUND in the grid and
+any height step up to 5 m per 0.5 m cell counts as walkable, so every mainland stand sits in
+the same comfort region (1 247 065 cells on Expel) and the Phase 4 rank never separated
+reachable stands from cliff-foot ones; the walk's pre-walk body sweep then refused every
+fishing route from the Krosse gate (26 / 23 / 212 wedges, log 26-9-8_19-28-38). The proof
+(`WorldmapFishingStandBaker.Proof.cs`) plans a real `WorldmapPathfinder.FindPath` route to
+each kept stand from its nearest ENTRANCE ANCHORS — the map jumps with a ground-level trigger
+ring (`WorldmapMapjumps.CollectAll`, the scan shared with the reachability cache and the
+safe-exit picker; label = destination fieldmap ID) in the same foot region (region 0 never
+skips) — loads every 64 m tile the route crosses (`WorldmapChunkLoader.LoadTile` accumulates
+until `UnloadTile`) and sweeps the body capsule along it with `NavigationHandler.
+SweepSegmentBlocked` and the live `ResolveBodySweepMask`. Exemptions: 16 m at the anchor
+(`WmSweepEndpointExemptDist`, gate pinches are sweep-conservative) but only 2 m at the stand —
+the last metres ARE the cliff question. Wedges are stamped and re-planned (3 rounds, comfort
+pass skipped once it fell to the floor, as in the walk). Budget: 2 proven stands or 8 attempts
+per place, 3 anchors per stand, 300 s per bake (places past it stay "proof unknown"). Stands
+re-rank: proven comfort > proven floor > unproven. JSON v2 fields: stand `ProvenFrom`,
+`ProofTier`, `ProofRouteMeters`, `ProofRounds`; place `ProofAttempted`, `ProvenStands`,
+`ProofAttempts`; file `ProofsBaked`, `ProofAnchors`. Runtime rule (`ChooseFishingStand`): on
+foot with `ProofsBaked && ProofAttempted`, only proven stands are candidates and a place with
+none is annotated "unreachable on foot"; a v1 file or a budget-skipped place is "proof
+unknown" (never annotated); bunny keeps the region rule only (proofs are foot sweeps). F7's
+route auditor also audits the designated stand + first alternate of every place from the
+player (`AuditOneTarget`), printing the first wedge's distance from the player and from the
+target — wedges near the player = start-side problem, near the stand = proof too lenient.
+
+**2026-09-09 (session 19) — dense shoreline, nearest stand, gate pinch rule, bubble creep.**
+Log evidence (Expel, 20:31–20:41): the Krosse lake (place 25) had 1492 verified shore cells
+but the v2 file kept 6, all on the far shore, so the list said "77 m" while the player fished
+27 m from the gate (contact ID 25 at (−83.7, −80.3)). Changes: (1) JSON **v3** keeps the whole
+verified shoreline thinned to one stand per 5 m (`StandSpacingMeters`, cap 400 per place,
+candidates cap 8000; Phase 1 `DistToParam` now measured against the PAINTED place — it was
+the box being scanned). (2) `ChooseFishingStand(file, place, mode, startRegions, playerPos,
+…)` picks the stand NEAREST the player among mode-passable, region-matching stands; on foot with
+proofs, an unproven nearest stand carries the nearest proven stand as `NavItem.FishingFallback`
+and `PlanWorldmapRoute` retargets to it ONCE, silently, when the first plan is refused (user
+decision). (3) **Gate pinch rule**: a blocked sweep segment within `WorldmapMapjumps.
+RingWedgeMeters` = 5 m of an entrance trigger ring is neither counted nor stamped — in
+`SweepRoute` (bake), `CountRouteWedges` (walk) and the F7 `SweepLeg`. Calibration: Krosse gate
+wedges 0.0–3.0 m from MF_0006_01A, Arlia 4.2–4.4 m from MF_0003_01A, rock-belt wedges ≥ 23 m.
+`EnsureWmMapjumpCache` rescans at plan/audit time: the `FieldMapjumpCollision` objects do NOT
+exist for the first seconds after a map load, so the list-build scan right after leaving a town
+found none and every later sweep ran with an empty ring list. (4) **The bake's stand test is
+necessary, not sufficient for the bubble**: at the Salva stand (−137.5, −451) the game showed
+the prompt only ~2.7 m closer to the water (three sightings at z ≈ −453.8), with
+`CheckWorldmapFishingPoint` flickering true/false and `FieldBitFlag.FishingPoint` false on the
+stand. The arrival therefore creeps ON from the stand toward the baked water point until the
+edge stalls the player (< 0.15 m in 0.7 s), 8 m or 8 s, then holds 2 s (`UpdateWaterCreep`).
+The `GetContactFishingWaterPlaceID` paint reads true well inland (ID 21/25 at the Krosse gate).
+
+**2026-09-09 round 2 (log 21:25–21:33).** (5) **The game's facing comes from INPUT, not the
+transform.** Three arrivals ended at the water's edge with `player.transform.rotation` written
+toward the water every frame, `CheckWorldmapFishingPoint(feet, transform.forward)` false, no
+bubble; seconds later, at the same position, the bubble appeared as soon as the player turned
+or pushed the stick by hand. The feet+forward call also flickers true/false at a fixed spot
+(party followers in the ray?). So the arrival now keeps pressing the stick gently toward the
+water and sweeps the push direction (0/±35/±70°, `UpdateFacingSweep`); diagnostics log
+`CheckFishingPoint(FieldPlayer)` beside the feet+forward call to learn which one the game
+trusts. (6) **Gate pinch = the town's own collider, not just "near the ring".** The 5 m rule
+forgave an Arlia riverbank `Col_Obstacle` L23 4.6 m from ring MF_0003_01A and the walk stuck
+on `Mesh_Col` exactly there. `WorldmapMapjumps.IsGateCollider`: the blocker has a
+`FieldMapjumpCollision` among its parents (`GetComponentInParent`); `IsGatePinch` requires
+both and logs the blocker's transform chain — if Krosse refuses again, that line shows the real
+hierarchy. (7) **A battle destroys the cached ring colliders**: the world map scene reloads
+(`mb_1001_11a` and back), every cached `Collider` goes Unity-null and `ClosestPoint` throws →
+"no ring data" from a full cache. `WorldmapMapjumps.IsUsable` (null / `bounds` throws) drives
+the rescan. (8) A showing bubble counts as arrival only within 12 m of the stand
+(`WmFishBubbleArrivalMeters`): the prompt was up at the Krosse gate when a 16 m walk started.
+(9) **2026-09-13: the bubble check does not prove the cell is standable.** The Arlia stand 5 m south
+of the town gate (−43,−410) passed `CheckWorldmapFishingPoint` (its ray toward the water sees water)
+but sat 0.2 m inside Arlia's own wall boxes (`Col_Obstacle` L22 `Wall_Arlia/Wall/mp_1001_001a_Col/Map`
+and L23 `CharaWall_ArliaSalba`): a strip of shore on the far side of the town wall. The walk grid does
+not carry that wall, the bake proof exempted the entire 4.5 m route (16 m start + 2 m goal exemptions)
+and the walk's sweep exempts 16 m at both ends, so nothing refused it; the player stalled 1.2 m short
+every time and from there the same ray hits the wall (gameCheck false for every facing). Fix: phase 2
+now runs `NavigationHandler.BodyWallClearance` after the bubble check — the SAME capsule, ground probe
+and mask as `SweepSegmentBlocked`; `Physics.OverlapCapsule` standing still → dropped; otherwise 8
+compass `CapsuleCast`s up to 2 m give `FishingStandEntry.WallClearance` (evidence in the file, the
+"Phase 2: place N" histogram and the F7 `wallClear=` label). Runtime: a stand creep ending more than
+0.6 m from the cell speaks "Stopped N meters short" instead of "try stepping toward the water".
+Same day, second round: the pocket had another cell 1.5 m east (clearance 0.73 m, proven "5 m") and
+the walk stuck on the wall strip. Evidence that the proof's 2 m goal exemption must stay: working
+stands (Arlia place 19, Salva place 21) also show a sweep wedge 1 m from the target in the
+no-exemption audit; clearance alone does not separate good (0.53) from bad (0.73). Two rules added
+(user-approved, both evidence-logged): cells INSIDE a town entrance trigger are dropped
+(`ApplyEntranceRingRule`, `RingDistance` field — Cross means Enter there), and the fit test uses the
+game's capsule radius 0.5 (`StandBodyRadius`). `Save` backs the old file up as
+`worldmap_<map>.previous.json` and `LogBakeDiff` lists every old stand that is GONE or moved with the
+rule that dropped it, so a rule is judged by what it took away.
+(10) **2026-09-13, the actual root: the walk GRID had the wall as open ground, because the F9 bake's
+entrance-clearing post-pass lifted every blocked bit inside each entrance trigger's bounding box —
+probe walls included.** Evidence: the F10 grid-truth probe (`WorldmapGridDiagnostics.TruthProbe.cs`,
+a live replay of the bake's own probe `WorldmapGridProbe.ProbeObstacles`) BLOCKS every Arlia wall-strip
+cell (L22 `Wall_Arlia` 0.00–0.42 m away) that the grid holds open with no clearance record, and each
+of those cells reads `MapJump … 0.00 m` = inside the trigger. A fresh bake reproduced it exactly.
+Fix: `FloodFillSeal` sets a per-mode seal bit (`FlagSealedInterior` = foot, `FlagBunnySealed` = 8);
+`ClearEntranceTriggers` lifts only seal bits and logs "wall cells kept blocked" per trigger.
+Downstream, the Arlia pocket becomes an enclosed region: the fishing candidate scan may still list
+its cells, but region matching rejects them and the proof finds no anchor in their region.
+Tools that stay: F10 `[WMTruth]` (FOCUS = nearest stand + neighbours, `seen:` = every collider
+within 1 m on any layer), `SaveGrid` backup to `worldmap_<map>.previous.grid`, scratchpad `grid_diff.py`.
+(11) **Resolution chosen (same evening): the walk grid stays as validated in July; the fishing proof
+carries the fix.** A gate-wall patch of the grid (`WorldmapGridGatePatch`, Delete key) was built, applied
+and REVERTED: an offline flood on both grids showed it removes the comfort tier of validated roads (Marze →
+Krosse Cave, Krosse → Harley) because July's comfort network crossed gate boxes through the erased wall
+cells; the fixed F9 clearing pass (`FlagBunnySealed`, seals only) stays for future bakes. Removing the
+proof's 16 m start exemption over-refused (17 → 7 proven lakes: at every gate the blocker on the ring is
+the town's WALL, so `IsGatePinch` never fires there). Final rule in `SweepRoute`: the 16 m start
+exemption is back, those segments are still swept and blocked non-gate ones are counted as hidden
+start wedges; a proven stand with any must pass `IsEnclosed` — a body-swept flood (8 neighbours, climb
+rule, `SweepSegmentBlocked` per step, gate pinches forgiven) within 14 m that must reach a cell 12 m
+away. Enclosure within the box implies no route from outside, so it can only refuse spots the body
+cannot leave; the July rebake confirmed 17 proven lakes, 0 proofs lost, 8 enclosed gate pockets
+(`FishingStandEntry.Enclosed`). Bake-position variance remains: the Arlia pocket cell passes the bubble
+check when baked from Krosse and fails from Arlia (flicker test 0/297 within one bake).
+
 ## Change History
 
+- **2026-09-13 (session 21):** §23 (9) — bubble-verified stand inside Arlia's town wall; bake body-fit test (`BodyWallClearance`), `WallClearance` file field, "stopped short" verdict.
+- **2026-09-09 (session 19):** §23 addendum — stands file v3 (dense shoreline), nearest-stand rule + silent proven fallback, gate pinch rule (5 m from an entrance ring; calibration numbers), mapjump colliders absent right after a map load, bubble band ~3 m beyond the bake-verified stand → water creep
+
+- **2026-09-07:** §22 added — private action availability: `GameManager.CanChangeToPrivateAction(FieldmapID)` + `ConstDisableSystemParameter` scenario windows; the locality flag is static and wrong as a gate
+- **2026-09-06:** §21 added — world map manual navigation: symbol/landmark survey, beacon mapping, world map probe profile + trail audit, guidance follow policy
 - **2026-09-05:** §20 added — field physics/layer rules, WallProbe design, LoopMixer audio notes
 - **2026-02-22:** File created during setup
 - **2026-02-22:** Full Tier 1 analysis complete — input system, UI, text, scenes, singletons documented
@@ -1118,3 +1361,4 @@ the mod menu is open (`Main.UpdateHandlers` is skipped), so never rely on a Stop
 - **2026-08-29:** Section 19 added — analysis of third-party ScreenReaderMOD (Galaxy Laboratory MM). Key findings: `UICanSelectedListItemPresenterBase.OnSelected` is a universal Harmony-hookable selection event; camp story hint via `UICampWindow.SetSpeechBalloon` + `UICampDotCharacterPresenter` balloon text; missed dialogue via `UIConversationWindow` auto/center/entire message methods (messageID → TextManager); full guild quest readout recipe.
 - **2026-09-01:** Captions & cutscene subtitles (Section 19) — `UICaptionPresenter.SetCaption(string, bool)` is the single funnel for movie subtitles and event caption balloons; separate system from `UIConversationPresenter`. Also noted: the config category list is built from generic `UICommonListItemPresenter` rows, so the universal OnSelected net must be suppressed while `UIConfigWindow.IsOpened` (was double-speaking every config category).
 - **2026-09-01 (later):** Caption hooks proven dead — `UICaptionPresenter.SetCaption` and the `ShowCaption`/`ShowMovieCaption` methods above it are inlined natively, so Harmony postfixes attach but never fire. Subtitles must be POLLED off `UICaptionPresenter.caption` (GameText); selectors found with `FindObjectsOfType<UICaptionSelector>(true)` — includeInactive required. Opening-movie captions live under the **Endroll** UI root.
+- **2026-09-07 (session 16):** Section 23 added — world grid data (`WorldGridData.FishingWaterPlaceID` paint via `FieldManager.GetWorldGridData`), the bubble test `CheckWorldmapFishingPoint` and its statics, `FieldBitFlag.FishingPoint/DisableFishingCheck`, the readable Fishing-skill gate (`PartyParameter.LeaderID` → `IsLearnedSpecialSkill`; `PartyManager` has no Instance), `FlavorChatManager.disableFishingPointIDList` = flavour-chat de-dup, and the baked fishing stands (Insert key bake, stands file, runtime lookup).

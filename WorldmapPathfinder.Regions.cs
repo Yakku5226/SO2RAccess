@@ -216,9 +216,15 @@ namespace SO2RAccess
         /// query (~1-2s); region 0 means unlabeled (no ground, blocked, or
         /// label overflow) and is always treated as "unknown — do not
         /// reject". Returns null on failure (fail open — no fast reject).
+        /// With <paramref name="minClearance"/> above zero, cells narrower than
+        /// that are treated as blocked too — the comfort A* pass's hard floor —
+        /// so the labels describe comfort-tier connectivity (the fishing stand
+        /// bake uses this). <paramref name="regionSizes"/>, when given, receives
+        /// the cell count of every label (index = label, index 0 unused).
         /// </summary>
-        private static ushort[] BuildRegions(
-            WorldmapGridFormat.CachedGrid grid, byte modeBit, string modeName)
+        internal static ushort[] BuildRegions(
+            WorldmapGridFormat.CachedGrid grid, byte modeBit, string modeName,
+            float minClearance = 0f, List<int> regionSizes = null)
         {
             try
             {
@@ -231,6 +237,8 @@ namespace SO2RAccess
                 var queue = new Queue<int>();
                 ushort nextLabel = 0;
                 bool overflow = false;
+                regionSizes?.Clear();
+                regionSizes?.Add(0);
 
                 for (int ax = 0; ax < gridW && !overflow; ax++)
                 {
@@ -240,6 +248,7 @@ namespace SO2RAccess
                         int rootIdx = ax * gridH + az;
                         if ((flags[rootIdx] & modeBit) != 0) continue;
                         if (regions[rootIdx] != 0) continue;
+                        if (minClearance > 0f && grid.GetClearance(ax, az) < minClearance) continue;
 
                         if (nextLabel == ushort.MaxValue)
                         {
@@ -247,6 +256,7 @@ namespace SO2RAccess
                             break;
                         }
                         nextLabel++;
+                        int size = 1;
 
                         regions[rootIdx] = nextLabel;
                         queue.Enqueue(rootIdx);
@@ -269,10 +279,13 @@ namespace SO2RAccess
                                 if (nh < 2) continue;
                                 if ((flags[nIdx] & modeBit) != 0) continue;
                                 if (Math.Abs(ch - nh) > MaxClimbCm) continue;
+                                if (minClearance > 0f && grid.GetClearance(nx, nz) < minClearance) continue;
                                 regions[nIdx] = nextLabel;
                                 queue.Enqueue(nIdx);
+                                size++;
                             }
                         }
+                        regionSizes?.Add(size);
                     }
                 }
 

@@ -28,7 +28,13 @@ namespace SO2RAccess
         /// (2026-09-06): no sound chosen yet, so it is left out of <see cref="NavCues.All"/>
         /// and therefore out of the menu. TODO: pick NavBump.wav, add Bump to All.
         /// </summary>
-        Bump = 11
+        Bump = 11,
+        /// <summary>World map towns (a bell). Cities and dungeons are the only symbol types the world map has.</summary>
+        City = 12,
+        /// <summary>World map dungeon entrances (a low stone hit).</summary>
+        Dungeon = 13,
+        /// <summary>Fishing spots, on every map: a continuous water loop coming from the water itself.</summary>
+        Fishing = 14
     }
 
     /// <summary>How beacons behind the player are told apart from those in front.</summary>
@@ -64,7 +70,10 @@ namespace SO2RAccess
             { NavCueKind.Jump,       "NavJump.wav" },
             { NavCueKind.Stairs,     "NavStairs.wav" },
             { NavCueKind.Save,       "NavSave.wav" },
-            { NavCueKind.Bump,       "NavBump.wav" }
+            { NavCueKind.Bump,       "NavBump.wav" },
+            { NavCueKind.City,       "NavCity.wav" },
+            { NavCueKind.Dungeon,    "NavDungeon.wav" },
+            { NavCueKind.Fishing,    "NavFishing.wav" }
         };
 
         /// <summary>
@@ -77,8 +86,9 @@ namespace SO2RAccess
         public static readonly NavCueKind[] All =
         {
             NavCueKind.WallFront, NavCueKind.WallRight, NavCueKind.WallBehind, NavCueKind.WallLeft,
-            NavCueKind.Npc, NavCueKind.Chest, NavCueKind.Door, NavCueKind.Location, NavCueKind.Save,
-            NavCueKind.Jump, NavCueKind.Stairs
+            NavCueKind.Npc, NavCueKind.Chest, NavCueKind.Door, NavCueKind.Location,
+            NavCueKind.City, NavCueKind.Dungeon, NavCueKind.Save,
+            NavCueKind.Jump, NavCueKind.Stairs, NavCueKind.Fishing
         };
 
         /// <summary>Every kind that exists, including hidden ones (settings storage).</summary>
@@ -123,7 +133,14 @@ namespace SO2RAccess
                 case NavCueKind.Jump:       return "mod_menu_label_beacon_jump";
                 case NavCueKind.Save:       return "mod_menu_label_beacon_save";
                 case NavCueKind.Bump:       return "mod_menu_label_wall_bump";
-                default:                    return "mod_menu_label_beacon_stairs";
+                case NavCueKind.City:       return "mod_menu_label_beacon_city";
+                case NavCueKind.Dungeon:    return "mod_menu_label_beacon_dungeon";
+                case NavCueKind.Fishing:    return "mod_menu_label_beacon_fishing";
+                case NavCueKind.Stairs:     return "mod_menu_label_beacon_stairs";
+                default:
+                    // A kind without a label is a programming error; make it audible in the log.
+                    DebugLogger.LogState($"NavCues: no label key for {kind}");
+                    return "mod_menu_label_beacon_stairs";
             }
         }
     }

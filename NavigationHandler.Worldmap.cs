@@ -118,34 +118,8 @@ namespace SO2RAccess
         /// <summary>Maximum recalculation attempts before giving up.</summary>
         private const int WmMaxRecalcAttempts = 5;
 
-        // --- Fishing-stand creep (arrival refinement) ---
-
-        /// <summary>
-        /// True while the walk has reached a fishing stand but the game's fishing
-        /// bubble has not confirmed yet: the player creeps slowly toward the water
-        /// until it does. The stand is verified fishable FROM ITS CELL, but the walk
-        /// stops up to the arrival radius short of it, which can put the game's
-        /// ~5m forward water probe just out of range (test 2026-08-29: "Arrived"
-        /// spoke with no bubble and the player had to shuffle ~2m toward the water
-        /// by hand — twice).
-        /// </summary>
-        private bool _wmFishCreepActive;
-
-        /// <summary>Wall-clock deadline ending the creep phase.</summary>
-        private float _wmFishCreepDeadline;
-
-        /// <summary>Player position where the creep started (distance cap).</summary>
-        private Vector3 _wmFishCreepStart;
-
-        /// <summary>Maximum seconds to creep before the honest no-prompt arrival.</summary>
-        private const float WmFishCreepMaxSeconds = 5f;
-
-        /// <summary>Maximum meters to creep past the reached stand.</summary>
-        private const float WmFishCreepMaxDist = 3.5f;
-
-        /// <summary>Stick scale during the creep — slow so the water edge stops the
-        /// player gently instead of pushing into collision at full speed.</summary>
-        private const float WmFishCreepSpeedScale = 0.4f;
+        /// <summary>Targets farther than this (m) get a "Planning a route" notice before the (freezing) plan.</summary>
+        private const float WmPlanningNoticeMeters = 40f;
 
         #region Battle Resume State
 
@@ -165,12 +139,12 @@ namespace SO2RAccess
         private Transform _wmResumeTransform;
 
         /// <summary>
-        /// Fishing water bounds carried across a battle resume. Without these the
-        /// resumed walk lost its fishing identity and skipped the bubble-confirmed
-        /// arrival (proven 2026-08-29: a battle-interrupted fishing walk announced
-        /// the old false early "Arrived" — the session's one false positive).
+        /// Fishing identity carried across a battle resume. Without it the
+        /// resumed walk skipped the bubble-confirmed arrival (proven 2026-08-29:
+        /// a battle-interrupted fishing walk announced the old false early
+        /// "Arrived" — the session's one false positive).
         /// </summary>
-        private Bounds? _wmResumeTriggerBounds;
+        private bool _wmResumeIsFishing;
 
         /// <summary>Face position (water) carried across a battle resume.</summary>
         private Vector3? _wmResumeFacePosition;
@@ -252,11 +226,17 @@ namespace SO2RAccess
             {
                 // Fishing spots (world-map Interactables): the game's own
                 // fishing prompt is the truth for "close enough to fish" —
-                // arrive the moment it shows, even short of the walk target.
+                // arrive the moment it shows, even short of the walk target,
+                // but only NEAR the target: the prompt can be up at the start
+                // (2026-09-09: "Arrived at Fishing spot 2" in the same frame as
+                // "Walking to", 16 m away, because the bubble was showing at
+                // the Krosse gate). Stands are ≤ 5 m apart and the creep adds
+                // ≤ 8 m, so 12 m covers every legitimate early bubble.
                 // Do NOT re-face here: the prompt is up for the player's
                 // CURRENT facing, and rotating could dismiss it.
                 if (_autoWalkCategoryIndex == CAT_INTERACTABLE &&
-                    FieldPromptHandler.FishPromptShowing)
+                    FieldPromptHandler.FishPromptShowing &&
+                    targetDist <= WmFishBubbleArrivalMeters)
                 {
                     _wmFishCreepActive = false;
                     StopAutoWalk();
@@ -286,22 +266,14 @@ namespace SO2RAccess
 
                 if (targetDist <= arrivalRadius)
                 {
-                    // Fishing targets (water bounds set): "Arrived" without the
-                    // bubble is a false arrival — the game's ~5m forward probe
-                    // can miss from up to arrivalRadius short of the verified
-                    // stand cell. Creep toward the water until the bubble
-                    // confirms instead of announcing here.
-                    if (_autoWalkCategoryIndex == CAT_INTERACTABLE &&
-                        _autoWalkTriggerBounds.HasValue)
+                    // Fishing targets: "Arrived" without the bubble is a false
+                    // arrival — the game's ~5m forward probe can miss from up to
+                    // arrivalRadius short of the verified stand cell. Creep onto
+                    // the stand and wait for the bubble instead of announcing here
+                    // (NavigationHandler.Worldmap.Fishing.cs).
+                    if (_autoWalkCategoryIndex == CAT_INTERACTABLE && _autoWalkIsFishing)
                     {
-                        _wmFishCreepActive = true;
-                        _wmFishCreepDeadline = Time.time + WmFishCreepMaxSeconds;
-                        _wmFishCreepStart = playerPos;
-                        DebugLogger.LogState(
-                            $"NAV WM fishing: stand reached " +
-                            $"(targetDist={targetDist:F2}) without bubble — " +
-                            "creeping toward the water.");
-                        UpdateFishCreep(player, playerPos);
+                        BeginFishCreep(player, playerPos, targetDist);
                         return;
                     }
 
@@ -569,67 +541,6 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// One frame of the fishing-stand creep: inches the player toward the
-        /// nearest water edge at low speed until the game's fishing bubble
-        /// confirms arrival (handled by the FishPromptShowing branch of
-        /// <see cref="UpdateWorldmapAutoWalk"/>), or ends the walk with an
-        /// honest "no fishing prompt" arrival when the time/distance budget
-        /// runs out. Stuck detection is deliberately bypassed while creeping —
-        /// pressing gently against the water-edge collision is expected here,
-        /// not a wedge to recover from.
-        /// </summary>
-        private void UpdateFishCreep(FieldPlayer player, Vector3 playerPos)
-        {
-            float creptDx = playerPos.x - _wmFishCreepStart.x;
-            float creptDz = playerPos.z - _wmFishCreepStart.z;
-            float creptSq = creptDx * creptDx + creptDz * creptDz;
-
-            if (Time.time >= _wmFishCreepDeadline)
-            {
-                _wmFishCreepActive = false;
-                FaceAutoWalkFacePosition(player, playerPos);
-                StopAutoWalk();
-                AnnounceArrival(Loc.Get(
-                    "nav_autowalk_arrived_no_fish_prompt", _autoWalkLabel));
-                DebugLogger.LogState(
-                    $"NAV WM fishing: creep ended without bubble " +
-                    $"(crept={Mathf.Sqrt(creptSq):F1}m) — honest no-prompt arrival.");
-                return;
-            }
-
-            // Movement budget spent — HOLD at the water's edge, facing the
-            // water, until the deadline. The world map ignores the reduced
-            // stick magnitude (the "creep" is a full-speed step), and the
-            // bubble lags the last step: on 2026-08-29 the give-up message
-            // beat the bubble by 82ms, twice. Success still exits via the
-            // FishPromptShowing branch of the caller.
-            if (creptSq >= WmFishCreepMaxDist * WmFishCreepMaxDist)
-            {
-                _staticIsAutoWalking = true;
-                _staticAutoWalkStickDir = Vector2.zero;
-                FaceAutoWalkFacePosition(player, playerPos);
-                return;
-            }
-
-            // Aim for the nearest point of the WATER box, not its center —
-            // coastal boxes are hundreds of meters across, and the nearest
-            // edge is the shore the stand was verified against.
-            Vector3 waterPoint = _autoWalkTriggerBounds.HasValue
-                ? _autoWalkTriggerBounds.Value.ClosestPoint(playerPos)
-                : (_autoWalkFacePosition ?? _autoWalkTarget);
-            Vector3 dir = waterPoint - playerPos;
-            dir.y = 0f;
-            if (dir.sqrMagnitude < 0.0001f)
-                dir = player.transform.forward;  // already on the edge — keep heading
-            dir.Normalize();
-
-            _staticIsAutoWalking = true;
-            _wmDirectMoveActive = false;
-            _staticAutoWalkStickDir =
-                WorldDirToCameraStick(dir) * WmFishCreepSpeedScale;
-        }
-
-        /// <summary>
         /// Applies movement on the world map via stick injection, following the grid
         /// path's heading. Runs at full speed in open terrain; in tight terrain (near
         /// obstacle walls) the stick magnitude is scaled down (<see cref="WmTightSpeedScale"/>)
@@ -734,18 +645,73 @@ namespace SO2RAccess
         /// (e.g. Mountain Palace). Nav labels may add a suffix like " (Dungeon)", so the match is
         /// containment in either direction, case-insensitive.
         /// </summary>
-        private bool EnterPromptMatchesTarget()
+        private bool EnterPromptMatchesTarget() => EnterPromptMatches(_autoWalkLabel);
+
+        /// <summary>The same test for any destination label (spoken directions use it too).</summary>
+        private static bool EnterPromptMatches(string label)
         {
             if (!FieldPromptHandler.EnterPromptShowing) return false;
 
             string promptLabel = FieldPromptHandler.EnterPromptLabel;
-            if (string.IsNullOrEmpty(promptLabel) || string.IsNullOrEmpty(_autoWalkLabel))
+            if (string.IsNullOrEmpty(promptLabel) || string.IsNullOrEmpty(label))
                 return false;
 
-            string a = _autoWalkLabel.Trim();
+            string a = label.Trim();
             string b = promptLabel.Trim();
             return a.IndexOf(b, StringComparison.OrdinalIgnoreCase) >= 0
                 || b.IndexOf(a, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        #endregion
+
+        #region World Map Route Planning (shared by auto-walk and spoken directions)
+
+        /// <summary>
+        /// Picks the real walk target for a world map item and computes the route
+        /// to it — shared by auto-walk and spoken directions so both aim at the
+        /// same spot. Locations route to the enter-trigger RING (where the
+        /// "Press X to enter" prompt fires), never the town-centre symbol inside
+        /// the walls. Fishing spots already ARE their baked, game-verified stand
+        /// (<see cref="WorldmapFishingStands"/>), so they plan one route like any
+        /// other target — <c>FindPath</c> itself falls from the comfort tier to the
+        /// 0.50 m floor tier when it must. Leaves the route in
+        /// <see cref="_wmPathWaypoints"/> / <see cref="_wmPathGoal"/>. Requires
+        /// <see cref="_isWorldmap"/>.
+        /// </summary>
+        private bool PlanWorldmapRoute(ref NavItem item, Vector3 playerPos, int categoryIndex,
+            ref Vector3 walkTarget)
+        {
+            // A long route can freeze the game for a second or two (an A* over ~1M
+            // cells). Say so first — the speech starts before the freeze, so the
+            // wait is at least explained.
+            Vector3 flat = item.Position - playerPos;
+            flat.y = 0f;
+            if (flat.magnitude > WmPlanningNoticeMeters)
+                ScreenReader.Say(Loc.Get("nav_wm_planning"));
+
+            if (categoryIndex == CAT_LOCATION)
+                walkTarget = ComputeEnterTriggerTarget(item.Position, playerPos);
+
+            if (CalculateAndStorePath(playerPos, walkTarget,
+                    allowPartial: true, isCounter: item.IsCounterNpc))
+                return true;
+
+            // Fishing: the listed stand is the nearest shore point, which may sit
+            // at a cliff foot the bake never proved. Retarget ONCE to the lake's
+            // nearest proven stand before anyone hears a refusal (user decision
+            // 2026-09-09). The callers speak the refusal only if this fails too.
+            if (!item.IsFishing || !item.FishingFallback.HasValue) return false;
+            Vector3 fallback = item.FishingFallback.Value;
+            DebugLogger.LogState(
+                $"NAV WM fishing: nearest shore point ({item.Position.x:F1},{item.Position.z:F1}) " +
+                $"refused — planning to the proven stand ({fallback.x:F1},{fallback.z:F1}), " +
+                $"{FlatDistance(playerPos, fallback):F0} m away.");
+            item.Position     = fallback;
+            item.FacePosition = item.FishingFallbackFace;
+            item.FishingFallback = null;
+            walkTarget = fallback;
+            return CalculateAndStorePath(playerPos, walkTarget,
+                allowPartial: true, isCounter: item.IsCounterNpc);
         }
 
         #endregion

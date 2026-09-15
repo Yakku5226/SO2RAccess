@@ -3,6 +3,7 @@ using Il2CppGame;
 using MelonLoader;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -64,6 +65,11 @@ namespace SO2RAccess
             WorldmapPathfinder.GetStartRegionIds(
                 playerPos, travelMode, playerRegions);
             RefreshWmMapjumpCache();
+            if (_wmMapjumpCache.Count == 0)
+                DebugLogger.LogState(
+                    "NAV WM list build: mapjump scan found no map jumps (right after a map " +
+                    "load the town colliders may not exist yet) — reachability verdicts fail " +
+                    "open; the route planner rescans before its sweep.");
 
             var items = new List<NavItem>();
 
@@ -171,6 +177,7 @@ namespace SO2RAccess
                         Distance      = dist,
                         Position      = pos,
                         LiveTransform = liveTransform,
+                        IsDungeon     = iconType == MapIconType.DUNGEON,
                     });
 
                     DebugLogger.LogGameValue("NAV:LOCATION",
@@ -189,15 +196,16 @@ namespace SO2RAccess
 
         /// <summary>
         /// Collects world-map fishing spots from the game's
-        /// ConstFishingWaterPlaceParameter database. The world map has NO
-        /// FieldFishingWaterPlace objects — its spots are painted into the
-        /// native world grid (proven by the 2026-07-11 survey log:
-        /// FieldFishingWaterPlaceList is empty there), so the parameter
-        /// database is the only truthful source. Walk target AND list
-        /// distance = the nearest walkable shore cell on the PLAYER's side
-        /// of the water (falling back to the center snap + water-edge
-        /// distance when no same-side shore exists); the center is the
-        /// face-on-arrival point.
+        /// ConstFishingWaterPlaceParameter database, one entry per water place
+        /// with a BAKED stand (<see cref="WorldmapFishingStands"/>). The world map
+        /// has NO FieldFishingWaterPlace objects — its spots are painted into the
+        /// native world grid — so the parameter database is the only truthful
+        /// source, and the stands were verified against the game's own bubble test
+        /// at bake time. Walk target = the designated stand, or the first alternate
+        /// whose connected region the player can reach in the current travel mode
+        /// (O(1) region lookups, no scans); when none matches, the designated stand
+        /// is kept and the item is marked unreachable. Face point = the stand's
+        /// verified water point. Without a stands file the spots are skipped (logged).
         /// </summary>
         private List<NavItem> CollectWorldmapFishingSpots(Vector3 playerPos)
         {
@@ -221,44 +229,33 @@ namespace SO2RAccess
                 DebugLogger.LogState(
                     $"NAV: no fishing water place parameters for " +
                     $"fieldmap {fm.currentFieldmapID}.");
-                // Survey fallback: dump the whole database once so a wrong
-                // map-ID assumption shows up as evidence, not silence.
-                if (Main.DebugMode)
-                {
-                    try
-                    {
-                        var all = pm.GetFishingWaterPlaceParameterList();
-                        if (all != null)
-                        {
-                            for (int i = 0; i < all.Count; i++)
-                            {
-                                var s = all[i];
-                                if (s == null) continue;
-                                var p = s.Position;
-                                DebugLogger.LogGameValue("NAV:FISHING:DB",
-                                    $"id={s.WaterPlaceID} map={s.FieldmapID} " +
-                                    $"pos=({p.x:F0},{p.y:F0},{p.z:F0}) " +
-                                    $"placement={s.IsPlacementFishingSpot}");
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        DebugLogger.LogState(
-                            $"NAV: fishing DB dump error: {ex.Message}");
-                    }
-                }
+                LogFishingDatabaseSurvey(pm);
+                return items;
+            }
+
+            WorldmapID wmId;
+            try { wmId = fm.WorldmapID; }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV WM fishing list: WorldmapID read failed: {ex.Message}");
+                return items;
+            }
+            var file = WorldmapFishingStands.Load(wmId);
+            if (file == null)
+            {
+                DebugLogger.LogState(
+                    $"NAV WM fishing list: no stands file for {wmId} — " +
+                    $"{spots.Count} water places skipped.");
                 return items;
             }
 
             var mode = WorldmapTravel.CurrentMode();
-
-            // Player's connected regions, for keeping the reachability
-            // filter honest on rivers (see the far-bank re-pick below).
-            // Empty = unknown → no region checks (fail open).
+            // Player's connected regions (empty = unknown → never reject).
             var startRegions = new List<int>();
-            WorldmapPathfinder.GetStartRegionIds(playerPos, mode, startRegions);
+            if (mode != WorldmapTravelMode.Psynard)
+                WorldmapPathfinder.GetStartRegionIds(playerPos, mode, startRegions);
 
+            int skipped = 0;
             for (int i = 0; i < spots.Count; i++)
             {
                 try
@@ -266,76 +263,41 @@ namespace SO2RAccess
                     var spot = spots[i];
                     if (spot == null) continue;
 
-                    Vector3 center = spot.Position;
-                    var size = spot.Size;
-                    var waterBox = new Bounds(center, size);
-
-                    // Shore point: nearest grid cell walkable in the current
-                    // travel mode. If even the ~50m snap finds nothing, keep
-                    // the center — the walk attempt will refuse honestly.
-                    if (!WorldmapPathfinder.TryGetNearestWalkableWorld(
-                            center, mode, out Vector3 walkTarget))
-                        walkTarget = center;
-
-                    // Target + distance: the nearest walkable SHORE CELL on
-                    // the player's side of the water — where the walk will
-                    // actually end, so the only honest number. The box-edge
-                    // metric read "0 meters" while standing inside these
-                    // land-spanning AABBs (Krosse exit), and the center-snap
-                    // fallback read "40 meters" while standing AT the fishable
-                    // stand (both proven 2026-08-29). This also subsumes the
-                    // far-bank rescue: a center snap on the wrong river bank
-                    // is replaced by a same-side cell, keeping the
-                    // reachability filter honest.
-                    bool playerSideShore = false;
-                    if (startRegions.Count > 0 &&
-                        TryFindShoreOnPlayerSide(waterBox, mode,
-                            startRegions, playerPos, out Vector3 nearShore))
+                    var place = WorldmapFishingStands.TryGetPlace(file, spot.WaterPlaceID);
+                    if (place == null || place.Stands.Count == 0)
                     {
-                        playerSideShore = true;
-                        walkTarget = nearShore;
-                    }
-                    else if (startRegions.Count > 0)
-                    {
+                        skipped++;
                         DebugLogger.LogState(
-                            $"NAV WM fishing list: id={spot.WaterPlaceID} has " +
-                            "no walkable shore cell on the player's side — " +
-                            "keeping center snap (reachability filter judges).");
+                            $"NAV WM fishing list: id={spot.WaterPlaceID} skipped — " +
+                            (place == null ? "not in the stands file" : "no verified stand") + ".");
+                        continue;
                     }
 
-                    float dist;
-                    if (playerSideShore)
-                    {
-                        dist = Vector3.Distance(playerPos, walkTarget);
-                    }
-                    else
-                    {
-                        // No same-side shore (far-bank-only spot, or regions
-                        // unknown): water-edge distance, with the center-snap
-                        // fallback when the player stands inside the box.
-                        dist = Vector3.Distance(playerPos,
-                            waterBox.ClosestPoint(playerPos));
-                        if (dist < 0.01f)
-                            dist = Vector3.Distance(playerPos, walkTarget);
-                    }
+                    var stand = ChooseFishingStand(file, place, mode, startRegions, playerPos,
+                        out bool unreachable, out FishingStandEntry fallback, out string reason);
+                    Vector3 pos = stand.Position;
+                    Vector3 face = pos + stand.Facing * file.FrontDistance;
+                    float dist = FlatDistance(playerPos, pos);
 
                     DebugLogger.LogGameValue("NAV:FISHING:BUILD",
-                        $"id={spot.WaterPlaceID} " +
-                        $"center=({center.x:F1},{center.y:F1},{center.z:F1}) " +
-                        $"size=({size.x:F1},{size.y:F1},{size.z:F1}) " +
-                        $"placement={spot.IsPlacementFishingSpot} " +
-                        $"walkTarget=({walkTarget.x:F1},{walkTarget.y:F1},{walkTarget.z:F1}) " +
-                        $"shore={playerSideShore} dist={dist:F1}");
+                        $"id={spot.WaterPlaceID} stand=({pos.x:F1},{pos.y:F1},{pos.z:F1}) of {place.Stands.Count} " +
+                        $"clearance={stand.Clearance:F2} floorTierOnly={place.FloorTierOnly} " +
+                        $"proven={(stand.Proven ? $"{stand.ProvenFrom}/{stand.ProofTier}" : "-")} " +
+                        $"dist={dist:F1} unreachable={unreachable} fallback=" +
+                        (fallback != null ? $"({fallback.X:F1},{fallback.Z:F1}) {FlatDistance(playerPos, fallback.Position):F0} m" : "none") +
+                        $" ({reason})");
 
                     items.Add(new NavItem
                     {
-                        Label        = Loc.Get("nav_fishing"),
-                        Distance     = dist,
-                        Position     = walkTarget,
-                        FacePosition = center,
-                        // Water volume, so the walk-start code can search the
-                        // box perimeter for a game-verified fishable stand.
-                        TriggerBounds = waterBox,
+                        Label               = Loc.Get("nav_fishing"),
+                        Distance            = dist,
+                        Position            = pos,
+                        FacePosition        = face,
+                        Unreachable         = unreachable,
+                        FishingFallback     = fallback?.Position,
+                        FishingFallbackFace = fallback != null
+                            ? fallback.Position + fallback.Facing * file.FrontDistance
+                            : (Vector3?)null,
                     });
                 }
                 catch (Exception ex)
@@ -344,39 +306,114 @@ namespace SO2RAccess
                         $"NAV: worldmap fishing spot {i}: {ex.Message}");
                 }
             }
+            if (skipped > 0)
+                DebugLogger.LogState(
+                    $"NAV WM fishing list: {skipped} of {spots.Count} water places have no stand " +
+                    "(the game refused every shoreline cell at bake time).");
 
             return items;
         }
 
         /// <summary>
-        /// Nearest-to-player walkable shore cell around a water box that lies
-        /// in one of the player's connected regions, or false when the whole
-        /// shoreline is on other landmasses. Grid-only (no game water probes
-        /// — the walk start does those); used to keep the list's coarse
-        /// target, and with it the reachability filter, on the player's side
-        /// of rivers.
+        /// The stand to list for a water place: the one NEAREST the player among
+        /// the stands the current travel mode can use whose region the player's
+        /// start regions contain (region 0 = unknown, and unknown player regions,
+        /// never reject). The file holds the whole verified shoreline, so this is
+        /// what "the nearest fishing spot" means (2026-09-09: six ranked stands per
+        /// lake put the Krosse stand 77 m away while the player fished 27 m from
+        /// the gate). On foot, a place whose stands all failed the bake's route
+        /// proof is annotated unreachable; a place with a proven stand lists its
+        /// nearest stand and, when that one is unproven, carries the nearest proven
+        /// stand as the walk's silent fallback. A file without proofs treats every
+        /// stand as "proof unknown" (no annotation, no fallback). Bunny travel needs
+        /// a bunny-passable cell (the proofs are foot sweeps, so no fallback); the
+        /// psynard reaches everything.
         /// </summary>
-        private static bool TryFindShoreOnPlayerSide(Bounds waterBox,
-            WorldmapTravelMode mode, List<int> startRegions,
-            Vector3 playerPos, out Vector3 shore)
+        private static FishingStandEntry ChooseFishingStand(FishingStandFile file,
+            FishingPlaceStands place, WorldmapTravelMode mode, List<int> startRegions,
+            Vector3 playerPos, out bool unreachable, out FishingStandEntry fallback,
+            out string reason)
         {
-            Vector3 best = Vector3.zero;
-            float bestDistSq = float.MaxValue;
+            unreachable = false;
+            fallback = null;
+            // Nearest first; predicates are only evaluated until the first match.
+            var byDistance = place.Stands
+                .OrderBy(s => (s.X - playerPos.x) * (s.X - playerPos.x) + (s.Z - playerPos.z) * (s.Z - playerPos.z))
+                .ToList();
 
-            ForEachWaterBoxShoreCell(waterBox, mode, cell =>
+            if (mode == WorldmapTravelMode.Psynard)
             {
-                int region = WorldmapPathfinder.GetRegionId(cell, mode);
-                if (region != 0 && !startRegions.Contains(region)) return;
-                float distSq = (cell - playerPos).sqrMagnitude;
-                if (distSq < bestDistSq)
-                {
-                    bestDistSq = distSq;
-                    best = cell;
-                }
-            });
+                reason = "psynard, nearest stand";
+                return byDistance[0];
+            }
 
-            shore = best;
-            return bestDistSq < float.MaxValue;
+            bool bunny = mode == WorldmapTravelMode.Bunny;
+            bool ModeOk(FishingStandEntry s) => !bunny || s.BunnyOk;
+            bool RegionOk(FishingStandEntry s)
+            {
+                if (startRegions.Count == 0) return true;
+                int region = WorldmapPathfinder.GetRegionId(s.Position, mode);
+                return region == 0 || startRegions.Contains(region);
+            }
+
+            bool useProofs = mode == WorldmapTravelMode.Foot && file.ProofsBaked && place.ProofAttempted;
+            if (useProofs && !place.HasProvenStand)
+            {
+                unreachable = true;
+                reason = $"no proven stand: none of {place.Stands.Count} stands passed the bake's " +
+                    $"route sweep in {place.ProofAttempts} attempts from {file.ProofAnchors} entrances";
+                return byDistance.Find(ModeOk) ?? byDistance[0];
+            }
+
+            var nearest = byDistance.Find(s => ModeOk(s) && RegionOk(s));
+            if (nearest != null)
+            {
+                if (useProofs && !nearest.Proven)
+                    fallback = byDistance.Find(s => s.Proven && ModeOk(s) && RegionOk(s));
+                reason = (startRegions.Count == 0
+                        ? "nearest stand, player regions unknown"
+                        : "nearest stand in the player's regions")
+                    + (!useProofs ? " (proof unknown)"
+                        : nearest.Proven ? ", proven"
+                        : fallback != null ? ", unproven with a proven fallback"
+                        : ", unproven, no proven fallback in the player's regions");
+                return nearest;
+            }
+
+            unreachable = true;
+            var anyMode = byDistance.Find(ModeOk);
+            reason = anyMode == null
+                ? "no bunny-passable stand"
+                : "every " + (bunny ? "bunny-passable " : "") + "stand off the player's regions";
+            return anyMode ?? byDistance[0];
+        }
+
+        /// <summary>
+        /// Debug survey when a map has no fishing parameters: dumps the whole
+        /// database once so a wrong map-ID assumption shows up as evidence.
+        /// </summary>
+        private static void LogFishingDatabaseSurvey(ParameterManager pm)
+        {
+            if (!Main.DebugMode) return;
+            try
+            {
+                var all = pm.GetFishingWaterPlaceParameterList();
+                if (all == null) return;
+                for (int i = 0; i < all.Count; i++)
+                {
+                    var s = all[i];
+                    if (s == null) continue;
+                    var p = s.Position;
+                    DebugLogger.LogGameValue("NAV:FISHING:DB",
+                        $"id={s.WaterPlaceID} map={s.FieldmapID} " +
+                        $"pos=({p.x:F0},{p.y:F0},{p.z:F0}) " +
+                        $"placement={s.IsPlacementFishingSpot}");
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV: fishing DB dump error: {ex.Message}");
+            }
         }
 
         /// <summary>

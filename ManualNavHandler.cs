@@ -16,8 +16,9 @@ namespace SO2RAccess
     /// Walls come from <see cref="WallProbe"/>, whose slope-safe rules were gated
     /// on the breadcrumb audit (F11). Wall tones are muted while auto-walk steers
     /// the player; beacons keep playing. Everything fades out whenever the field
-    /// is not free (menus, dialogue, battle, cutscenes) or on the world map.
-    /// Polling only — no Harmony patches.
+    /// is not free (menus, dialogue, battle, cutscenes) and during psynard flight.
+    /// On the world map (since 2026-09-06) beacons use their own range and wall
+    /// tones need their own switch. Polling only — no Harmony patches.
     /// </summary>
     public partial class ManualNavHandler
     {
@@ -44,6 +45,9 @@ namespace SO2RAccess
         private readonly float[] _wallSilentFor = new float[4];
         private float _tickTimer;
         private float _debugTimer;
+        /// <summary>True while the player is on the world map (refreshed every tick).</summary>
+        private bool _onWorldmap;
+        private bool _psynardMuteLogged;
 
         #endregion
 
@@ -65,7 +69,7 @@ namespace SO2RAccess
                 return;
             }
 
-            if (!FieldState.IsFieldFree() || IsWorldmap())
+            if (!FieldState.IsFieldFree())
             {
                 StopAll();
                 return;
@@ -75,6 +79,20 @@ namespace SO2RAccess
             if (_tickTimer < TickInterval) return;
             float dt = _tickTimer;
             _tickTimer = 0f;
+
+            _onWorldmap = IsWorldmap();
+            if (_onWorldmap && WorldmapTravel.CurrentMode() == WorldmapTravelMode.Psynard)
+            {
+                // Flying: no walls, no ground, beacons would point at things far below.
+                if (!_psynardMuteLogged)
+                {
+                    _psynardMuteLogged = true;
+                    DebugLogger.LogState("ManualNav: muted, psynard flight");
+                }
+                StopAll();
+                return;
+            }
+            _psynardMuteLogged = false;
 
             if (!TryGetPlayerPosition(out Vector3 playerPos))
             {
@@ -111,7 +129,7 @@ namespace SO2RAccess
             foreach (var kind in NavCues.Walls)
                 if (ModSettings.NavCue(kind).Enabled) { anyWall = true; break; }
 
-            if (!anyWall || _nav.IsAutoWalking)
+            if (!anyWall || _nav.IsAutoWalking || (_onWorldmap && !ModSettings.WorldmapWallTonesEnabled))
             {
                 for (int i = 0; i < 4; i++) DriveWall(i, 0f, dt);
                 return;
@@ -119,7 +137,8 @@ namespace SO2RAccess
 
             bool describe = Main.DebugMode;
             float range = Mathf.Max(ModSettings.WallRangeMeters, WallFullDistance + 0.5f);
-            WallProbe.Reading[] readings = WallProbe.ProbeAround(playerPos, camForward, range, describe);
+            WallProbe.Reading[] readings = WallProbe.ProbeAround(playerPos, camForward, range, describe,
+                CurrentWallProfile());
 
             for (int i = 0; i < 4; i++)
             {
@@ -144,6 +163,54 @@ namespace SO2RAccess
                         $"B {readings[WallProbe.Behind]} | L {readings[WallProbe.Left]}");
                 }
             }
+        }
+
+        private WallProbe.ProbeProfile _wmWallProfile;
+        private int _wmWallMask;
+        private bool _wmWallMaskErrorLogged;
+
+        /// <summary>
+        /// The probe rules for the current map. On the world map the face rays use
+        /// the LIVE per-form wall mask (the bunny ignores region walls the walker
+        /// cannot pass), read every tick and rebuilt into a profile only when it
+        /// changes. An unreadable mask keeps the last good one, else the game's
+        /// static mask for the current travel mode.
+        /// </summary>
+        private WallProbe.ProbeProfile CurrentWallProfile()
+        {
+            if (!_onWorldmap) return WallProbe.Field;
+
+            int mask = ReadWorldmapWallMask();
+            if (_wmWallProfile == null || mask != _wmWallMask)
+            {
+                _wmWallMask = mask;
+                _wmWallProfile = WallProbe.Worldmap(mask);
+                DebugLogger.LogState(
+                    $"ManualNav: world map wall profile {_wmWallProfile} ({WorldmapTravel.CurrentMode()}).");
+            }
+            return _wmWallProfile;
+        }
+
+        private int ReadWorldmapWallMask()
+        {
+            try
+            {
+                var player = FieldManager.Instance?.GetControlPlayer();
+                if (player != null)
+                {
+                    int live = player.GetLayerMaskWall();
+                    if (live != 0) return live;
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!_wmWallMaskErrorLogged)
+                {
+                    _wmWallMaskErrorLogged = true;
+                    DebugLogger.LogState($"ManualNav: GetLayerMaskWall failed ({ex.Message}) — using the game's static mask.");
+                }
+            }
+            return _wmWallMask != 0 ? _wmWallMask : WallProbe.WorldmapMaskFor(WorldmapTravel.CurrentMode());
         }
 
         /// <summary>Starts, steers or (after lingering silent) releases one wall voice.</summary>
@@ -264,8 +331,9 @@ namespace SO2RAccess
         /// <summary>
         /// The direction the player is trying to walk, camera-relative, from the
         /// gamepad left stick or the game's WASD / arrow keys. False when idle.
+        /// Also the world map directions' "pushing but not moving" test.
         /// </summary>
-        private static bool TryGetMoveIntent(Vector3 camForward, out Vector3 dir)
+        internal static bool TryGetMoveIntent(Vector3 camForward, out Vector3 dir)
         {
             dir = Vector3.zero;
             Vector3 fwd = camForward;
@@ -329,16 +397,18 @@ namespace SO2RAccess
             return false;
         }
 
+        /// <summary>Fail-open: without a FieldManager the field is not free anyway, so "not the world map" is safe.</summary>
         private static bool IsWorldmap()
         {
             try
             {
                 var fm = FieldManager.Instance;
-                return fm == null || fm.IsWorldmap();
+                return fm != null && fm.IsWorldmap();
             }
-            catch
+            catch (Exception ex)
             {
-                return true;
+                DebugLogger.LogState($"ManualNav: IsWorldmap failed ({ex.Message})");
+                return false;
             }
         }
 

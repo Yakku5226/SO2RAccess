@@ -125,9 +125,17 @@ namespace SO2RAccess
                 DebugLogger.LogState($"NAV EnsureListReady: map read failed ({ex.Message})");
             }
 
-            bool stale = !_isOpen
-                || currentMap != _listBuiltMapID
-                || (allowRefresh && Time.time - _listBuiltTime > ListRefreshSeconds);
+            // The beacons read the list whether it is open or closed: a closed
+            // list on the same map is fresh until it ages out (closing used to
+            // force an immediate full rebuild, two 200 ms stalls within half a
+            // second in the 2026-09-06 Krosse log). The user's keys keep the
+            // old rule — a closed list rebuilds so its cursor starts fresh.
+            float age = Time.time - _listBuiltTime;
+            bool stale = currentMap != _listBuiltMapID
+                || !AnyCategoryPopulated()
+                || (fromUser
+                    ? (!_isOpen || (allowRefresh && age > ListRefreshSeconds))
+                    : age > ListRefreshSeconds);
             if (!stale) return true;
 
             DebugLogger.LogState(
@@ -218,12 +226,13 @@ namespace SO2RAccess
             DebugLogger.LogState($"GamepadCloseNav called. _isOpen={_isOpen} _gamepadNavActive={_gamepadNavActive}");
             _gamepadNavActive = false;
 
-            if (_isOpen)
-            {
-                _isOpen = false;
-                for (int i = 0; i < CAT_COUNT; i++) _categories[i].Clear();
-                // No announcement — user knows they released the modifier.
-            }
+            // The items are deliberately KEPT: every user path rebuilds on the
+            // next open anyway (GamepadOpenNav scans, the modeless keys treat a
+            // closed list as stale), while the beacons keep reading the closed
+            // list instead of forcing a full rebuild the moment L2 is released
+            // (a 370 ms stutter on the world map, log 2026-09-06).
+            _isOpen = false;
+            // No announcement — user knows they released the modifier.
         }
 
         /// <summary>Moves to the next item in the current category. Wraps around.</summary>
@@ -336,7 +345,7 @@ namespace SO2RAccess
         /// </summary>
         private void ScanAndOpenList()
         {
-            if (!BuildList()) return;
+            if (!TryReuseWorldmapList() && !BuildList()) return;
 
             _isOpen = true;
             _currentCategoryIndex = FirstNonEmptyCategoryFrom(0);
@@ -347,6 +356,61 @@ namespace SO2RAccess
                 _categoryNames[_currentCategoryIndex],
                 firstItem.Label,
                 LiveDistanceUnits(firstItem)));
+        }
+
+        /// <summary>True when any category holds an item (the list has been built for some map).</summary>
+        private bool AnyCategoryPopulated()
+        {
+            for (int i = 0; i < CAT_COUNT; i++)
+                if (_categories[i].Count > 0) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// A world map list younger than this (s) is reopened without the full
+        /// scan; only the things that change (chests, enemies, landmarks) are
+        /// rescanned. Towns, dungeons and fishing spots come from game data and
+        /// never move, yet they are what the full scan spends its ~400 ms on.
+        /// </summary>
+        private const float WorldmapListReuseSeconds = 60f;
+
+        /// <summary>
+        /// Reopens a fresh world map list without the full scan (three L2
+        /// presses cost three 400 ms stalls in the 2026-09-06 log). Returns
+        /// false when a full build is needed: not the world map, another map,
+        /// nothing built yet, or the list is older than
+        /// <see cref="WorldmapListReuseSeconds"/>.
+        /// </summary>
+        private bool TryReuseWorldmapList()
+        {
+            try
+            {
+                var fm = FieldManager.Instance;
+                if (fm == null || !fm.IsWorldmap()) return false;
+                if (fm.currentFieldmapID != _listBuiltMapID) return false;
+                if (_categories[CAT_LOCATION].Count == 0) return false;
+                if (Time.time - _listBuiltTime > WorldmapListReuseSeconds) return false;
+
+                var player = fm.GetControlPlayer();
+                if (player == null) return false;
+                Vector3 playerPos = player.transform.position;
+
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                _isWorldmap = true;
+                BuildChests(playerPos);
+                BuildEnemies(playerPos);
+                BuildMarkers(fm.FieldLocationPointList, playerPos);
+                DebugLogger.LogState(
+                    $"NAV list reused (world map, age {Time.time - _listBuiltTime:F0}s): chests={_categories[CAT_CHEST].Count} " +
+                    $"enemies={_categories[CAT_ENEMY].Count} markers={_categories[CAT_MARKER].Count} " +
+                    $"rescanned in {sw.ElapsedMilliseconds} ms");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV list reuse failed ({ex.Message}) — full scan instead.");
+                return false;
+            }
         }
 
         /// <summary>
@@ -377,6 +441,14 @@ namespace SO2RAccess
                 Vector3    playerPos = player.transform.position;
                 FieldmapID mapID     = fm.currentFieldmapID;
                 _isWorldmap = fm.IsWorldmap();
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+
+                // Start from nothing. The builders each clear their own category
+                // EXCEPT Interactables (fishing spots and interactable objects are
+                // appended by two builders); closing the list used to clear it
+                // for them, and once the list was kept across closes (2026-09-06)
+                // the interactables piled up on every rebuild — on fields too.
+                for (int i = 0; i < CAT_COUNT; i++) _categories[i].Clear();
 
                 DebugLogger.LogState(
                     $"NAV scan start. map={mapID} worldmap={_isWorldmap} " +
@@ -385,12 +457,14 @@ namespace SO2RAccess
                 if (_isWorldmap)
                 {
                     // World map: locations (from game data), fishing spots,
-                    // nearby chests/enemies. Skip NPCs, exits, markers, events,
+                    // nearby chests/enemies, and the undiscovered landmarks the
+                    // game places there (six on Expel). Skip NPCs, exits, events,
                     // save points, stairs, doors, warps — these are either
                     // absent or redundant with Locations.
                     BuildWorldmapLocations(playerPos, fm.WorldmapID);
                     BuildChests(playerPos);
                     BuildEnemies(playerPos);
+                    BuildMarkers(fm.FieldLocationPointList, playerPos);
                     BuildFishingSpots(playerPos);
                     LogWorldmapObjectSurvey(fm);
                 }
@@ -427,7 +501,8 @@ namespace SO2RAccess
                     $"doors={_categories[CAT_DOOR].Count} " +
                     $"warps={_categories[CAT_WARP].Count} " +
                     $"interactables={_categories[CAT_INTERACTABLE].Count} " +
-                    $"locations={_categories[CAT_LOCATION].Count}");
+                    $"locations={_categories[CAT_LOCATION].Count} " +
+                    $"in {sw.ElapsedMilliseconds} ms");
 
                 _listBuiltMapID = mapID;
                 _listBuiltTime  = Time.time;

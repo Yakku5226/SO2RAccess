@@ -30,6 +30,12 @@ namespace SO2RAccess
                 v => ModSettings.WallRangeMeters = v,
                 ModSettings.WallRangeMin, ModSettings.WallRangeMax));
 
+            // The world map has its own probe (colliders and the ocean edge only)
+            // and its own audit, so it also has its own switch, off by default.
+            items.Add(Toggle("mod_menu_label_wall_worldmap",
+                () => ModSettings.WorldmapWallTonesEnabled,
+                v => ModSettings.WorldmapWallTonesEnabled = v));
+
             OpenSettingsSubmenu("mod_menu_wall_sounds_group_open", items);
         }
 
@@ -47,6 +53,14 @@ namespace SO2RAccess
                 () => ModSettings.BeaconRangeMeters,
                 v => ModSettings.BeaconRangeMeters = v,
                 ModSettings.BeaconRangeMin, ModSettings.BeaconRangeMax));
+            items.Add(Metres("mod_menu_label_wm_beacon_range",
+                () => ModSettings.WorldmapObjectBeaconRangeMeters,
+                v => ModSettings.WorldmapObjectBeaconRangeMeters = v,
+                ModSettings.WorldmapObjectBeaconRangeMin, ModSettings.WorldmapObjectBeaconRangeMax, step: 5));
+            items.Add(Metres("mod_menu_label_wm_town_range",
+                () => ModSettings.WorldmapTownBeaconRangeMeters,
+                v => ModSettings.WorldmapTownBeaconRangeMeters = v,
+                ModSettings.WorldmapTownBeaconRangeMin, ModSettings.WorldmapTownBeaconRangeMax, step: 10));
 
             // The rear treatment previews the NPC beacon as if it were straight
             // behind you, so the two modes can be compared by ear.

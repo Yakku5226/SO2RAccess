@@ -37,6 +37,737 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> 🌙 **END OF SESSION 14 (2026-09-06 19:50). State: everything below builds clean (0 warnings); DLL in Mods
+> = build of 19:45 (includes the louder town cue); NOTHING COMMITTED since v0.4.0 (a79775e); no version bump.**
+> **Tested OK today:** world map beacons (towns/dungeons/chests/landmarks/fishing), wall tones live + F11 PASS
+> (168 edges, 57 % density), spoken directions to Salva (entrance hint → enter-prompt arrival) and to a fishing
+> spot (bubble arrival), list reuse ~60 ms, cheap chest refresh, "Planning a route" notice, fishing works
+> where a comfort route exists (with the Fishing skill on the leader!).
+> **Untested:** town murmur at -23 dB RMS (NavCity.wav, first listen was at -27 = "overwhelmed by wall sounds").
+> 🐛 **2026-09-07 (session 15, short): PA CUE FALSE POSITIVE FIXED + ✅ TESTED OK.** Bug report: PA tone played
+> in Kurik (MF_0009_41A, progress 1500000) but Square did nothing. Cause: handler checked the static locality
+> `IsPrivateAction` flag, not the game gate `GameManager.CanChangeToPrivateAction(FieldmapID)` (game-api §22).
+> Now polls the game gate and re-arms on false→true. User confirmed in game: "It works now." Builds clean,
+> DLL in Mods, NOT committed (goes into the next commit with the world map work). User has more changes
+> planned for the next session.
+>
+> 🎣 **2026-09-07 (session 16): WORLD MAP FISHING STANDS BUILT — bake once, look up at runtime. Builds clean
+> (0 warnings), DLL in Mods (20:14), ⏳ UNTESTED, NOT committed.** Plan (approved):
+> `C:\Users\Jaco\.claude\plans\immutable-fluttering-rivest.md`. User decisions: unreachable stands are ANNOTATED
+> like towns (not hidden); missing Fishing skill announced at walk/directions start AND on arrival.
+> **Built:** `WorldmapFishingStands.cs` (JSON DTOs; `UserData\SO2RAccess\stands\worldmap_expel.json` wins, else
+> embedded `stands\*.json`, csproj resource added); `WorldmapFishingStandBaker.cs` + `.Scan.cs` (Insert key, debug
+> only, new `ModAction.DebugFishingBake`): shoreline cells × game paint `WorldGridData.FishingWaterPlaceID` →
+> `CheckWorldmapFishingPoint` per 64 m tile with chunks loaded (toward-water dir first, then compass) → comfort
+> regions (`BuildRegions` now takes `minClearance` + `regionSizes`; `GetCachedGrid`/`PreferredMinClearance`
+> internal) → designated stand per water place + ≤ 5 alternates ≥ 16 m apart; per-phase `[FishBake]` log with
+> per-tile distance-from-player pass ratios (fail-open/closed evidence). Runtime: `CollectWorldmapFishingSpots`
+> rewritten (designated stand or first region-matching alternate, O(1) lookups; `NavItem.Unreachable` → label
+> suffix in `BuildFishingSpots`); `PlanWorldmapRoute` fishing branch + `ComputeWorldmapFishingStands` + all edge
+> sampling helpers + `TryFindShoreOnPlayerSide` DELETED; fishing identity = `NavItem.IsFishing` →
+> `_autoWalkIsFishing` / `_guideWmFishing` (resume snapshots updated; `TriggerBounds` no longer used for fishing);
+> new `NavigationHandler.Worldmap.Fishing.cs`: creep onto the exact stand (0.3 m) → face water → 2 s bubble wait →
+> `FishingNoPromptKey()` (skill-aware via `LeaderHasFishingSkill`: `UserParameter.PartyParameter.LeaderID` →
+> `IsLearnedSpecialSkill(SpecialSkillID.FISHING)`), `WarnIfNoFishingSkill` queued after the start message (both
+> maps), `LogFishingArrivalDiag`. Loc (en only): `nav_autowalk_arrived_no_fish_skill`, `nav_fish_skill_missing`;
+> `nav_autowalk_arrived_no_fish_prompt` lost its skill clause. Docs: game-api §23 (+§21 sentence), KNOWN_ISSUES,
+> README + mod-bindings (Insert), brief marked implemented.
+> ⏳ **TEST LIST (session 17):** (1) F12 → binding dump says Insert FREE. (2) On Expel press Insert: start/end
+> speech, `[FishBake]` phase lines, per-tile "N/M verified" vs distance (far tiles all 100 % = fail-open, all 0 % =
+> fail-closed), places without stands, file written. (3) File has the known stand near (12.5,7.6,330.5); Kurik /
+> Arlia (-38,-396) designated stands: clearance ≥ 0.60 or "FLOOR TIER ONLY". (4) Nav list: fishing entries =
+> places with stands, "NAV list built" fast, unreachable ones suffixed. (5) Auto-walk to a near spot: one A*,
+> bubble → "Arrived"; leader without the skill → warning at start + skill message on arrival. (6) Directions:
+> "Face … for the water", bubble arrival. (7) Bunny mode list + walk. (8) Nede: "No fishing stands file" log, no
+> errors. (9) After a good bake: copy the JSON into `stands\` and rebuild so it ships.
+> **2026-09-07 bake attempt 1 (session 17):** bake phases 1–3 ran fine on Expel in ~6 s (34 water places, 54500
+> candidates, 1964 comfort regions) but the JSON save threw "possible object cycle": the get-only `Position`/`Facing`
+> Vector3 properties on `FishingStandEntry` were serialized and Vector3.normalized recurses. FIXED with `[JsonIgnore]`
+> on both; builds clean, DLL in Mods. ⏳ Re-run Insert on Expel, then continue the test list from step (2).
+> **2026-09-08 (session 18): BAKE RE-RUN ✅ OK** — Expel bake finished in 5 s: 33 of 34 water places have a stand
+> (place 24 at (-227,-530) has no painted shoreline cells → no stand); the known stand near (12.5,7.6,330.5) is
+> covered by place 29 (stand 7 m away). Clearance 999 = wide open (no wall nearby), fine. Baked JSON copied into
+> `stands\worldmap_expel.json` and embedded (ships now). 🐛 "No fishing spots in the nav menu" after the bake: the
+> world map list built BEFORE the bake was reused (60 s reuse window) → FIXED: Insert now calls
+> `InvalidateNavList()` after the bake. Builds clean (0 warnings), DLL in Mods (19:22). ⏳ Re-test: open the nav
+> menu on Expel → Fishing category should list spots (from the embedded file, no re-bake needed); then test list
+> steps (4)–(8).
+> 🐛 **Session 18, later: ALL FISHING SPOTS REFUSED BY AUTO-WALK (log 26-9-8_19-28-38)** — list fine (16 reachable),
+> but every route from the Krosse gate was refused by the pre-walk body sweep (26 / 23 / 212 wedges on comfort
+> routes, 'Col_Obstacle' L23 + 'Mesh_Col'/'Mesh_L0' L24), while a dungeon route planned at once. Root cause (user's
+> diagnosis, confirmed): the bake ranked stands by GRID connectivity only — rock bodies are ground in the grid and
+> 5 m steps per cell are "walkable", so every mainland stand shares one comfort region and cliff-foot stands rank
+> like beaches. ✅ **BUILT (plan `C:\Users\Jaco\.claude\plans\purrfect-leaping-lecun.md`, approved): Phase 5 route
+> proof** — `WorldmapFishingStandBaker.Proof.cs`: per stand, real `FindPath` from the nearest entrance anchors
+> (`WorldmapMapjumps.CollectAll`, new shared scan; also used by the reachability cache + safe-exit picker) →
+> route tiles loaded via `WorldmapChunkLoader` → `SweepSegmentBlocked` with the live mask (16 m start exemption,
+> 2 m at the stand) → stamp + re-plan ≤ 3 rounds; budgets 2 proven / 8 attempts per place, 3 anchors, 300 s.
+> JSON v2 (`ProvenFrom`/`ProofTier`/`ProofRouteMeters`/`ProofRounds`, place `ProofAttempted`/`ProvenStands`,
+> file `ProofsBaked`/`ProofAnchors`); stands re-ranked proven-comfort > proven-floor > unproven. Runtime
+> `ChooseFishingStand(file, …)`: foot + proofs baked → only proven stands, none → "unreachable on foot"
+> (annotated); v1 file / budget-skipped = proof unknown; bunny = region rule only. F7 auditor now also audits
+> designated + first alternate stand per place, with "first wedge D m from player / E m from target". User
+> decisions: proof = route from an entrance (not a local approach check); NO runtime retry of alternates.
+> Docs: game-api §23 Phase 5 paragraph, KNOWN_ISSUES entry. Builds clean (0 warnings), DLL in Mods. ⏳ **TEST
+> (session 19):** (1) F12, Expel, Insert → `[FishBake] Phase 5` lines + spoken "N have a proven route"; note the
+> time. GATE: Salva south lake (place 21, stand (-137.5,-451.0)) and the Arlia lake (place 2/30 near (-159,353))
+> MUST be proven — else the rule is wrong, do not ship. (2) Nav list at the Krosse gate: proven spots plain,
+> unproven "unreachable on foot"; `NAV:FISHING:BUILD` shows `proven=`. (3) F7 at the Krosse gate: fishing stand
+> lines — wedges near the player = start-side (report), near the stand = proof too lenient (report). (4) Auto-walk
+> to the nearest proven spot → bubble → "Arrived"; directions to another; a walk from open ground (>30 m from any
+> gate). (5) Copy the JSON into `stands\`, rebuild, delete the UserData copy once to confirm `source=embedded`.
+> 🔁 **Session 18, bake 2 with the proof (20:35): 9 of 33 places proven in 76 s; the user's list said everything
+> "unreachable on foot" from the Krosse gate (the nearby lakes were all unproven).** Log evidence → two proof
+> defects, FIXED, rebuilt (0 warnings), DLL in Mods, ⏳ needs a THIRD Insert bake: (a) budget scheduling — all 8
+> attempts went to the grid-ranked stand 0 (Arlia lake place 30: stand 0 is 100 m across region walls, stand 5
+> is 42 m from the Arlia gate anchor MF_0009_41A (-201,444) and was never tried) → now stands nearest an
+> entrance go first, every stand gets one attempt from its nearest anchor before any second attempt
+> (`StandProof` state + `ProofAttempt`), budget 12; (b) the gate pinch beside the anchor was not exempt (Krosse
+> place 25: wedge 'Col_Obstacle' L23 at (-96.8,-55.2) = the Krosse gate MF_0006_01A; FindPath snaps the start
+> off the trigger so the 16 m exemption from path[0] missed it; stamping it sealed the hill → "no grid route")
+> → start exemption now also measured from the anchor position. Anchors are logged at Phase 5 start.
+> Facts: 26 anchors; refused first-wedges: 97× Col_Obstacle L23, 39× Mesh_Col L24, 19× Col_Height L24, 3× L22,
+> 3× L17. Places with 0 attempts (23, 40, 41, 42, 55) = no anchor in their foot region (honest).
+> ⚠️ OPEN QUESTION for the user: the SAME gate-pinch mechanism exists at RUNTIME — with a safe exit the walk's
+> start exemption is measured from the exit point 25 m away, so the Krosse gate pinch at (-96.2,-55.8) was
+> stamped in the 19:29 log and sealed the comfort tier ("no route at 0.60m, 1.24M cells"). A one-line fix
+> (exempt within 16 m of the PLAYER too) is NOT applied — nav is off limits unless the user says so.
+> ✅ **Bake 3 (20:47): 15 of 33 places proven in 75 s** — Kurik lake (place 2) stand 15 m from the Kurik gate
+> MF_0009_41A (-201,444); Arlia lake (place 20) from the Arlia gate MF_0003_01A (-43,-405); Krosse lake (place 25)
+> 22 m from MF_0006_01A. (Naming fix: MF_0003 = Arlia, MF_0009_41A = Kurik.) Places 23/40/41/42/55 = no anchor
+> in their foot region (0 attempts, honest). JSON NOT yet copied into `stands\` (wait for the ring rule).
+> 🐛 **Runtime refusal from the Arlia gate (20:48:48):** player 4 m from the anchor, walk to the proven place-20
+> stand refused — wedge 'Col_Obstacle' L23 at (-47.2,-401.2), 3 m from the player, NOT exempt because the safe
+> exit moved path[0] 25 m away → stamped → corridor sealed. Second attempt from 50 m away: same gate pinch
+> mid-route → refused. **User declined a radius exemption** (could forgive real obstacles). Agreed approach:
+> distinguish gates by the game's own ENTRANCE TRIGGER RING (the "Press X" volume the road passes through):
+> step 1 (BUILT, 0 warnings, DLL in Mods): evidence only — every wedge line (runtime `NAV WM route sweep`, F7
+> auditor, bake Phase 5 refusals) now carries "ring MF_xxxx D m" + per-route "N of M within 2 m of an entrance
+> ring" (`WorldmapMapjumps.NearestRingDistance/IsAtRing`, `RingWedgeMeters = 2`). Step 2 (NOT built, needs the
+> user's go after reading the numbers): forgive wedges inside/within ~2 m of a ring, mid-route too, in both the
+> bake proof and the live walk; endpoint exemptions unchanged.
+> ⏳ TEST for step 1: F12; re-run Insert (Phase 5 refusal lines show ring distances); walk from the Arlia gate
+> to the nearest fishing spot (refusal lines + the "within 2 m of an entrance ring" summary); F7 at the gate.
+> Expected if the theory holds: gate wedges 0–2 m from a ring, rock-belt wedges far from any ring.
+> 🐛 **Salva lake arrival without bubble (20:50:58):** walk resumed after battle, crept onto the stand, faced the
+> water, game check TRUE but no bubble in the 2 s hold (twice); bubble appeared 30 s later 3.6 m along the shore
+> at (-134.9,-0.6,-453.6). The bake's `CheckWorldmapFishingPoint` is necessary but not sufficient for the
+> prompt. Open: what else the prompt needs (stillness time? contact band? enemy proximity — Enemynearby cue
+> started 5 s after arrival).
+> 🐛 **Battle: game entered the R2 character-change mode by itself (20:49:26) and would not leave until the
+> controller was unplugged.** Mod log: L2 press in battle → nav open aborted (field not free) → L2 passed to
+> the game; 2 s later D-pad right + controlPlayerIndex cycling for 25 s; the mod's input blocking was OFF the
+> whole time and nothing in the mod reads or sends R2. Cause unknown (game mode stuck vs. controller trigger
+> held). Proposed diag (not built): log L2/R2 trigger values + BattleManager state 5/6 transitions in the
+> GAMEPAD DIAG line during battle.
+> 🌙 **END OF SESSION 18 (2026-09-08 ~21:30). State: builds clean (0 warnings), DLL in Mods = step-1 evidence
+> build; NOTHING COMMITTED since v0.4.0; no version bump; `stands\worldmap_expel.json` in the project is still
+> the FIRST bake (no proofs) — the UserData copy is bake 3 (15 proven). Town murmur volume: user says OK.**
+>
+> 🎣 **2026-09-09 (session 19): evidence run done → THREE FIXES BUILT (plan `C:\Users\Jaco\.claude\plans\
+> transient-dazzling-stream.md`, approved). Builds clean (0 warnings), DLL in Mods, ⏳ UNTESTED, NOT committed.**
+> Log (20:31–20:41) facts: (a) the Krosse lake (place 25) had 1492 verified shore cells but the file kept 6, all on
+> the far NW shore (ranking ties + 16 m spacing), so the list said "Fishing spot 1, 77 m / unreachable" while the
+> user FISHED at (−83.7,−80.3), contact ID 25, 27 m from the Krosse gate; bug: `DistToParam` measured against the
+> box being scanned (385 m instead of 85 m). (b) Salva stand (−137.5,−451): bake check TRUE, game bubble only at
+> z≈−453.8 (2.7 m closer to the water, 3 sightings) — the bake check is necessary, not sufficient. (c) Krosse gate
+> refusals = the gate collider 'Col_Obstacle' L23 at (−115,−37…−45): with the ring list populated (20:41:17) those
+> wedges were 0.0/0.0/0.5/1.6/2.0/3.0 m from ring MF_0006_01A; Arlia gate wedges 4.2/4.4 m from MF_0003_01A; every
+> rock-belt wedge ≥ 23 m. The ring cache was EMPTY for every plan after leaving a town (list build runs before the
+> town's FieldMapjumpCollision objects exist; CollectAll at plan time found them). **User decisions:** silent
+> one-time fallback to the proven stand = YES; ring rule = 5 m. **Built:** (1) JSON v3 = whole verified shoreline
+> at 5 m spacing (`StandSpacingMeters`, cap 400/place, candidates 8000), Phase 1 param-position fix; (2)
+> `ChooseFishingStand(…, playerPos, out fallback)` = NEAREST region-matching stand, `NavItem.FishingFallback`,
+> `PlanWorldmapRoute` retargets once silently on refusal; (3) gate pinch rule `RingWedgeMeters = 5` in `SweepRoute`
+> + `CountRouteWedges` + F7 `SweepLeg` (not counted, not stamped, logged "forgiven"), `EnsureWmMapjumpCache` at
+> plan/audit time; (4) arrival = creep onto the stand → creep TOWARD THE WATER until stalled (<0.15 m/0.7 s) / 8 m
+> / 8 s → 2 s hold → verdict (`UpdateWaterCreep`); directions text `nav_guide_wm_face_water` says "step slowly
+> toward it". Docs: game-api §23 addendum, KNOWN_ISSUES. Still open: Salva-style bubble band size unknown until
+> tested; the stuck battle character-change mode (no recurrence this session).
+>
+> 🎣 **2026-09-09 later (session 19, round 2): tested (log 21:25–21:33) — "better but not ideal" → THREE MORE FIXES
+> BUILT, 0 warnings, DLL in Mods, ⏳ UNTESTED.** What the log showed: (a) bake 102 s, 17/33 proven, place 25 now 104
+> stands; at the Krosse gate "Fishing spot 1, 6 m" → walk → bubble → Arrived ✅. (b) Three arrivals WITHOUT bubble
+> (Arlia lake (−43.4,−408.9), (−41.1,−413.9), Salva (−110.5,−470.0)): the water creep stalled at the edge (0.00 m)
+> and the 2 s motionless hold read gameCheck=False, yet the bubble appeared seconds later at the SAME position once
+> the user turned/pushed the stick → the game derives its facing from INPUT, not from the transform rotation the
+> hold wrote; the feet+forward check also flickers true/false at a fixed spot (followers in the ray?). FIX: the hold
+> is now a FACING SWEEP — keep pressing gently toward the water and rotate the push 0/+35/−35/+70/−70/0° for 0.9 s
+> each (`UpdateFacingSweep`, drift cap 3 m); the bubble ends it via the existing branch. Diag adds
+> `CheckFishingPoint(player)` ("playerCheck=" / FISHDIAG "gameCheck=True/pFalse") to learn which call the game uses.
+> (c) "Cannot reach Fishing spot 3" = the 5 m ring rule FORGAVE a real riverbank 'Col_Obstacle' L23 4.6 m from the
+> Arlia ring; the walk stuck exactly there on Mesh_Col. FIX: a gate pinch must ALSO be the town's own collider —
+> `WorldmapMapjumps.IsGateCollider` = blocker has a `FieldMapjumpCollision` in its parents (`IsGatePinch` logs the
+> transform chain either way). If Krosse refuses again, the log's "blocker is NOT a map-jump collider (path)" line
+> tells us the real hierarchy — do NOT widen the rule blindly. (d) After a BATTLE the ring cache held destroyed
+> colliders ("no ring data" from a full cache) → `WorldmapMapjumps.IsUsable` + rescan in `EnsureWmMapjumpCache`.
+> (e) "Arrived at Fishing spot 2. Walking to Fishing spot 2." in one frame (bubble already showing at the gate, target
+> 16 m away) → bubble arrival only within `WmFishBubbleArrivalMeters` = 12 m of the stand. Fallback worked once
+> (nearest shore point refused → proven stand 5 m away, then arrived without bubble = case b).
+>
+> 🌙 **END OF SESSION 19 (2026-09-09 ~21:45). State: builds clean (0 warnings), DLL in Mods = round-2 build
+> (21:40); NOTHING COMMITTED since v0.4.0; no version bump; `stands\worldmap_expel.json` in the PROJECT is still the
+> old first bake — the UserData copy is the v3 bake (dense shoreline, 17 proven), to be rebaked once more with the
+> new gate rule before copying. User tests tomorrow (2026-09-10). At greeting: ask for the test results below.**
+>
+> 🎣 **2026-09-13 (session 21): SESSION-20 TEST RESULTS READ FROM THE LOG + STAND STANDABILITY FIX BUILT.**
+> Log 10:02–10:08 (rebake 10:04:35, 103 s, 33/34 places, 17 proven). ✅ Krosse gate → Fishing spot 1 AND 2 arrived
+> with the bubble. ✅ Arlia spot 2 (place 19, (−42,−414)) arrived with the bubble at (−40.7,−415.6) after the creep.
+> ✅ After a battle the resume logged "mapjump cache was stale … rescanned" — but found 0 map jumps 0.2 s after the
+> scene load (town colliders not spawned yet), so that plan had no ring data (open, see (5) below). ❌ **Arlia spot 1
+> (place 1 stand (−43,−410), "proven comfort 4 m" from the gate anchor): the walk stopped 1.2 m short at (−43.4,−408.9),
+> creep 0.00 m, all six facing-sweep steps gameCheck=false, verdict "prompt not showing" — IDENTICAL stall in the
+> 2026-09-09 21:29 log.** Root cause (route audit + the 09-09 stuck dump): the stand cell lies 0.2 m inside Arlia's
+> own wall boxes (`Col_Obstacle` L22 `Wall_Arlia/Wall/mp_1001_001a_Col/Map` + L23 `CharaWall_ArliaSalba`), i.e. a
+> shoreline strip on the far side of the town wall. The bubble ray from the cell sees water; from 1.2 m away it hits
+> the wall. The grid does not carry that wall, the proof exempted the whole 4.5 m route (16 m start + 2 m goal
+> exemptions), and the walk's sweep exempts 16 m at both ends. The audit had flagged both wedge points ("NOT a
+> map-jump collider", ring 0.0 m) — the IsGateCollider rule correctly refused to forgive them.
+> **BUILT (0 warnings, DLL in Mods 10:23, ⏳ UNTESTED, uncommitted):** (1) Bake phase 2 second half
+> `BodyFits`: after the bubble check, `NavigationHandler.BodyWallClearance` (same capsule/ground probe/mask as
+> `SweepSegmentBlocked`; `OverlapCapsule` standing still = 0 → DROPPED with the blocker chain logged, first 3 per
+> place; else 8 compass `CapsuleCast`s up to 2 m = clearance). New file field `FishingStandEntry.WallClearance`
+> (−1 = older file), per-place histogram in the "Phase 2: place N" line, F7 audit label shows `wallClear=`.
+> Evidence so far: broken stand 0.2 m, working Arlia spot 2 ≈ 1.3 m. (2) Runtime honesty: stand creep ending
+> > 0.6 m from the cell (`WmFishStandBlockedMeters`) → log "STOPPED SHORT of the stand", verdict key
+> `nav_autowalk_arrived_fish_stand_blocked` ("Stopped {1} meters short of {0} …") in all 7 lang files; skill
+> verdict still wins. Option 3 (retry the nearest proven stand when the body cannot reach the chosen one) NOT built —
+> user's call.
+>
+> 🎣 **2026-09-13 later (session 22 test, log 10:28–10:32): body-fit test WORKS, but the pocket has more cells.** Rebake 116 s,
+> 33/34 places, 17 proven; drops at Arlia, Krosse beach, Salva, desert, Sangaku walls (distant town colliders WERE live).
+> New Arlia Fishing spot 1 = (−41.5,−410), WallClearance 0.73, "proven comfort 5 m" — the same walled pocket 1.5 m east.
+> Walk stuck at (−43.2,−406.4) against the L22 `Wall_Arlia` strip (0.51 m), 5 recalcs along the wall, "Cannot reach".
+> Arlia spot 2 arrived WITH the bubble (facing sweep step 2 produced it while gameCheck stayed false). Evidence
+> against dropping the proof's 2 m goal exemption: the earlier no-exemption audit shows the WORKING stands (place 19
+> stand 1, Salva place 21 stand 1) with a wedge 1 m from the target too. Clearance does not discriminate either
+> (working (−42,−414) = 0.53, pocket = 0.73). Candidate rules put to the user: (a) a stand inside a town's entrance
+> ring is unusable (Cross = Enter there; log ring distance per kept stand, drop 0 m); (b) overlap radius 0.5 like the
+> game's capsule (the (−44.5,−414) stand has clearance 0.03 and stuck the 09-09 walk); (c) runtime learning: a stand
+> whose walk ended stuck/stopped short within ~8 m is remembered as bad per map and skipped. Awaiting the user's pick.
+>
+> ✅ **User picked rules 1 + 2 (2026-09-13, on the condition that no viable spot is lost; "keep tabs on what was
+> reachable before"). BUILT, 0 warnings, DLL in Mods, ⏳ UNTESTED, uncommitted:** (1) `ApplyEntranceRingRule` in
+> Phase 4: verified cells INSIDE a town entrance trigger (`NearestRingDistance` ≤ 0.01 m) are dropped — Cross = Enter
+> there; every kept stand stores `RingDistance` (−1 = no ring data → rule skipped, nothing dropped without evidence);
+> F7 label shows `ring=`. (2) `StandBodyRadius = 0.5` (the game's capsule) for the standing-still fit test only; the
+> route sweep keeps 0.45. (3) **Before/after audit trail:** `Save` copies the old file to
+> `worldmap_expel.previous.json`; `LogBakeDiff` compares the new file with the old one — per place counts, every old
+> stand that is GONE (no new stand within 5 m) or moved, with the recorded rule reason (`_ruleDrops`: body overlap /
+> entrance trigger) or "no rule dropped this cell"; summary line counts GONE-but-proven stands = the ones to read first.
+>
+> 🎣 **2026-09-13 11:24–11:29 (session 23 test): ARLIA FISHING SPOT 1 ARRIVED WITH THE BUBBLE, SHRIMP CAUGHT ✅ —
+> but NOT because of the new rules.** Rebake 116 s, 33/34, 17 proven; ring rule armed with 26 rings, fired only at
+> places 53 (MF_0012_01A) and 4 (MF_0015_01A), 15 cells; the Arlia pocket lies OUTSIDE the ring (kept stands read
+> 3.8–4.4 m). Bake diff: 2230 → 2173 stands, 2016 kept, 172 moved, 42 GONE (all unproven, all body-overlap reasons,
+> 0 proven gone), 3 new. The pocket cell (−41.5,−410) vanished with NO rule reason: place 1's bubble-check pass count
+> varies between bakes (1448 → 1465 → 1448), i.e. the game check FLICKERS for some cells (suspect: party followers
+> standing at the gate, in the ray). New spot 1 = (−43,−413.5) (wallClear 0.16, ring 3.83, proven 25 m) → bubble at
+> (−40.7,−415.8). Fixed the audit gap: `LogBakeDiff` now logs every moved stand, with "NO rule dropped the old cell"
+> when that is so (built, 0 warnings, DLL in Mods). OPEN: the pocket cell can come back in any bake; the flicker cause
+> is unproven — candidate diagnostic: re-run the bubble check for cells within ~20 m of the player and log disagreements.
+>
+> ✅ User approved the flicker diagnostic (2026-09-13). BUILT (0 warnings, DLL in Mods): `GameAcceptsStand` (non-mutating
+> stand test) + `MeasureFlicker`: every cell within 20 m of the player is re-checked 4×; disagreeing cells logged
+> ("Phase 2 flicker: place N cell (x,z) D m from the player: first answer PASS/fail, then k/4 passes", first 20) +
+> summary "Phase 2 flicker: N cells … K flickered (from A m to B m away)". Verdicts unchanged.
+>
+> 🧭 **2026-09-13 (session 24): PLAN MODE → ROOT CAUSE FOUND IN THE GRID, PHASE 1 DIAGNOSTICS BUILT.** Plan
+> (approved): `C:\Users\Jaco\.claude\plans\logical-sauteeing-iverson.md`. Log 11:44–11:48: the 11:46 "arrived" walks
+> were at KROSSE (bake from Krosse); at Arlia the pocket stand (−41.5,−410) came back (position-dependent bake) and
+> the walk stuck on `Wall_Arlia` again; flicker diagnostic: 0/297 within one bake. **Definitive finding (grid file read
+> offline + grid_diff map): the walk grid in use (`UserData\SO2RAccess\worldmap_expel.grid`, baked 2026-07-10) has
+> the Arlia pocket cells OPEN with NO clearance record, while two wall boxes sit 0.2 m away live** — the town wall is
+> "open ground" to FindPath, the region test, the fishing candidate scan and the (vacuous, all-exempt) 5 m proof.
+> The ring rule / body radius / clearance rules were margin arguments about cells that should not exist. Bake code
+> unchanged since commit 6ba6229 (07-10) → a live replay of the bake probe is exact. **BUILT (0 warnings, DLL in Mods):**
+> (1) `WorldmapGridProbe.cs` — the bake's per-cell obstacle test extracted (constants moved; `ProbeCell` → 35 lines;
+> byte-identical logic), `BakeGroundHeight`, `DescribeCollider`; (2) `WorldmapGridDiagnostics.TruthProbe.cs` on F10:
+> every cell within 8 m — grid vs live replay vs game-body capsule → `[WMTruth]` lines with verdict classes
+> ABSENT-AT-BAKE / GEOMETRY / HEIGHT / reverse + `VERDICT:` line; (3) `WorldmapGridFormat.SaveGrid` backs the old
+> grid up to `worldmap_expel.previous.grid` + temp-file write; `UserGridPath`/`PreviousGridPath`; (4) proof log now
+> says `swept K of N segments` or `PROVEN BY GRID ONLY (no segment swept)`; (5) scratchpad `grid_diff.py` (tested on
+> the current grid: 5.29 M ground cells, 412 k foot-blocked, 112 k sealed; the Arlia box shows the pocket as a thin
+> open strip between `#` cells 0.5 m south and the sealed interior east).
+>
+> 🔬 **Phase 1 results (12:48–12:50):** F10 at the gate: 1089 cells, 69 ABSENT-AT-BAKE, 103 GEOMETRY, 133 HEIGHT →
+> "mixed"; but the 40 logged lines were all west-side cells (x −50…−48.5), the pocket lines were suppressed, and the
+> GEOMETRY class was my diagnostic's fault (body tested at the cell CENTRE, not at the stored clearance offset the walk
+> aims at). HEIGHT = a band where live ground is ~0.9 m above the grid (small `Col_Height` rocks live near the player,
+> absent from the bake's chunk copies — the B7 class, still present locally). **F9 rebake from the gate (121 s, backup
+> OK): the pocket cells are STILL OPEN** — grid_diff shows zero newly blocked cells in the Arlia box, only the height
+> band; map-wide 4334 open→blocked, 5301 blocked→open, 47 578 ground flips (position-dependent bake, unvalidated →
+> today's bake kept as `worldmap_expel.fresh-2026-09-13.grid`, the July grid RESTORED as the active grid). So "walls
+> absent at bake time" is REFUTED for the pocket: the bake's own probe, with the walls present, does not see the two
+> L22 `Wall_Arlia` strips, while the neighbouring columns (x −43.5, −42) carry CharaWall clearance 0.5–0.9 m and the
+> stand column (x −43, −42.5, −41.5…) has NO record at all. F10 rebuilt: FOCUS lines (nearest stand + 8 neighbours,
+> always), per-class caps nearest-first, body at the offset, and `seen:` = every collider within 1 m on ANY layer.
+>
+> 🎯 **DEFINITIVE CAUSE FOUND (16:38 F10, FOCUS lines) + FIX BUILT (0 warnings, DLL in Mods, ⏳ needs F9 + F10):**
+> the bake's PROBE SEES the wall — every cell of the Arlia wall strip ((−43,−405)…(−43,−406.5), (−42.5,−404.5/−405))
+> reads `replay=BLOCKED foot=0.00–0.42m` by `Col_Obstacle` L22 `Wall_Arlia`, `grid=open clr=none`, and `seen:`
+> shows `MapJump/L29/0.00mT` = INSIDE the entrance trigger. `ClearEntranceTriggers` (post-pass) cleared
+> `FlagAnyModeBlocked | FlagSealedInterior` on EVERY ground cell in each entrance trigger's AABB — probe walls
+> included — and a blocked cell never gets a clearance record → exactly the "open, no record" signature in both the
+> July and the fresh bake. The pocket stand cells themselves are physically open (walls 0.68–1.18 m away, `Col_Obstacle_Col1`
+> on layer 0 = not in any wall mask); they were sealed interior un-sealed by the same pass. **Fix:** per-mode seal bits
+> (`FlagSealedInterior` = foot seal, new `FlagBunnySealed = 8`, `SealedBitFor`), `FloodFillSeal` sets the mode's own
+> seal bit, `ClearEntranceTriggers` lifts ONLY seal bits (+ height repair on un-sealed cells) and keeps probe walls,
+> logging per trigger "N cells un-sealed, M wall cells kept blocked" + a total. Residues noted, NOT today's cause:
+> HEIGHT band (live ground ~0.9 m above the grid west of the gate — `Col_Height`/`Mesh_Col` L24 clones missing from
+> the bake's chunk copies, B7 residue) and 18 GEOMETRY cells = body capsule side-hitting L24 rock slopes.
+> Interrupted F9 (user panic-quit): nothing written — grid files intact, July grid active.
+>
+> 🛡️ **User decision (2026-09-13 ~17:00): NO whole-map rebake — the fresh bake carries ~10 k flag + 47 k height flips of
+> position-dependent streaming noise vs the validated July grid. Instead: GATE WALL PATCH (Delete key, debug, world map,
+> `WorldmapGridGatePatch.cs`, 0 warnings, DLL in Mods):** loads the ACTIVE grid, for every ground-level entrance trigger
+> box re-runs `WorldmapGridProbe.ProbeObstacles` at the grid's stored height with the grid's own masks (abort if the
+> live masks differ), sets foot/bunny blocked where the probe finds a wall, NEVER clears, NEVER changes a height, backs
+> the grid up (`SaveGrid`), clears the pathfinder cache; logs per gate "N open cells probed, K blocked" + first 3 cells
+> with the blocker. The user asked about the July validation suite (Salva arrival, Mountain Palace + Krosse→Arlia
+> refusals, Marze→Krosse Cave both exits, F7 audits Harley/Kurik/MP/Marze, offline height audit) — these stay valid
+> because the patch only subtracts walkability at gate walls. The fixed F9 clearing pass stays in the code for future
+> bakes but is NOT to be run now.
+>
+> ✅ **GATE WALL PATCH APPLIED (17:01) AND VERIFIED OFFLINE.** 26 gates, 28 728 open cells probed, 5597 foot + 4260 bunny
+> cells newly blocked (Arlia MF_0003_01A: 69 foot + 51 bunny); grid_diff July → patched: open→blocked 5597 (= the patch
+> total), blocked→open 0, ground flips 0, every flipped tile at a listed gate; F10 at the gate: 0 ABSENT-AT-BAKE (was 69).
+> Offline flood fill from the pocket stand (−41.5,−410): 49 cells, x −42…−40.5, z −410…−402, does NOT reach the gate
+> cell → the shore pocket is an enclosed island; the wall strip x −43/−42.5 from z −404.5 to −411 is blocked (f3).
+> Backup = `worldmap_expel.previous.grid` (July). Still to pass before embedding: F7 at Arlia + Krosse (verdicts as
+> July), Arlia gate → Salva walk, Insert (stands rebake → pocket stands unproven / not chosen), the fishing walks.
+>
+> ⚠️ **PATCH REVERTED 2026-09-13 ~17:40 (July grid active again; patched grid kept as `worldmap_expel.patched-2026-09-13.grid`).**
+> Offline BFS on both grids (8-neighbour, climb ≤ 5 m, clearance table): the patch cuts the COMFORT tier (≥ 0.60) of two
+> July-validated roads — Marze gate → Krosse Cave mouth (K1, "clean 873-wp comfort road") is comfort in July, floor-only
+> patched; Krosse gate → Harley likewise; Krosse → Salva south was floor-only in BOTH (unchanged); Arlia → Salva comfort in
+> both; Mountain Palace fully disconnected patched (was floor-reachable, refused by the sweep). The cut cells sit at
+> gate boxes (Krosse Cave mouth (84…91,−92…−97) = the July "canyon-mouth pinch", Marze gates, Krosse City gates, Lasgus
+> gate): the July comfort network crossed gate boxes through erased wall cells. In-game 17:13–17:16: Arlia Fishing spot 1
+> walk on the PATCHED grid chose (−42,−414) and arrived WITH the bubble (25 s, old stands file — the pocket stand was
+> region-rejected); Arlia gate → Salva arrived (comfort); F7 from Salva's NORTH side: every route floor-tier (Salva south
+> gate not comfort-reachable from there — patched only). The 16:37 session log (patch run) was rotated out.
+> **Decision pending (user):** (A) keep July grid, fix Arlia in the fishing PROOF only (drop the 16 m start exemption;
+> gate pinches forgiven solely by ring + town-collider rule; rebake stands; read GONE-proven diff) — zero nav change;
+> (B) keep the patch as "more truthful" and re-validate K1 + Krosse→Harley + Salva walks in game.
+>
+> ✅ **User chose (A) — OPTION 1 BUILT (0 warnings, DLL in Mods, ⏳ needs Insert rebake + walks):** `SweepRoute` in
+> `WorldmapFishingStandBaker.Proof.cs` has NO start exemption any more (the `anchorPos` parameter removed); gate pinches
+> beside the anchor are forgiven only by `WorldmapMapjumps.IsGatePinch` (≤ 5 m from a ring AND the town's own map-jump
+> collider); the 2 m goal exemption stays; Phase 5 header line says so. `LogBakeDiff` now also lists every kept stand
+> whose proof was LOST ("PROOF LOST — was proven from … now unproven") and counts gained proofs in the summary. Walk grid
+> untouched (July grid active). Expected at Arlia: pocket stands (−41.5,−410)/(−43,−410) refused (Wall_Arlia wedge
+> 0–1.5 m from the anchor, NOT a map-jump collider) → unproven → chooser's silent fallback to (−42,−414) or another
+> proven stand; Krosse gate stand must stay proven (its pinch IS a map-jump collider).
+>
+> ❌ **Option 1 RESULT (log 17:38–17:44): Arlia works, but the rule over-refuses.** Rebake (no start exemption): 17 → 7
+> proven places; 21 kept stands PROOF LOST, 10 lakes now entirely unproven (would read "unreachable on foot"). The
+> refusals all show the same shape: first wedge AT THE ANCHOR, `ring … 0.0 m`, blocker = the town's WALL family
+> (`Wall_Kurik`, `Wall_Harry`, `CharaWall_Krosse`, `Field_border`, `Wall_Arlia`) — i.e. the ring + map-jump-collider rule
+> never fires for real gate pinches, because the colliders at a gate are the town's walls, not `FieldMapjumpCollision`
+> children. Krosse gate lake (place 25) kept 2 proven (incl. the fished (−94,−49)); Kurik place 28 kept 2; Arlia
+> pocket stands refused (correct); (−43,−413.5) proven → 17:43 walk arrived WITH the bubble (17:40 walk before the
+> rebake: "Cannot reach", pocket stand). Offline: a grid-only flood cannot tell the pocket from open shores on the
+> July grid (walls erased) → the discriminator must be a BODY-SWEPT enclosure test at bake time.
+> **Proposal (pending user):** restore the July 16 m start exemption (validated) AND add an enclosure test for stands
+> whose route had blocked-but-exempt start segments: body-swept flood (SweepSegmentBlocked per step, gate pinches
+> forgiven as in the walk) from the stand over grid-passable cells within 14 m; refuse if no reached cell lies ≥ 12 m
+> from the stand ("enclosed"). Refuses only spots the body cannot leave; cannot produce a false refusal on an open shore.
+>
+> ✅ **User approved → ENCLOSURE TEST BUILT (0 warnings, DLL in Mods, ⏳ needs Insert rebake + Arlia walks):** `SweepRoute`
+> has the July 16 m start exemption back (from path[0] AND the anchor) but now SWEEPS those segments too and counts
+> blocked, non-gate ones as `hiddenStart` (logged "N start-side wedges exempt"); a stand proven with hiddenStart > 0 runs
+> `IsEnclosed`: body-swept flood (8-neighbour, climb ≤ `MaxClimbCm`, `SweepSegmentBlocked` per step, gate pinches
+> forgiven) within 14 m; enclosed = no reached cell ≥ 12 m away → "refused — ENCLOSED: …", `FishingStandEntry.Enclosed`
+> = true, anchors exhausted. Diff line "PROOF LOST … (ENCLOSED …)". Expected: all July proofs return (17 places) except
+> the Arlia pocket; Krosse gate stand (−94,−49) proven; pocket (−41.5,−410)/(−43,−410) ENCLOSED.
+>
+> ✅ **ENCLOSURE TEST RESULT (log 17:54–17:57, bake from the Arlia gate, 114 s): 17 proven places are BACK** (1,2,3,4,5,
+> 17,19,20,21,25,27,28,30,33,34,38,53 — the same set as before option 1), "proof LOST on 0 kept stands, gained on 20";
+> 8 stands ENCLOSED, all beside town gates: Kurik place 2 (−215,446.5) 1.1 m / (−217,451.5) 2.5 m; Krosse place 25
+> (−111.5,−35.5) 6.9 m, (−101,−52) 2.5 m, (−111,−45) 1.6 m (the fished (−94,−49) stays PROVEN, 4 m); Linga place 34
+> (727,−518) 11.9 m (borderline; its neighbours (727,−513)/(727,−508) PROVEN after passing the test), (727,−523.5) 1.0 m;
+> Harley place 53 (446.5,79.5) 1.1 m. Arlia (−37,−395) proven floor with 6 start-side wedges exempt (test passed).
+> Walk: Arlia spot 1 → (−43,−413.5), arrived WITH the bubble at 17:57. **Caveat:** the Arlia pocket cell (−41.5,−410)
+> was NOT in this bake (bake-position variance: from the Arlia gate its bubble check fails; from Krosse it passes) →
+> the enclosure test has NOT yet been exercised on the Arlia pocket itself — bake once from Krosse to see
+> "(−41.5,−410) … ENCLOSED". Files over the 500-line target after today: Proof.cs 550, Scan.cs 600 — split next.
+>
+> 🔁 **Krosse-side bake (Latest.log, player (−97,−56)): the pocket cell (−41.5,−410) IS back and was PROVEN "comfort 5 m,
+> swept 5 of 9 segments" with 0 hidden start wedges → the enclosure test never ran.** Cause: the July grid has the wall
+> erased, so the route STARTS inside the `Wall_Arlia` strip; a CapsuleCast that starts inside a collider comes back
+> with a null collider in this runtime (`hitUnresolved`, the known July artefact) and reads as passable — every segment
+> that touches the strip starts inside it. Everything else unchanged: 17 proven, 0 lost, same 8 ENCLOSED pockets.
+> **FIX BUILT (0 warnings, DLL in Mods, ⏳ needs one more bake from KROSSE):** `BodyOverlapsWall` (= `BodyWallClearance`
+> == 0, the standing-still overlap test that has no start-inside blind spot): a start-exempt waypoint where the body
+> overlaps a wall now counts as a hidden start wedge; `IsEnclosed` also refuses a flood step whose destination cell the
+> body cannot stand in, and returns enclosed at once when the body overlaps a wall on the stand itself. Plus a log-only
+> `LogWallCensus` at Phase 5 start: L22/L23 colliders grouped by their Wall*/CharaWall* ancestor with active counts
+> (Arlia/Krosse groups and any group with inactive colliders listed) — settles whether town walls are live from afar.
+>
+> 🏁 **CLOSED (Krosse-side bake ~18:18, Latest.log): the Arlia pocket stand (−41.5,−410) is now "refused — ENCLOSED: the
+> body cannot get farther than 8.1 m (49 cells reachable)" — the same 49 cells the offline flood found.** Wall census:
+> Wall_Arlia 64/64 active from Krosse (18 wall groups, 0 with inactive colliders → walls are NOT distance-culled; the
+> bake-position variance is the bubble check only). Diff: proof LOST on 3 kept stands, all ENCLOSED: the Arlia pocket
+> ✓; Krosse place 25 (−106,−37) 8.4 m/142 cells (the lake keeps (−94,−49) + (−94,−44) proven ✓); **place 5 (939.5,−24)
+> "0.0 m, 1 cell" → place 5 (east coast, MF_0023_01A) now has 0 proven stands** — never user-tested; its old proof rested
+> on the 2 m goal exemption; OPEN: could be an artefact (rock the player steps over / bank overhang). 16 proven places.
+> **Built after that (0 warnings, DLL in Mods):** the ENCLOSED line now names the colliders that closed the flood
+> ("walled by 'X' L.. chain ×n; …"). **Final stands JSON copied into `E:\StarOcean\stands\` and embedded (rebuilt).**
+>
+> 🌙 **END OF SESSION 25 (2026-09-13 ~18:30). State: builds clean (0 warnings); DLL in Mods = build of ~18:25 (enclosure
+> test + "walled by" evidence + embedded final stands JSON); ACTIVE walk grid = the July grid (untouched; extra grid
+> files `worldmap_expel.previous.grid` / `.patched-2026-09-13.grid` / `.fresh-2026-09-13.grid` in UserData, not for git);
+> NOTHING COMMITTED since v0.4.0 (a79775e); no version bump. Arlia fishing spot 1 = SOLVED (root cause: the F9 bake's
+> entrance clearing erased town walls inside gate boxes → the proof now runs a body-swept enclosure test; the grid fix
+> stays in code for future bakes only). New debug keys: Delete (gate wall patch — do NOT run casually), F10 extended
+> (`[WMTruth]`). User-facing changes since v0.4.0 to write up: "Stopped N meters short" message, Delete key in README.**
+>
+> ✅ **SESSION 26 (2026-09-14, Insert bake 19:25–19:27): the bake is REPRODUCIBLE** — diff vs the 2026-09-13 file: 2169
+> stands before/after, 0 moved, 0 GONE, proof LOST 0 / gained 0. Arlia pocket (−41.5,−410) still ENCLOSED by Wall_Arlia.
+> **Place 5 (939.5,−24) "walled by" answer: NOT a wall — the flood is closed by the TERRAIN GROUND MESH itself**
+> (`Mesh_L011` L24, chain `Mesh_L011/ma_1001_011a/HeightAdjust/Terrain/Ground/mp_1001_011a/Map` ×3) plus one L24 rock
+> body (`Mesh_Col/ma_1402_011a_Col` ×2); the only real wall in the line is the base's own `23_FrontLine` L22 box that hid
+> a start-side wedge. Why that smells like an artefact: the sweep mask is the live wall mask + ALL of layer 24 (added for
+> rock bodies, which really wedge the player), but the world map's ground meshes live on L24 too; the sweep capsule starts
+> 0.45 m above the ground (`AuditStepAllowance`), so a bank rising more than that within one 0.5 m step reads as a wall,
+> while the game lets the world map player climb almost any slope (~84°). The SAME L24 rock at (953.0,48.5), 15.4 m outside
+> the Lacuer Front Line Base entrance ring (MF_0023_01A, anchor (935,56)), refuses EVERY comfort-tier route from that anchor,
+> and a `Col_Obstacle` L23 at (904.8,−3.8)/(915.8,58.2) refuses the floor-tier ones → places 5, 35 and 36 all have 0 proven
+> stands, all annotated "unreachable". UNVERIFIED either way: the user has never been to the Lacuer Front Line Base.
+> Decision (user, 2026-09-14): NO code change now — evidence first; the lake stays annotated unreachable (safe failure).
+>
+> 🧪 **DEFERRED TEST — when the story reaches the LACUER FRONT LINE BASE (MF_0023_01A, world map (935,56), east
+> continent). Do this BEFORE any change to the sweep mask or the enclosure flood:**
+> WHY: the body sweep (`NavigationHandler.SweepSegmentBlocked` + `ResolveBodySweepMask`) is the test behind the
+> fishing proof, the enclosure flood AND the pre-walk route validation. It has never been checked against ground the
+> player actually walked on the world map (the F11 wall audit checks only the wall TONES). Removing L24 from the mask
+> blindly would break the Salva rock-wedge case (2026-07-10); keeping it may be hiding three reachable lakes. Only a
+> walked trail can tell a rock the player wedges on from a bank the player climbs.
+> STEP 1 (build first, ~30 lines, log-only): add a "trail sweep" pass to F11 on the world map — for every edge of the
+>     session's `WorldmapTrail`, run `SweepSegmentBlocked` with the proof's mask (`ResolveBodySweepMask`) and log every
+>     walked edge the sweep calls BLOCKED with the collider name, layer and `ColliderChain`; RESULT line = PASS when 0.
+>     This is the breadcrumb audit the body sweep owes (rule: any walkability method must pass one before it is trusted).
+> STEP 2 (user, in game): F12 debug ON → leave the Front Line Base onto the world map → open the nav list: the two
+>     nearest fishing entries are the small lake ~30 m NORTH of the entrance (place 36, stands (945,80) / (934,86.5)) and
+>     the big east-coast lake (place 5, stand (939.5,−24) ~80 m SOUTH). Both say "unreachable". Turn on the fishing
+>     beacon / spoken directions for the NORTH lake and walk there by hand with the wall tones. If the bubble appears,
+>     cast once (Fishing skill on the leader). Then, if the walk was easy, walk back and try the SOUTH stand the same way.
+> STEP 3 (user): press F11 on the world map and send Latest.log. Say in words whether you reached water and got the bubble.
+> STEP 4 (Claude): read `[WMSWEEP]` (the new pass). Expected if the artefact theory is right: BLOCKED walked edges naming
+>     `Mesh_Col/ma_1402_011a_Col` near (953,48.5) and/or `Terrain/Ground` meshes; then the fix is a rule that excludes
+>     exactly those hits (e.g. skip L24 hits whose chain contains `Terrain/Ground`, or test the hit's surface slope against
+>     the game's climb rule), re-bake with Insert, and the "Bake diff" must show places 5/35/36 GAINED proofs and NOTHING
+>     LOST. If instead the walk really is blocked (no way to the water), the lakes stay unreachable and the item closes.
+>     Any fix must keep the Arlia pocket ENCLOSED and the Salva wedge refused — run both checks in the same bake.
+>
+> 🌙 **END OF SESSION 26 (2026-09-14, short). Nothing built today; state unchanged from session 25 (builds clean, DLL in
+> Mods = 2026-09-13 ~18:25, July grid active, NOTHING COMMITTED since v0.4.0). Today: bake read (reproducible), place 5
+> diagnosed + deferred to the Lacuer test above, status/memory updated. User stopped for the day.**
+>
+> 🔧 **SESSION 27 (2026-09-15): CLEANUP DAY — cues rebuilt from lossless originals, bake files split, docs updated.**
+> Built (0 warnings, DLL in Mods 19:06, NOT committed):
+> - **World map cues rebuilt from the user's Freesound originals** (downloaded today into `E:\StarOcean\Sounds\`, copied to
+>   `sound-samples\originals\`): NavFishing (fs 523399, 96 kHz/24-bit original → 6 s seamless loop, −21 dB RMS, peak −0.02 dB =
+>   one sample, no clipping), NavCity (fs 457043, 44.1 kHz original → 8 s loop, lowpass 1.8 kHz, −23 dB RMS), NavDungeon (fs 653752 —
+>   Freesound's original IS an MP3 at 44.1 kHz, no lossless exists → 1.78 s bells + silence, period 2.4 s, −16 LUFS). Same recipes
+>   as the previews. Reproducible build script: `sound-samples\build-worldmap-cues.ps1` (git-ignored folder; finds originals by
+>   Freesound id, 32-bit float intermediate, invariant-culture gain, gzips into `soundcues\`). ⏳ UNTESTED in game (listen once).
+> - **File split** (pure move, no logic change): `WorldmapFishingStandBaker.Proof.cs` 661 → 394 + new `.Proof.Sweep.cs` 284 (sweep,
+>   enclosure flood, body overlap, tile loader, wall census); `.Scan.cs` 600 → 301 + new `.Verify.cs` 317 (Phase 2 game test, flicker,
+>   body fit, ring rule). Fixed an orphaned doc comment on `LoadRouteTiles` on the way.
+> - **Docs:** README Fishing support line now names the honest arrival messages (Fishing skill / "Stopped N meters short");
+>   KNOWN_ISSUES: "Stopped N meters short" sentence + new bullet for the three east-continent lakes near the Lacuer Front Line Base
+>   (possibly wrongly unreachable, unverified).
+> - **Embedded-source test PREPARED:** `UserData\SO2RAccess\stands\worldmap_expel.json` renamed to `worldmap_expel.json.embedded-test`
+>   (it equals the embedded file except `BakedAt`). ⏳ USER: start the game, step onto the world map, then Claude reads Latest.log for
+>   `source=embedded` and RENAMES THE FILE BACK. If the game was started before this: nothing is lost, the embedded data is identical.
+> - ✅ 19:37 game run (debug OFF): world map list built, NO "No fishing stands file" warning and no load error → the embedded copy
+>   loaded (the success line itself was debug-only; now ALWAYS-ON via MelonLogger: "Fishing stands: loaded N water places … source=…").
+>   UserData stands file renamed back. User: the three rebuilt cues "are fine". `lang\XX.json` DELETED (user's call).
+>
+> **NEXT SESSION (session 27), in order — START HERE:**
+> (0) ✅ DONE 2026-09-15. Greeting: no pending user test. REMIND THE USER: download the LOSSLESS originals from Freesound (manual login, their
+>     browser — never automate it) for the three cues still built from MP3 previews, then put them in `E:\StarOcean\Sounds\`:
+>       - town beacon NavCity.wav — Breviceps, https://freesound.org/s/457043/
+>       - dungeon beacon NavDungeon.wav — "Twin Bells", Streetpoptunez, https://freesound.org/s/653752/
+>       - fishing beacon NavFishing.wav — "waves-lapping", cyoung510, https://freesound.org/s/523399/
+>     Then rebuild the three cues from those originals (16-bit PCM, same loop trims as the preview versions).
+> (1) ✅ DONE 2026-09-15 (indirect: no missing-file warning; load line made always-on). Delete `UserData\SO2RAccess\stands\worldmap_expel.json` once → log must say `source=embedded` → restore it.
+> (2) ✅ DONE 2026-09-15. Split `WorldmapFishingStandBaker.Proof.cs` (550) and `.Scan.cs` (600) below 500 lines; rebuild the three cues
+>     (NavFishing/NavDungeon/NavCity) from lossless originals; update README (Delete key already documented).
+> (3) COMMIT everything (version = user's call; middle-number bump candidate: world-map manual nav + fishing stands +
+>     grid truth tooling). Keep `worldmap_expel.patched-2026-09-13.grid` / `.fresh-2026-09-13.grid` OUT of git.
+> (4) Deferred: the F9 clearing-pass fix is in the code but any future grid rebake must pass the plan's gates
+>     (`logical-sauteeing-iverson.md` Phase 3) — the gate-box comfort-tier cut is known.
+>
+> **(superseded) NEXT SESSION (session 25), in order:**
+> (0-D) Bake from KROSSE again → read "Phase 5 wall census: Wall_Arlia: N/N active" and "place 1 stand … (−41.5,−410) …
+>     refused — ENCLOSED: the body cannot get farther than ~8 m". If instead Wall_Arlia shows 0 active from Krosse, the
+>     walls are distance-culled → the bake must activate them per tile (plan Phase 2A) — report first. PROOF LOST must
+>     stay 0 / ENCLOSED-only; 17 proven.
+> (0-C) Bake from the KROSSE gate (Insert) → read "place 1 stand … (−41.5,−410) … refused — ENCLOSED"; PROOF LOST must
+>     stay 0 (or only ENCLOSED). Then copy `UserData\SO2RAccess\stands\worldmap_expel.json` → `E:\StarOcean\stands\`,
+>     rebuild, delete the UserData copy once → `source=embedded`, restore; split Proof.cs/Scan.cs; rebuild the three
+>     cues from lossless originals; COMMIT (version = user's call — middle-number bump candidate).
+> (0-B) After Insert + walks: "N have a proven route" must be back to 17; PROOF LOST list must contain ONLY enclosed
+>     stands (each with "(ENCLOSED …)"); the Arlia pocket lines must read "refused — ENCLOSED: the body cannot get
+>     farther than ~8 m"; Arlia spot 1 WITH the bubble; Krosse gate spots unchanged. Then embed JSON, commit.
+> (0-A) After Insert + walks: read "Bake diff … proof LOST on N kept stands" — every PROOF LOST line must be a stand behind
+>     a wall or otherwise explained (compare with the places the user has fished: Krosse gate stand, Arlia (−42,−414),
+>     Salva lake); the Phase 5 line for the Arlia pocket must read "refused — … 'Col_Obstacle' L22 … ring MF_0003_01A
+>     0.0 m, blocker is NOT a map-jump collider"; then Arlia spot 1 must arrive WITH the bubble at a non-pocket stand.
+> (0-done) After the user's Delete (patch) + F10 at the Arlia gate: log `[GatePatch]` — gate MF_0003_01A must block cells,
+>     total line, "Saved to"; grid_diff previous → new: `+` ONLY inside gate boxes (Arlia strip (−43,−405…−406.5) etc.),
+>     zero `-`, zero `h`; F10 FOCUS: 0 ABSENT-AT-BAKE at the strip; the pocket stand cells open but enclosed. Then F7
+>     at Arlia + Krosse (verdicts unchanged), one town walk (Arlia gate → Salva), Insert (stands rebake: pocket stands →
+>     "no anchor shares its foot region → unproven", chooser skips them), walks: Arlia spot 1 WITH the bubble, spot 2,
+>     Krosse 1+2. Only then embed the patched grid + JSON, commit.
+> (0-rebake, superseded) After the user's F9 (with the fix) + F10: log must show `[GridGen] entrance MF_0003_01A … wall cells kept blocked`
+>     and the total line; grid_diff previous → new: `+` on the Arlia strip cells ((−43,−405…−406.5)), the pocket
+>     stand cells stay open but become an ENCLOSED region; map-wide the open→blocked flips must sit at town gates only
+>     (list the tiles); F10 FOCUS: ABSENT-AT-BAKE must drop to 0 at the strip. Then F7 at Arlia + Krosse (town/dungeon
+>     verdicts unchanged), then Insert (stands rebake: the pocket stands must come out "no anchor shares its foot
+>     region → unproven" and the chooser must skip them), then the walks.
+> (0-old) Read the NEW `[WMTruth]` FOCUS lines: for cell (3754,2380)/(3757,2380) the `seen:` list must show the L22
+>     `Col_Obstacle` strips at ~0.2 m; compare with `replay=`/`foot=` — if seen but not counted → the probe's own
+>     mask/trigger/ClosestPoint logic drops them (read the collider's layer/trigger/chain); if NOT seen at all → the
+>     physics query cannot see them (collider type/scale) → fix the bake rule accordingly (Phase 2B variant).
+> (0b) Old item: read `[WMTruth]` from the F10 press at the Arlia gate: summary + VERDICT + the (−43,−410)/(−43.2,−406.4)
+>     lines. ABSENT-AT-BAKE → plan Phase 2A (bake-time wall census + abort rule); GEOMETRY → Phase 2B (body capsule in
+>     the bake, shared `BodyCapsule`); HEIGHT → report numbers first. Then read the F9 rebake (backup line, Complete
+>     line) and run scratchpad `grid_diff.py previous → new --at -43 -410` (top tiles + Arlia box): every flip cluster
+>     must be explainable; the NEW map must show `#` on the pocket strip.
+> (1) Build the Phase 2 fix per verdict → F9 again → F10 (expect "no mismatch") → F7 at Arlia and Krosse (same town/
+>     dungeon verdicts as before; MP + Krosse→Arlia still refused) → Insert (stands rebake; `LogBakeDiff` reason for
+>     pocket stands should become "cell blocked in the grid" — extend the diff reason) → walks: Arlia spot 1 WITH the
+>     bubble, spot 2, Krosse 1+2, Arlia gate → Salva.
+> (2) Gates 1–4 of the plan pass → copy the grid into `grids\worldmap_expel.grid.gz`, JSON into `stands\`, rebuild,
+>     rebuild the three cues, COMMIT (version = user's call).
+>
+> **(superseded) NEXT SESSION (session 24), in order:**
+> (0) User's new requests first. Read the "Phase 2 flicker" lines: K = 0 → the between-bake variance comes from
+>     elsewhere (report); K > 0 clustered near the player → followers-in-the-ray hypothesis gains weight → propose
+>     (a) treat a disagreeing cell as failed (safe direction) or (b) bake away from the gate. Mountain Palace refusal is
+>     NOT affected by this round (bake-only + message change) — dropped from the list.
+> (1) 🎣 Regressions still untested this round: Arlia spot 2, Krosse gate spots 1+2, Mountain Palace / Arlia-from-Krosse
+>     refusals. Then copy the JSON into `E:\StarOcean\stands\`, rebuild, `source=embedded` check; rebuild the three
+>     cues from lossless originals; COMMIT (version = user's call).
+> (2) Open: mapjump rescan finds 0 map jumps right after a battle/scene load; battle character-change diag if it recurs.
+>
+> **(superseded) NEXT SESSION (session 23), in order:**
+> (0) User's new requests first.
+> (1) 🎣 Rebake (F12, Expel, Insert). READ: "Phase 4: entrance-trigger rule armed with N rings"; "Phase 4: place 1 cell
+>     (−41.5,−410) dropped — inside the entrance trigger of MF_0003_01A" (if that cell is NOT dropped, the pocket lies
+>     outside the ring and rule 1 does not cover it — report, don't widen); the "Bake diff:" lines — every GONE stand
+>     must carry a rule reason; "GONE (K of them were proven)" — check each proven-gone stand against places the user
+>     has actually fished (Krosse gate stand, Arlia spot 2 (−42,−414), Salva lake). Any proven-gone stand WITHOUT a
+>     rule reason or with a doubtful reason = stop and report.
+> (2) 🎣 From the Arlia gate: Fishing spot 1 must be outside the pocket and arrive WITH the bubble; spot 2 regression;
+>     Krosse gate spots 1+2 regression; Mountain Palace / Arlia-from-Krosse must still refuse.
+> (3) Then copy the JSON into `E:\StarOcean\stands\`, rebuild, `source=embedded` check; rebuild the three cues from
+>     lossless originals; COMMIT (version = user's call).
+> (4) Open: mapjump rescan finds 0 map jumps right after a battle/scene load; battle character-change diag if it recurs.
+>
+> **(superseded) NEXT SESSION (session 22), in order:**
+> (0) User's new requests first.
+> (1) 🎣 **Rebake (F12, Expel, Insert, ~100 s)** → read "Phase 2: place 1: … dropped (body inside a wall)" and the
+>     first dropped-cell lines: the (−43,−410) cell must be among them with `Wall_Arlia` in the chain. Sanity: far
+>     places must ALSO show a clearance histogram (if only the Arlia-area places have drops/near values, the town
+>     colliders of distant towns were not live → report, don't trust).
+> (2) 🎣 From the Arlia gate: nav list → Fishing spot 1 must now be a DIFFERENT stand (not 7 m away behind the
+>     wall) and the walk must end WITH the bubble. If a walk still stops short, the message must now say
+>     "Stopped N meters short" (log "STOPPED SHORT of the stand"). KNOWN RESIDUAL RISK: the fit test drops cells
+>     INSIDE the wall, not cells a metre BEYOND it; if the new spot 1 is still behind the wall (stops short again),
+>     the next rule is the proof's 2 m goal exemption + 16 m start exemption making routes under ~18 m vacuous —
+>     decide with the wallClear numbers and the stopped-short distance, no blind widening.
+> (3) 🎣 Regression: Krosse gate spots 1+2 and Arlia spot 2 still arrive with the bubble; Mountain Palace and the
+>     Arlia-from-Krosse rock route still refuse.
+> (4) 🎣 Then copy the JSON into `E:\StarOcean\stands\`, rebuild, delete the UserData copy once → `source=embedded`,
+>     restore it; rebuild NavFishing/NavDungeon/NavCity from lossless originals; COMMIT (version = user's call).
+> (5) Open: mapjump rescan right after a battle/scene load finds 0 map jumps (colliders spawn later) → consider a
+>     delayed second rescan before the first plan trusts "no ring data". Option 3 above if the user wants it.
+> (6) 🎮 Battle character-change mode stuck (session 18): if it recurs, build the diag first.
+>
+> **(superseded) NEXT SESSION (session 20), in order:**
+> (0) User's new requests first.
+> (1) 🎣 **Test (rebake first — the new gate rule changes the proofs: F12, Expel, Insert, ~100 s):** Krosse gate → Fishing spot 1 → must still plan (log "gate pinch … blocker IS a
+>     map-jump collider … forgiven"). If it REFUSES: read the "is NOT a map-jump collider (path)" line and report the
+>     hierarchy — that decides the next rule.
+> (2) 🎣 Arlia lake spots ((−43,−409) / (−41,−414)) and the Salva stand: the walk must end WITH the bubble during the
+>     facing sweep (log `sweep step N` lines + "playerCheck="). If still no bubble: compare `gameCheck` vs `playerCheck`
+>     vs `bubble` in the FISHDIAG lines to see which call the game trusts.
+> (3) 🎣 Walk to the Arlia-lake spot that stuck at (−44.1,−413.9): must now REFUSE or route around (no stuck).
+> (4) 🎣 After a battle mid-walk: the next plan must log "mapjump cache was stale … rescanned" and show ring data.
+> (5) REGRESSION: Mountain Palace and the Arlia-from-Krosse rock route must STILL refuse.
+> (6) Then copy the JSON into `E:\StarOcean\stands\`, rebuild, delete the UserData copy once → `source=embedded`,
+>     restore it; rebuild NavFishing/NavDungeon/NavCity from lossless originals; COMMIT (version = user's call).
+> (7) 🎮 Battle character-change mode stuck (session 18): if it recurs, build the diag first.
+>
+> **(superseded) NEXT SESSION (session 19), in order:**
+> (0) User's new requests first.
+> (1) 🎣 **Ring-distance evidence run (step 1, built):** F12 → on Expel press Insert (bake ~80 s; the game
+>     freezes; spoken result "N have a proven route") → stand at the ARLIA gate (MF_0003_01A, world (-43,-405);
+>     leave Arlia to the world map and stay put) → open the nav list, Interactables, auto-walk to the nearest
+>     fishing spot (expected to be refused as on 2026-09-08) → press F7 there (route audit, ~1 min freeze).
+>     READ in the log: every `NAV WM route sweep: impassable … ring MF_xxxx D m` line, the per-route
+>     `N wedges, K within 2 m of an entrance ring` summary, the `[RouteAudit] … (K within 2m …)` lines and the
+>     `[FishBake] Phase 5 … refused … (K within 2 m …)` lines. DECISION RULE: if gate wedges read 0–2 m from a
+>     ring and rock-belt wedges (Mesh_Col/Col_Height L24, mid-route Col_Obstacle) read far from any ring → build
+>     step 2 (ring rule). If mixed → report to the user, no rule.
+> (2) 🎣 **Step 2 (only after (1) passes and the user says go):** in `WorldmapFishingStandBaker.Proof.cs`
+>     `SweepRoute` AND `NavigationHandler.Worldmap.Pathfinding.cs` `CountRouteWedges`: a blocked segment whose
+>     start is within `WorldmapMapjumps.RingWedgeMeters` of an entrance ring (`WorldmapMapjumps.IsAtRing`) is
+>     NOT a wedge (not counted, not stamped), mid-route too; the existing 16 m endpoint exemptions stay. Then
+>     re-bake, re-test the Arlia-gate walk (should plan) and a known-refused rock route (Mountain Palace /
+>     Arlia-from-Krosse must STILL refuse — the July regression cases), then copy the JSON into `stands\`,
+>     rebuild, delete the UserData copy once to see `source=embedded`, restore it.
+> (3) 🎣 **Bubble after arrival:** Salva lake stand (-137.5,-451) — game check true, no bubble in the 2 s hold,
+>     bubble 30 s later 3.6 m along the shore. Investigate what the prompt needs beyond
+>     `CheckWorldmapFishingPoint` (stillness time, contact band, enemy proximity) — start by reading
+>     `FieldPromptHandler` FISHDIAG lines around an arrival; candidate fix: longer hold / re-check while idle.
+> (4) 🎮 **Battle character-change mode stuck (20:49:26):** if it recurs, build the diag first (L2/R2 trigger
+>     values + `BattleManager.stateMachine.currentState` 5/6 transitions in the GAMEPAD DIAG line in battle).
+>     Mod evidence so far: input blocking off, nothing reads/sends R2, L2 passed through to the game.
+> (5) Rebuild the three provisional cues from lossless originals fs 457043 / 523399 / 653752
+>     (`sound-samples\final\worldmap-provisional\README.txt`), then COMMIT everything + version (user's call;
+>     middle-number bump candidate: world map manual nav + fishing stands). Release write-up draft for v0.4.0:
+>     end of `C:\Users\Jaco\.claude\plans\recursive-exploring-peach.md`.
+> (6) Later: field-map beacon rebuilds ~200 ms every 10 s in towns; stairs + bump sounds; the two runtime
+>     nav observations the user has NOT approved touching (safe-exit start exemption; mid-route gate pinches)
+>     are superseded by the ring rule in (2).
+
+> 🌍 **2026-09-06 (session 14): WORLD MAP MANUAL NAVIGATION BUILT — builds clean (0 warnings), DLL in Mods,
+> ⏳ UNTESTED, NOT committed.** Plan: `C:\Users\Jaco\.claude\plans\recursive-exploring-peach.md` (approved).
+> User decisions: world map walls = colliders-only + audit, default OFF with its own switch; separate world
+> map beacon range slider; enemy cue keeps 25 m but pans camera-relative; fishing loop on every map;
+> undiscovered landmarks listed on the world map; stairs/bump sounds deferred.
+> **Built:**
+> 1. Three new cue kinds `City` / `Dungeon` / `Fishing` (NavCues, menu rows auto, labels in all six lang
+>    files); `NavItem.IsFishing` / `IsDungeon`; world map beacons (`NavigationHandler.Beacons.cs`: towns,
+>    dungeons, chests, landmarks, fishing-from-the-water); `ModSettings.WorldmapBeaconRangeMeters` 20–300
+>    default 100 (menu row, 10 m step via `Metres(step:)`); `ManualNavHandler` no longer bails on the world
+>    map, mutes during psynard flight (logged), 10 m full-volume distance there.
+> 2. `SpatialPan` helper = the one camera-relative pan rule; enemy proximity loop now uses it (range unchanged).
+> 3. `BuildMarkers` runs on the world map (6 Expel landmarks → location shimmer beacon + nav list).
+> 4. Spoken directions on the world map: `NavigationHandler.Guidance.Worldmap.cs` (plan once via the shared
+>    `PlanWorldmapRoute` extracted from AutoWalkTo, Douglas–Peucker + walkability split, evidence-only re-plans:
+>    stuck/drift/line-blocked/mode change, prompt-based arrival, face-the-water hold, psynard/no-grid straight
+>    bearing); battle resume moved to `NavigationHandler.Guidance.Resume.cs` with world map fields;
+>    `WorldmapPathfinder.HasGridFor`; hard-coded grid speech → `nav_wm_grid_missing`. `nav_guide_not_worldmap`
+>    removed; 7 `nav_guide_wm_*` keys (en only).
+> 5. World map wall tones: `WallProbe.ProbeProfile` (`Field` unchanged; `Worldmap(liveMask)` = no slope
+>    verdicts, CalcHeight floor, per-form mask + L24), live `player.GetLayerMaskWall()` per tick,
+>    `ModSettings.WorldmapWallTonesEnabled` toggle row; `WorldmapTrail` debug-only recorder + F11
+>    `RunWorldmapWallProbeAudit` (`[WMWALLAUDIT]`, `debug_wmwallaudit_no_trail`).
+> **Sounds:** user picked fishing = fs 523399 "waves-lapping" (cyoung510) and dungeon = fs 653752 "Twin Bells"
+> (Streetpoptunez). PROVISIONAL cues built from the 24 kHz previews (`sound-samples\final\worldmap-provisional\`,
+> gzipped into soundcues: NavFishing 6 s seamless loop -21 dB RMS, NavDungeon 2.4 s period -16 LUFS) — REBUILD
+> from the lossless originals once the user downloads them into `sound-samples\originals\`. TOWN sound NOT
+> chosen: user wants city noise / conversation murmur → 13 candidates in `sound-samples\worldmap\city-batch2\`
+> (Breviceps busy-room 465699/457043, church chatter 661732, Djemaa el Fna 469704, mercado 88421, murmur
+> 260124, village 432064/841386…). Until picked, `NavCity.wav` is absent → town beacon silent (KNOWN_ISSUES).
+> **Docs done:** README (features, menu paragraph, credits), KNOWN_ISSUES, SOUND_CREDITS, game-api.md §21.
+> Lang: en 835 keys, others 810 (25-key gap = deliberate en-only guidance/debug text). No version bump.
+> 🔧 **FIRST WORLD MAP TEST (17:36–17:44, near Kurik) — user: "a lot of issues … locations the sounds guided me
+> to that I could not reach … hearable from so far away that it is worthless without wall sounds … even auto walk
+> failed."** Log findings + fixes (built 17:59, DLL in Mods, ⏳ UNTESTED):
+> - Fishing spot 1: stand on a bank 7.6 m ABOVE the river; the game probe retried at water height said
+>   "fishable", auto-walk reached the stand, crept 4.5 m, no bubble → honest no-prompt message. FIX: stands
+>   more than 1.5 m above the water box top are rejected (`MaxStandAboveWater`, logged as "too high").
+> - Unopened chest 1: on a rock rise 11 m up; grid (500 cm climb allowance) says same region, only a 0.50 m
+>   floor-tier thread between L23 Col_Obstacle walls; physically a 3.5 m rise over 3 m → stuck ×5 →
+>   "Cannot reach". NOT FIXED (grid limitation; idea: learn cliffs from the walked trail).
+> - STUTTER: every beacon-driven list refresh (10 s) was a FULL world map rebuild = ~370 ms (40 fishing grid
+>   snaps + 20 town reachability tests). FIX: closing the menu / starting a walk or directions no longer clears
+>   the list; on the world map beacons keep the built list and rescan ONLY chests every 10 s
+>   (`TryRefreshWorldmapBeaconList`, logs "NAV WM beacon refresh: chests=N in X ms"); "NAV list built … in X ms"
+>   now timed. Full builds still happen on L2 open / modeless key after 10 s (as before this update).
+> - Fishing spots piled up 20→40→60→80 across rebuilds (CAT_INTERACTABLE never cleared on the world map;
+>   latent before, exposed by the refresh). FIX: cleared in the world map branch of BuildList.
+> - Range: `WorldmapObjectBeaconRangeMeters` (renamed so the saved 100 is dropped) default 30 (10–100, step 5)
+>   for chests/landmarks/fishing; NEW `WorldmapTownBeaconRangeMeters` default 100 (20–300) for towns/dungeons
+>   ("World map town and dungeon range", key `mod_menu_label_wm_town_range` in six files).
+> - Directions chatter beside the target ("West, South West, West…" every 1.2 s): on the last leg within 5 m,
+>   direction changes are spoken at most every 4 s (`GuideCloseMeters` / `GuideCloseSpeakGap`, all maps).
+> - Beacons DID play (no `[BEACON] start` lines only because all six voices started before F12).
+> **SECOND TEST (18:06–18:09):** ✅ stutter gone (beacon refresh 12–22 ms; full builds 390–430 ms only on menu
+> opens, first cold build 1470 ms); ✅ landmark walk arrived; ✅ fishing duplicates gone (interactables=20).
+> ❌ F11 wall audit did NOT run — pressed 9 s after F12 with no walking ("No world map trail recorded yet").
+> ❌ Fishing still fails: the height rule dropped 21 of 23 stands on the big lake box, the surviving stand was
+> 213 m east at (32.0,0.2,415.5); auto-walk reached it (3×), crept 4.5 m, no bubble every time. So the water
+> probe `IsWorldmapFishingPoint(point)` is NOT the bubble's rule. The game has `CheckWorldmapFishingPoint(ref pos,
+> ref dir)` (its per-frame test from the player's feet + facing, with `WorldmapFishingCharacterHeight`,
+> `WorldmapFishingFrontDistance`, `FishingGroundDistance`, `FishingCollisionDistanceRate`). BUILT 18:13
+> (⏳ untested): stands must now also pass `CheckWorldmapFishingPoint` (tried at the feet and at character
+> height; if it rejects ALL probe-verified stands they are used anyway + logged — fail open); FISHDIAG now logs
+> `gameCheck=` (that test from the live player) + a one-off FISHPARAMS line → the next log shows whether the
+> game test agrees with the bubble; the list's shore point applies the cliff rule too (was pointing the beacon
+> and the 3 m distance at the unusable bank); fishing beacons now sound from the shore point, not the lake centre.
+> **THIRD TEST (18:16–18:18):** FISHPARAMS wmCharacterHeight=10 wmFrontDistance=5 groundDistance=7
+> collisionDistanceRate=1.4. Game stand test works (4–6 stands refused per spot); FISHDIAG gameCheck stayed False
+> everywhere the player stood (all on land, contactID=30 = standing inside box 30's footprint 4 m above it) — no
+> bubble happened, so gameCheck↔bubble equivalence is still unproven. The Kurik lake: 28 of 56 shore cells too
+> high, the surviving stands sit at water level (y≈0.5) BEHIND L23 region walls / L22 rocks → comfort route
+> detoured 2,800 cells, sweeps refused, floor route hit Col_Obstacle L23 at (-170,393) → "Cannot reach" (probably
+> TRUE: that lake is fished from other beaches). Cost: 3 stands × ~3 s = 8 s frozen. F11 audit ran: PASS, 62
+> edges, density 0 % (short open-plain trail; walls were off, no [WALLS] lines). Each L2 press = full 400 ms
+> scan (3 in 2 s). BUILT 18:20 (⏳ untested): world map list REUSED on L2 open when < 60 s old (chests/enemies/
+> landmarks rescanned, ~15 ms; `TryReuseWorldmapList`, log "NAV list reused"); "Planning a route." spoken
+> before any world map plan > 40 m (`nav_wm_planning`, en only) so the freeze is explained.
+> **FOURTH TEST (18:24–18:31) — USER FOUND THE REAL CAUSE: the party leader had no Fishing skill, so the game
+> never shows the bubble.** Log agrees: `gameCheck=True` many times on the world map (Krosse river stand
+> (-65,20,-102), also at (119,-0.7,299)) with bubble=False; the bubble finally showed in Krosse City at 18:30:47
+> (after the leader change). So the Kurik "no bubble" failures were (at least partly) the skill, not cliffs.
+> ✅ list reuse works (60 ms), "Planning a route." spoken, Krosse City arrivals ×2, F11 PASS 678 edges density 2 %.
+> ❌ NEW BUG FROM MY KEPT-LIST CHANGE: in Krosse City interactables grew 1→10 across rebuilds (only the closes
+> had ever cleared that category). FIXED 18:37: BuildList clears ALL categories first. Also: beacons no
+> longer force a rebuild just because the list is closed (`EnsureListReady` staleness split user/beacon);
+> cliff rule relaxed from 1.5 m to the game's `FishingGroundDistance` (7 m) via `MaxStandAboveWater(fm)`
+> (1.5 m threw away banks the game fishes from); `nav_autowalk_arrived_no_fish_prompt` (en) now mentions the
+> Fishing skill; KNOWN_ISSUES entry. Game stand test (`CheckWorldmapFishingPoint`) KEPT — proven to return True
+> at real spots. Field-map beacon rebuilds still cost ~200 ms every 10 s in town (pre-existing v0.4.0 cost) —
+> candidate for the same partial-refresh treatment later.
+> **FIFTH TEST (18:43–18:54):** ✅ a fishing spot WORKED end to end with the skill (18:46:14 bubble → "Arrived at
+> Fishing spot 1"); ✅ list reuse 50–70 ms, Salva directions "North East, 50 meters".
+> ❌ WORLD MAP WALL TONES WERE SILENT: `[WALLS] F no floor | R no floor…` on 444 of 499 readouts — my
+> `CalcHeight(origin+25, out ok, 50)` call was wrong: the 3rd argument is `rayStartPoint` (height ABOVE the given
+> point), not a length. FIXED 18:54: `CalcHeight(at, out ok, 25)` at foot height (the proven stuck-diagnostic form).
+> The 55 readouts that did have a floor looked right (MapCollision L22 faces 0.5–4.9 m, FloorGap at water).
+> ⚠️ The earlier "PASS 678 edges" was HOLLOW: NoStart edges are never false walls. Audit now counts "no floor
+> under N walked positions" and reports RESULT INCONCLUSIVE when > 50 % of judged edges had no floor.
+> ❌ Fishing at two lakes still fails honestly: Kurik lake (3 stands, no route, 8 s planning) and the lake at
+> (-38,-396) near Arlia: stands only have 0.50 m floor-tier routes → walker wedges (stuck ×5, twice) → "Cannot
+> reach"; directions there re-planned every 4 s on "line blocked" (shoreline clips water cells) and flipped the
+> spoken direction each time → REMOVED the line-blocked trigger (stuck + drift remain). The shore-clearance
+> problem (beaches read as 0.5 m threads) is the real limit; comfort tier fails around most lakes.
+> ⏳ NEXT TEST: world map walls ON: coast → FloorGap tone at the water's edge, rocks → face tones, open hills
+> silent; F11 after a long walk must say PASS (not INCONCLUSIVE); directions along a shore no longer flip.
+> ✅ **SIXTH TEST (19:34–19:39, DLL 18:54) — ALL PASSED:** world map wall tones live (413 readouts, 0 "no floor";
+> Col_Obstacle L22/L23 faces at 0.6–4.7 m); F11 `[WMWALLAUDIT] RESULT PASS: 0 false walls on 168 walked edges,
+> density 57 %, no floor under 0`; fishing spot 1 at (-130,0.6,-446.5) by DIRECTIONS → "Face South for the water"
+> → bubble → "Arrived at Fishing spot 1"; Salva by directions: one drift re-plan (6 m), "Near the entrance of
+> Salva. Keep walking North West…", arrived on the enter prompt; town beacons in Salva started normally.
+> NavCity was NOT in that build (game held the DLL); copied 19:40 after the game closed → ⏳ town murmur untested.
+> 🔔 **TOWN SOUND CHOSEN (18:58):** fs 457043 "Busy Room Ambience / Small crowd" (Breviceps, CC0) → `NavCity.wav`
+> 8 s seamless loop, SOFT (-23 dB RMS vs -21 for the other loops; started at -27 on the user's "quite soft", raised
+> 4 dB after the first listen: "easily overwhelmed by wall sounds"), lowpass 1.8 kHz
+> for distance (user: "not muffled enough, but okay"). Provisional from the preview like the other two — rebuild
+> all three from lossless originals (fs 457043, 523399, 653752) before release. Bundled + credited (SOUND_CREDITS,
+> README); KNOWN_ISSUES "town beacon has no sound" entry removed. ⏳ untested in game.
+> 🎣 **WORLD MAP FISHING = NEXT SESSION, PLAN MODE.** User requirement: well-defined fishing spots, reachability
+> without scans/loops, ONE designated spot per body of water that definitely raises the bubble. Brief with all
+> facts learned today + investigation list: `docs\worldmap-fishing-stands-brief.md`. Direction: bake definitive
+> stands once (shoreline cells × game water query), ship the file, look up at runtime.
+> ⏳ **TEST LIST (world map, Krosse plains):** (1) F4 → Object beacons: new rows Town / Dungeon / Fishing spot
+> + World map beacon range; Wall sounds: "Wall tones on the world map". (2) Walk near Krosse: dungeon bell
+> for Krosse Cave, water loop from the river spot, chest cue, landmark shimmer; enemy cue pans with the
+> camera. (3) L2 + stick down on Salva: legs in tens/hundreds of metres, "Rerouting." only when stuck,
+> "Near the entrance of Salva. Keep walking …", arrival on the enter prompt; a battle mid-route resumes.
+> (4) Fishing spot by directions: "At the fishing spot. Face … for the water." (5) Debug mode, walk a few
+> hundred metres incl. coast + rock, F11 → `[WMWALLAUDIT] RESULT`. (6) Turn on world map walls + a wall
+> tone: coast and rock belt sound, open hills silent.
+
 > 🚀 **v0.4.0 RELEASED (2026-09-06, end of session 13).** https://github.com/Yakku5226/SO2RAccess/releases/tag/v0.4.0
 > Commit a79775e on master + tag v0.4.0, both pushed; asset SO2RAccess.zip (24.6 MB). Middle-number bump (user's call): the whole manual-navigation sound system ships — LoopMixer, wall tones
 > (default OFF, slider 2–8 m), object beacons (NPC / chest / door / location / save / jump; stairs placeholder),
@@ -5375,9 +6106,11 @@ bypass managed stubs) with polling UIConversationSelector.currentVoiceController
   were never re-cached. Combat skills showed missing level/BP on first visit; battle skills showed
   the last combat skill's BP cost. Fix: track _lastBattleSkillMenuItem and re-cache when it changes.
 
-- **Private action notification** — IMPLEMENTED AND TESTED (2026-03-07):
-  - PrivateActionHandler.cs: polls ParameterManager.GetLocalityParameter(FieldmapID).IsPrivateAction
-  - Plays PrivateAction.wav + screen reader "Private action available. Press Square." once per town visit
+- **Private action notification** — IMPLEMENTED AND TESTED (2026-03-07), gate FIXED + TESTED 2026-09-07:
+  - PrivateActionHandler.cs: polls GameManager.CanChangeToPrivateAction(FieldmapID) — the game's own gate
+    (honours ConstDisableSystemParameter scenario windows + party size). Was the static locality
+    IsPrivateAction flag, which fired in Kurik during the disaster chapter where Square does nothing.
+  - Plays PrivateAction.wav on every false-to-true transition (re-arms if a town opens up mid-visit)
   - Volume slider in mod settings menu (0% = off, default 70%)
   - Game has NO native audio cue for PA availability — purely visual icon only
 

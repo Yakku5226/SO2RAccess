@@ -20,6 +20,9 @@ namespace SO2RAccess
         /// <summary>A beacon this close (m) or closer plays at the cue's full volume.</summary>
         private const float BeaconFullDistance = 1.5f;
 
+        /// <summary>Same for towns and dungeons: a town is "here" long before you touch its symbol.</summary>
+        private const float WorldmapBeaconFullDistance = 10f;
+
         /// <summary>Volume kept by a beacon straight behind the player, per rear mode.</summary>
         private const float MuffledRearGain = 0.6f;
         private const float QuietRearGain = 0.5f;
@@ -48,7 +51,6 @@ namespace SO2RAccess
                 return;
             }
 
-            float range = ModSettings.BeaconRangeMeters;
             _inRange.Clear();
             for (int i = 0; i < _targets.Count; i++)
             {
@@ -57,12 +59,11 @@ namespace SO2RAccess
 
                 Vector3 pos = LivePosition(t);
                 float dist = Vector3.Distance(playerPos, pos);
-                if (dist > range) continue;
+                if (dist > RangeFor(t.Kind)) continue;
                 _inRange.Add((dist, i));
             }
             _inRange.Sort((a, b) => a.dist.CompareTo(b.dist));
 
-            Vector3 camRight = new Vector3(camForward.z, 0f, -camForward.x);
             _selected.Clear();
             int voices = 0;
             for (int n = 0; n < _inRange.Count && voices < MaxBeaconVoices; n++)
@@ -71,10 +72,11 @@ namespace SO2RAccess
                 string file = NavCues.FileName(t.Kind);
                 if (!LoopMixer.IsCueAvailable(file)) continue; // e.g. the stairs placeholder
 
-                ComputeBeacon(playerPos, LivePosition(t), _inRange[n].dist, range, camForward, camRight,
-                    out float pan, out float rear);
+                SpatialPan.Compute(playerPos, LivePosition(t), camForward, out float pan, out float rear);
                 var cue = ModSettings.NavCue(t.Kind);
-                float gain = cue.Volume * Mathf.Clamp01(1f - (_inRange[n].dist - BeaconFullDistance) / (range - BeaconFullDistance));
+                float range = RangeFor(t.Kind);
+                float fullDistance = IsTown(t.Kind) ? WorldmapBeaconFullDistance : BeaconFullDistance;
+                float gain = cue.Volume * Mathf.Clamp01(1f - (_inRange[n].dist - fullDistance) / (range - fullDistance));
                 float muffle = 0f;
                 if (ModSettings.BeaconRear == BeaconRearMode.Muffled)
                 {
@@ -113,28 +115,17 @@ namespace SO2RAccess
             }
         }
 
+        private static bool IsTown(NavCueKind kind) => kind == NavCueKind.City || kind == NavCueKind.Dungeon;
+
         /// <summary>
-        /// Camera-relative direction to a beacon: pan is the sideways component
-        /// (-1 left .. +1 right, constant-power in the mixer), rear is how far
-        /// behind the camera it is (0 = level with or ahead, 1 = straight behind).
+        /// How far away a beacon of this kind starts: the field slider in towns
+        /// and dungeons; on the world map the short object range, or the long
+        /// town range for cities and dungeons (hundreds of metres apart).
         /// </summary>
-        private static void ComputeBeacon(Vector3 playerPos, Vector3 targetPos, float dist, float range,
-            Vector3 camForward, Vector3 camRight, out float pan, out float rear)
+        private float RangeFor(NavCueKind kind)
         {
-            Vector3 to = targetPos - playerPos;
-            to.y = 0f;
-            float flat = to.magnitude;
-            if (flat < 0.05f)
-            {
-                pan = 0f;
-                rear = 0f;
-                return;
-            }
-            to /= flat;
-            float forwardPart = Vector3.Dot(to, camForward);
-            float rightPart = Vector3.Dot(to, camRight);
-            pan = Mathf.Clamp(rightPart, -1f, 1f);
-            rear = Mathf.Clamp01(-forwardPart);
+            if (!_onWorldmap) return ModSettings.BeaconRangeMeters;
+            return IsTown(kind) ? ModSettings.WorldmapTownBeaconRangeMeters : ModSettings.WorldmapObjectBeaconRangeMeters;
         }
 
         private static Vector3 LivePosition(NavigationHandler.BeaconTarget t)

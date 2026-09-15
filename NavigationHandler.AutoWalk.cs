@@ -44,6 +44,7 @@ namespace SO2RAccess
         private bool _fieldResumeIsCounter;
         private FieldEventCollision _fieldResumeEventRef;
         private Bounds? _fieldResumeTriggerBounds;
+        private bool _fieldResumeIsFishing;
         private FieldmapID _fieldResumeMapId;
 
         /// <summary>
@@ -116,95 +117,15 @@ namespace SO2RAccess
                 try { walkTarget = item.LiveTransform.position; }
                 catch { /* destroyed transform — keep the list position */ }
             }
-            List<FishingStand> fishingStands = null;
-            if (_isWorldmap && _currentCategoryIndex == CAT_LOCATION)
-                walkTarget = ComputeEnterTriggerTarget(item.Position, playerPos);
-            // World-map fishing spots: refine the coarse shore point to
-            // standing spots the GAME confirms are fishable (its own water
-            // probe), searching the water box perimeter. Multiple candidates
-            // — when the route to the nearest is refused, the next is tried
-            // below. Arrival facing aims at the stand's verified water point.
-            else if (_isWorldmap && _currentCategoryIndex == CAT_INTERACTABLE
-                     && item.TriggerBounds.HasValue)
-            {
-                fishingStands = ComputeWorldmapFishingStands(
-                    item.TriggerBounds.Value, playerPos);
-                if (fishingStands.Count == 0)
-                    item.FacePosition = item.TriggerBounds.Value.center;
-            }
-
+            // World map targets (entrance rings, fishing stands) are resolved and
+            // routed by PlanWorldmapRoute, which spoken directions share.
             bool pathFound;
             try
             {
-                if (fishingStands != null && fishingStands.Count > 0)
-                {
-                    pathFound = false;
-                    int tries = Math.Min(fishingStands.Count, MaxFishingStandAttempts);
-
-                    // PASS 1 — comfort routes only: prefer a stand reachable
-                    // on wide paths. A floor-tier (0.50m clearance) route
-                    // threads body-width pinches where the party followers
-                    // crowd the player into a stuck-recalc ordeal (proven at
-                    // the Krosse river spot, 2026-08-29), so such a route is
-                    // kept only as a LAST resort — not taken just because its
-                    // stand happens to be nearest.
-                    int firstFloorTierStand = -1;
-                    for (int s = 0; s < tries && !pathFound; s++)
-                    {
-                        walkTarget = fishingStands[s].Stand;
-                        item.FacePosition = fishingStands[s].Face;
-                        bool found = CalculateAndStorePath(playerPos, walkTarget,
-                            allowPartial: true, isCounter: item.IsCounterNpc);
-                        if (found && !_wmLastRouteFloorTier)
-                        {
-                            pathFound = true;
-                        }
-                        else if (found)
-                        {
-                            if (firstFloorTierStand < 0) firstFloorTierStand = s;
-                            DebugLogger.LogState(
-                                $"NAV WM fishing: stand {s + 1} of {tries} at " +
-                                $"({walkTarget.x:F1},{walkTarget.z:F1}) only has " +
-                                "a floor-tier (0.50m) route — kept as last " +
-                                "resort, trying the next stand for a comfort route.");
-                        }
-                        else
-                        {
-                            DebugLogger.LogState(
-                                $"NAV WM fishing: no route to stand {s + 1} of " +
-                                $"{tries} at ({walkTarget.x:F1},{walkTarget.z:F1})" +
-                                " — trying the next stand.");
-                        }
-                    }
-
-                    // PASS 2 — no comfort route to any stand: take the first
-                    // stand that had a floor-tier route. Recomputed, because
-                    // later pass-1 attempts overwrote the stored path; the
-                    // comfort A* is skipped (it already failed for this goal,
-                    // and blocked stamps only remove cells).
-                    if (!pathFound && firstFloorTierStand >= 0)
-                    {
-                        walkTarget = fishingStands[firstFloorTierStand].Stand;
-                        item.FacePosition = fishingStands[firstFloorTierStand].Face;
-                        DebugLogger.LogState(
-                            "NAV WM fishing: no comfort-tier route to any " +
-                            $"stand — taking the floor-tier route to stand " +
-                            $"{firstFloorTierStand + 1}.");
-                        pathFound = CalculateAndStorePath(playerPos, walkTarget,
-                            allowPartial: true, isCounter: item.IsCounterNpc,
-                            skipComfortTier: true);
-                    }
-
-                    if (!pathFound)
-                        DebugLogger.LogState(
-                            "NAV WM fishing: no reachable stands — " +
-                            "reporting unreachable.");
-                }
-                else
-                {
-                    pathFound = CalculateAndStorePath(playerPos, walkTarget,
+                pathFound = _isWorldmap
+                    ? PlanWorldmapRoute(ref item, playerPos, _currentCategoryIndex, ref walkTarget)
+                    : CalculateAndStorePath(playerPos, walkTarget,
                         allowPartial: true, isCounter: item.IsCounterNpc);
-                }
             }
             catch (Exception ex)
             {
@@ -239,6 +160,7 @@ namespace SO2RAccess
             _autoWalkEventRef       = item.EventRef;
             _autoWalkTriggerBounds  = item.TriggerBounds;
             _autoWalkFacePosition   = item.FacePosition;
+            _autoWalkIsFishing      = item.IsFishing;
             _autoWalkDifferentFloor = Mathf.Abs(item.Position.y - playerPos.y) >= FloorChangeThreshold;
             _autoWalkCategoryIndex = _currentCategoryIndex;
             _isAutoWalking       = true;
@@ -265,9 +187,9 @@ namespace SO2RAccess
                 _avoidanceAttempt           = 0;
             }
 
-            // Close the list — the player is now running, not browsing.
+            // Close the list — the player is now running, not browsing. The
+            // items stay so the beacons need not rebuild (see GamepadCloseNav).
             _isOpen = false;
-            for (int i = 0; i < CAT_COUNT; i++) _categories[i].Clear();
 
             // Query the player's actual run speed (used for world map movement
             // and as a fallback). Field map movement is handled by the game's own
@@ -307,6 +229,7 @@ namespace SO2RAccess
             ResetLivelockState();
 
             ScreenReader.Say(Loc.Get("nav_autowalk_start", item.Label));
+            if (item.IsFishing) WarnIfNoFishingSkill();
             DebugLogger.LogState(
                 $"NAV auto-walk started. target={item.Label} " +
                 $"pos=({item.Position.x:F1},{item.Position.y:F1},{item.Position.z:F1}) " +
@@ -330,6 +253,7 @@ namespace SO2RAccess
             _autoWalkIsCounter      = false;
             _autoWalkEventRef       = null;
             _autoWalkTriggerBounds  = null;
+            _autoWalkIsFishing      = false;
             _autoWalkDifferentFloor = false;
             _autoWalkCategoryIndex = 0;
             _autoWalkTransform     = null;
@@ -397,6 +321,7 @@ namespace SO2RAccess
             _fieldResumeIsCounter     = _autoWalkIsCounter;
             _fieldResumeEventRef      = _autoWalkEventRef;
             _fieldResumeTriggerBounds = _autoWalkTriggerBounds;
+            _fieldResumeIsFishing     = _autoWalkIsFishing;
             try { _fieldResumeMapId = FieldManager.Instance?.currentFieldmapID ?? FieldmapID.INVALID; }
             catch { _fieldResumeMapId = FieldmapID.INVALID; }
             DebugLogger.LogState(
@@ -523,6 +448,7 @@ namespace SO2RAccess
             _autoWalkEventRef       = _fieldResumeEventRef;
             _autoWalkTriggerBounds  = _fieldResumeTriggerBounds;
             _autoWalkFacePosition   = _fieldResumeFacePosition;
+            _autoWalkIsFishing      = _fieldResumeIsFishing;
             _autoWalkDifferentFloor = Mathf.Abs(target.y - playerPos.y) >= FloorChangeThreshold;
             _autoWalkCategoryIndex  = _fieldResumeCategoryIndex;
             _isAutoWalking          = true;

@@ -75,3 +75,38 @@ not announce which party member is selected by default.
 - **Wall bump sound is not available yet.** The mod already knows when you push against
   something and do not move — a bump that cannot be wrong — but no sound has been chosen, so
   it is hidden from the menu for now.
+- **Wall tones on the world map are off by default and react only to real obstacles.** The
+  world map lets you climb very steep ground, so slopes never count there; the tones play
+  for rock walls, the invisible boundaries between regions, and the water's edge. They
+  have their own switch in Wall sounds. Their audit (F11 in debug mode, after walking
+  around) has not been run over enough ground yet to make them default on.
+- **No fishing bubble without the Fishing skill.** The game only shows the fishing prompt when
+  the party leader has learned the Fishing skill. The mod now checks this: starting a walk or
+  directions to a fishing spot warns you, and an arrival without the prompt says whether the
+  skill is the reason.
+- **World map fishing spots need the baked stands file.** Each world map fishing spot in the
+  list is the pre-verified shore point of one body of water nearest to you (the file holds the
+  whole verified shoreline, one point every 5 m; a lake where the game refused every shoreline
+  point is not listed). Beacons sound from that point; walk toward the sound until the fishing
+  prompt appears. The auto-walk creeps on from the point toward the water until the water's
+  edge stops it, then keeps pressing gently toward the water while turning left and right for a
+  few seconds — the game shows the prompt for the direction you push, and only a few steps
+  closer than the verified point. The spoken directions say which way the water is; step
+  toward it and turn a little. Nede has no stands file yet, so its world map lists no fishing
+  spots.
+- **"Unreachable on foot" fishing spots.** The bake also walks a body-sized probe along a
+  route from the nearest town or dungeon entrance to a lake's stands, with the rock collision
+  loaded. A lake whose every probed stand failed (cliffs, rock belts) is still listed but
+  suffixed "unreachable on foot". The verdict is per lake, not per starting point: a lake the
+  probe reached from an entrance can still be refused from where you stand if rocks lie between
+  you and it. When the nearest shore point is refused, the walk quietly tries the lake's
+  probe-proven point before giving up. Riding the bunny ignores the verdict. When a walk
+  ends without the fishing prompt because the last step onto the shore point is blocked, the
+  mod says "Stopped N meters short" rather than claiming arrival.
+- **Three east-continent lakes may be wrongly marked unreachable.** The two lakes beside the
+  Lacuer Front Line Base and the big east-coast lake south of it are listed "unreachable on
+  foot" because the probe reads a steep bank there as a wall. Whether the player can really
+  walk down to the water has not been checked yet; the verdict stays until it has been. Beacons
+  and spoken directions to them still work.
+- **Riding the psynard silences every manual navigation sound.** Nothing on the ground is
+  meaningful while flying; the sounds return on landing.

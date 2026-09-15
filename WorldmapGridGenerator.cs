@@ -10,7 +10,9 @@ namespace SO2RAccess
     /// Generates and saves the per-travel-mode terrain grid for a world map
     /// at 0.5m resolution (format WMGI, see <see cref="WorldmapGridFormat"/>).
     /// Uses CalcHeight for terrain detection and OverlapSphere for solid
-    /// obstacle detection, probing each cell separately for FOOT and BUNNY
+    /// obstacle detection (the per-cell probe itself lives in
+    /// <see cref="WorldmapGridProbe"/> so F10 can replay it live), probing
+    /// each cell separately for FOOT and BUNNY
     /// travel with the game's own wall layer masks
     /// (GameRenderManager.LayerMaskWall / LayerMaskBunnyWall) read LIVE at
     /// bake time — never hardcoded layer guesses. Key insights:
@@ -26,57 +28,6 @@ namespace SO2RAccess
     {
         /// <summary>Grid cell spacing in world units (meters).</summary>
         public const float CellSize = 0.5f;
-
-        /// <summary>
-        /// Height for CalcHeight raycast origin. Must be above the highest
-        /// terrain point. Map heights range -33m to 98m.
-        /// </summary>
-        private const float RaycastStartY = 150f;
-
-        /// <summary>Max downward distance for CalcHeight raycast.</summary>
-        private const float RaycastMaxDist = 300f;
-
-        /// <summary>
-        /// The layer index of CharacterWall (region boundary walls with
-        /// designed road gaps 1.8m-5.1m wide). Within the foot mask this
-        /// layer gets the fine 5x5 sub-cell clearance scan; every other
-        /// foot-mask layer uses the simple radius threshold. (The bunny
-        /// mask contains no CharacterWall — the mount ignores region walls,
-        /// measured in Phase A.)
-        /// </summary>
-        private const int CharaWallLayer = 23;
-
-        /// <summary>
-        /// Hard minimum clearance for a cell to be FOOT-passable. Set to the
-        /// player capsule radius (0.50m) so any theoretically passable
-        /// gap stays in the grid. The continuous clearance penalty in
-        /// the A* pathfinder steers away from tight cells — the hard
-        /// threshold just prevents truly impassable ones.
-        /// </summary>
-        private const float MinPassableClearance = 0.50f;
-
-        /// <summary>
-        /// Hard minimum clearance for a cell to be BUNNY-passable. The
-        /// FieldBunny capsule measured IDENTICAL to the foot player
-        /// (0.50m radius) in the Phase A investigation, so the floors match.
-        /// </summary>
-        private const float BunnyMinClearance = 0.50f;
-
-        /// <summary>
-        /// Sub-cell resolution for CharaWall gap detection. Each 0.5m
-        /// cell near a CharaWall is checked at 25 sub-positions (5x5
-        /// at 0.125m spacing). A cell is blocked only if NONE of the
-        /// sub-positions have >= MinPassableClearance from all walls.
-        /// The best position is stored as a clearance offset so the
-        /// pathfinder guides the player through the widest part of gaps.
-        /// </summary>
-        private const int SubCellSteps = 2; // -2..+2 = 5 points per axis
-
-        /// <summary>
-        /// Search radius for OverlapSphere when finding solid obstacles.
-        /// Must cover player collision radius (0.5m) plus margin.
-        /// </summary>
-        private const float ObstacleSearchRadius = 1.0f;
 
         /// <summary>
         /// Bake tile edge length in metres. The bake probes the grid tile by
@@ -149,11 +100,8 @@ namespace SO2RAccess
                     return;
                 }
 
-                int footSolidMask = footMask & ~(1 << CharaWallLayer);
-                int charaWallMask = footMask & (1 << CharaWallLayer);
-                // One physics query per cell covers both modes: each hit
-                // collider's own layer decides which mode(s) it blocks.
-                int unionSolidMask = footSolidMask | bunnyMask;
+                int footSolidMask = footMask & ~(1 << WorldmapGridProbe.CharaWallLayer);
+                int charaWallMask = footMask & (1 << WorldmapGridProbe.CharaWallLayer);
 
                 MelonLoader.MelonLogger.Msg(
                     $"[GridGen] Bake masks (read live): " +
@@ -161,7 +109,7 @@ namespace SO2RAccess
                     $"bunny=0x{bunnyMask:X8} → {WorldmapGridDiagnostics.DescribeMask(bunnyMask)}");
 
                 WorldmapID wmID = fm.WorldmapID;
-                string mapName = wmID == WorldmapID.EXPEL ? "expel" : "nede";
+                string mapName = WorldmapFishingStands.MapName(wmID);
                 ScreenReader.Say(
                     $"Generating {mapName} world map grid at 0.5 meter " +
                     "resolution for foot and bunny travel, loading distant " +
@@ -239,178 +187,48 @@ namespace SO2RAccess
                 // which guarantees the cell's streamed chunks are loaded.
                 void ProbeCell(int ax, int az)
                 {
+                    float worldX = worldMinX + ax * CellSize;
+                    float worldZ = worldMinZ + az * CellSize;
+                    float groundY = WorldmapGridProbe.BakeGroundHeight(
+                        worldX, worldZ, out bool hasGround);
+
+                    if (!hasGround)
                     {
-                        float worldX = worldMinX + ax * CellSize;
-                        float worldZ = worldMinZ + az * CellSize;
-                        Vector3 cellWorld = new Vector3(
-                            worldX, RaycastStartY, worldZ);
-
-                        float groundY = GameUtility.CalcHeight(
-                            cellWorld, out bool hasGround, RaycastMaxDist);
-
-                        if (!hasGround)
-                        {
-                            height[ax, az] = 0; // No ground — blocks all modes.
-                            oceanCount++;
-                            return;
-                        }
-
-                        terrainCount++;
-                        if (groundY < minY) minY = groundY;
-                        if (groundY > maxY) maxY = groundY;
-
-                        // Store the pure height regardless of blocked state.
-                        int stored = (int)((groundY + 100f) * 100f);
-                        if (stored < 2) stored = 2; // 0 reserved for "no ground"
-                        if (stored > 65535) stored = 65535;
-                        height[ax, az] = (ushort)stored;
-
-                        Vector3 checkPos = new Vector3(
-                            worldX, groundY + 0.5f, worldZ);
-
-                        bool footBlocked = false;
-                        bool bunnyBlocked = false;
-                        // Nearest solid foot-mask obstacle, for the clearance
-                        // penalty table (passable-but-tight cells).
-                        float nearestFootSolidDist = float.MaxValue;
-
-                        // Simple-threshold layers for both modes in ONE
-                        // query; each collider's layer decides which mode(s)
-                        // it blocks. CharaWall (foot-only, designed gaps)
-                        // is handled separately below with sub-cell precision.
-                        var cols = UnityEngine.Physics.OverlapSphere(
-                            checkPos, ObstacleSearchRadius, unionSolidMask);
-                        if (cols != null)
-                        {
-                            for (int c = 0; c < cols.Length; c++)
-                            {
-                                if (cols[c] == null || cols[c].isTrigger)
-                                    continue;
-                                int layerBit = 1 << cols[c].gameObject.layer;
-                                float dist = Vector3.Distance(checkPos,
-                                    cols[c].ClosestPoint(checkPos));
-                                if ((layerBit & footSolidMask) != 0)
-                                {
-                                    if (dist < nearestFootSolidDist)
-                                        nearestFootSolidDist = dist;
-                                    if (dist < MinPassableClearance)
-                                        footBlocked = true;
-                                }
-                                if ((layerBit & bunnyMask) != 0 &&
-                                    dist < BunnyMinClearance)
-                                {
-                                    bunnyBlocked = true;
-                                }
-                            }
-                        }
-
-                        // CharaWall (foot only) with sub-cell precision:
-                        // scan 5x5 sub-positions (0.125m spacing); the cell
-                        // is foot-blocked ONLY if NONE has >= 0.50m clearance
-                        // from all solid walls. This gives 0.1m accuracy for
-                        // gap detection while keeping the 0.5m grid format.
-                        if (!footBlocked && charaWallMask != 0)
-                        {
-                            var cols23 = UnityEngine.Physics.OverlapSphere(
-                                checkPos, ObstacleSearchRadius, charaWallMask);
-
-                            bool hasSolidWall = false;
-                            if (cols23 != null)
-                            {
-                                for (int c = 0; c < cols23.Length; c++)
-                                {
-                                    if (cols23[c] != null && !cols23[c].isTrigger)
-                                    {
-                                        hasSolidWall = true;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (hasSolidWall)
-                            {
-                                // Track the sub-position with maximum minimum
-                                // clearance from all walls — this becomes the
-                                // optimal walk-through point for narrow gaps.
-                                // Considers BOTH CharaWalls and the other
-                                // solid foot layers so the offset doesn't
-                                // push the player toward rocks.
-                                float subStep = CellSize / 4f; // 0.125m
-                                float bestClearance = -1f;
-                                float bestOffX = 0f, bestOffZ = 0f;
-
-                                for (int sx = -SubCellSteps; sx <= SubCellSteps; sx++)
-                                {
-                                    for (int sz = -SubCellSteps; sz <= SubCellSteps; sz++)
-                                    {
-                                        Vector3 subPos = new Vector3(
-                                            worldX + sx * subStep,
-                                            groundY + 0.5f,
-                                            worldZ + sz * subStep);
-
-                                        float minDist = MinSolidDistance(
-                                            cols23, subPos, ~0);
-                                        if (cols != null)
-                                        {
-                                            float d2 = MinSolidDistance(
-                                                cols, subPos, footSolidMask);
-                                            if (d2 < minDist) minDist = d2;
-                                        }
-
-                                        if (minDist > bestClearance)
-                                        {
-                                            bestClearance = minDist;
-                                            bestOffX = sx * subStep;
-                                            bestOffZ = sz * subStep;
-                                        }
-                                    }
-                                }
-
-                                if (bestClearance < MinPassableClearance)
-                                {
-                                    footBlocked = true;
-                                }
-                                else
-                                {
-                                    long key = (long)ax * gridH + az;
-                                    if (Math.Abs(bestOffX) > 0.01f ||
-                                        Math.Abs(bestOffZ) > 0.01f)
-                                    {
-                                        clearanceOffsets[key] =
-                                            (bestOffX, bestOffZ);
-                                    }
-                                    clearanceValues[key] = bestClearance;
-                                }
-                            }
-                        }
-
-                        // For foot-passable cells near solid obstacles,
-                        // record the clearance value if it is the tightest
-                        // constraint (a CharaWall value may already be
-                        // stored and be tighter).
-                        if (!footBlocked && nearestFootSolidDist < 2.0f)
-                        {
-                            long solidKey = (long)ax * gridH + az;
-                            if (!clearanceValues.ContainsKey(solidKey) ||
-                                nearestFootSolidDist < clearanceValues[solidKey])
-                            {
-                                clearanceValues[solidKey] = nearestFootSolidDist;
-                            }
-                        }
-
-                        byte f = 0;
-                        if (footBlocked)
-                        {
-                            f |= WorldmapGridFormat.CachedGrid.FlagFootBlocked;
-                            footBlockedCount++;
-                        }
-                        if (bunnyBlocked)
-                        {
-                            f |= WorldmapGridFormat.CachedGrid.FlagBunnyBlocked;
-                            bunnyBlockedCount++;
-                        }
-                        flags[(long)ax * gridH + az] = f;
+                        height[ax, az] = 0; // No ground — blocks all modes.
+                        oceanCount++;
+                        return;
                     }
+
+                    terrainCount++;
+                    if (groundY < minY) minY = groundY;
+                    if (groundY > maxY) maxY = groundY;
+
+                    // Store the pure height regardless of blocked state.
+                    int stored = (int)((groundY + 100f) * 100f);
+                    if (stored < 2) stored = 2; // 0 reserved for "no ground"
+                    if (stored > 65535) stored = 65535;
+                    height[ax, az] = (ushort)stored;
+
+                    // The obstacle test lives in WorldmapGridProbe so the F10
+                    // truth probe can replay exactly what the bake did here.
+                    var r = WorldmapGridProbe.ProbeObstacles(worldX, worldZ, groundY,
+                        footSolidMask, charaWallMask, bunnyMask);
+                    long key = (long)ax * gridH + az;
+                    if (r.HasClearanceOffset) clearanceOffsets[key] = (r.BestOffX, r.BestOffZ);
+                    if (r.ClearanceValue < float.MaxValue) clearanceValues[key] = r.ClearanceValue;
+
+                    byte f = 0;
+                    if (r.FootBlocked)
+                    {
+                        f |= WorldmapGridFormat.CachedGrid.FlagFootBlocked;
+                        footBlockedCount++;
+                    }
+                    if (r.BunnyBlocked)
+                    {
+                        f |= WorldmapGridFormat.CachedGrid.FlagBunnyBlocked;
+                        bunnyBlockedCount++;
+                    }
+                    flags[key] = f;
                 }
 
                 // Tile loop: load each tile's streamed chunks, probe its
@@ -496,21 +314,18 @@ namespace SO2RAccess
                     $"entranceCellsCleared={entranceCellsCleared} " +
                     $"clearanceOffsets={clearanceOffsets.Count} " +
                     $"clearanceValues={clearanceValues.Count} " +
-                    $"footFloor={MinPassableClearance:F2}m " +
-                    $"bunnyFloor={BunnyMinClearance:F2}m " +
+                    $"footFloor={WorldmapGridProbe.MinPassableClearance:F2}m " +
+                    $"bunnyFloor={WorldmapGridProbe.BunnyMinClearance:F2}m " +
                     $"height range={minY:F2}m to {maxY:F2}m");
 
                 // --- Step 3: Save to binary file (WMGI v2) ---
-                string dir = Path.Combine(
-                    Directory.GetCurrentDirectory(), "UserData", "SO2RAccess");
-                Directory.CreateDirectory(dir);
-                string filePath = Path.Combine(dir, $"worldmap_{mapName}.grid");
+                string filePath = WorldmapGridFormat.UserGridPath(mapName);
 
                 WorldmapGridFormat.SaveGrid(filePath, worldMinX, worldMinZ,
                     CellSize, gridW, gridH, height, flags,
                     clearanceOffsets, clearanceValues,
-                    footMask, bunnyMask, MinPassableClearance,
-                    BunnyMinClearance);
+                    footMask, bunnyMask, WorldmapGridProbe.MinPassableClearance,
+                    WorldmapGridProbe.BunnyMinClearance);
 
                 long fileSize = new FileInfo(filePath).Length;
                 MelonLoader.MelonLogger.Msg(
@@ -528,27 +343,6 @@ namespace SO2RAccess
                 MelonLoader.MelonLogger.Error($"[GridGen] Error: {ex}");
                 ScreenReader.Say("Grid generation failed. Check log.");
             }
-        }
-
-        /// <summary>
-        /// Minimum distance from <paramref name="pos"/> to any solid
-        /// (non-trigger) collider in <paramref name="cols"/> whose layer is
-        /// in <paramref name="layerMask"/>. Returns float.MaxValue if none.
-        /// </summary>
-        private static float MinSolidDistance(Collider[] cols, Vector3 pos,
-            int layerMask)
-        {
-            float minDist = float.MaxValue;
-            if (cols == null) return minDist;
-            for (int c = 0; c < cols.Length; c++)
-            {
-                if (cols[c] == null || cols[c].isTrigger) continue;
-                if (((1 << cols[c].gameObject.layer) & layerMask) == 0)
-                    continue;
-                float d = Vector3.Distance(pos, cols[c].ClosestPoint(pos));
-                if (d < minDist) minDist = d;
-            }
-            return minDist;
         }
 
         /// <summary>
@@ -634,7 +428,7 @@ namespace SO2RAccess
                     {
                         if (!Passable(ax, az) || reachable[ax, az]) continue;
                         flags[(long)ax * gridH + az] |= (byte)(modeBit |
-                            WorldmapGridFormat.CachedGrid.FlagSealedInterior);
+                            WorldmapGridFormat.CachedGrid.SealedBitFor(modeBit));
                         sealedCount++;
                     }
                 }
@@ -653,28 +447,34 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Punches entrance holes: clears the blocked bits (both modes, plus
-        /// the sealed-interior bit) on every ground cell inside a SMALL
-        /// ground-level FieldMapjumpCollision trigger, so the A* can route
-        /// to town entrances. Large triggers (Y extent &gt; 20m) are
-        /// town-wide detection zones and are skipped — clearing them would
-        /// punch huge holes in the sealed interior. If a cleared cell's
-        /// baked height is far off the trigger's ground level (CalcHeight
-        /// hit a model roof above the road), the height is corrected to the
-        /// trigger's, otherwise the climb rule would disconnect the entrance
-        /// from the road. Returns the number of cells cleared.
+        /// Punches entrance holes: on every ground cell inside a SMALL
+        /// ground-level FieldMapjumpCollision trigger, lifts the town-interior
+        /// SEAL (the flood fill's blocked bit, per travel mode) so the A* can
+        /// route to town entrances. A cell whose blocked bit came from the
+        /// probe — a real wall collider — is left blocked: until 2026-09-13
+        /// this pass cleared every blocked bit in the trigger's box, which
+        /// re-opened Arlia's own wall strips and a slice of the sealed shore
+        /// behind them (the "fishing stand inside the wall"). Large triggers
+        /// (Y extent &gt; 20m) are town-wide detection zones and are skipped.
+        /// If an un-sealed cell's baked height is far off the trigger's ground
+        /// level (CalcHeight hit a model roof above the road), the height is
+        /// corrected to the trigger's, otherwise the climb rule would
+        /// disconnect the entrance from the road. Returns the number of cells
+        /// un-sealed; walls kept blocked inside triggers are logged per trigger.
         /// </summary>
         private static int ClearEntranceTriggers(ushort[,] height, byte[] flags,
             int gridW, int gridH, float worldMinX, float worldMinZ)
         {
-            const byte clearBits =
-                WorldmapGridFormat.CachedGrid.FlagAnyModeBlocked |
-                WorldmapGridFormat.CachedGrid.FlagSealedInterior;
+            const byte footSeal = WorldmapGridFormat.CachedGrid.FlagSealedInterior;
+            const byte bunnySeal = WorldmapGridFormat.CachedGrid.FlagBunnySealed;
+            const byte footBit = WorldmapGridFormat.CachedGrid.FlagFootBlocked;
+            const byte bunnyBit = WorldmapGridFormat.CachedGrid.FlagBunnyBlocked;
             // Matches the pathfinder's MaxClimbCm — a larger baked step at
             // an entrance cell would break connectivity to the road.
             const int MaxEntranceHeightStepCm = 500;
+            const int MaxWallLogLines = 12;
 
-            int cleared = 0;
+            int cleared = 0, wallsKept = 0, triggers = 0, wallLines = 0;
             try
             {
                 var mapjumps = UnityEngine.Object
@@ -696,6 +496,7 @@ namespace SO2RAccess
 
                         var b = col.bounds;
                         if (b.size.y > 20f) continue; // town-wide zone
+                        triggers++;
 
                         int minAx = Math.Max(0,
                             (int)((b.min.x - worldMinX) / CellSize));
@@ -713,25 +514,45 @@ namespace SO2RAccess
                             ? (ushort)((trigGroundY + 100f) * 100f)
                             : (ushort)12080; // ~20.8m fallback
 
+                        int trigCleared = 0, trigWalls = 0;
                         for (int ex = minAx; ex <= maxAx; ex++)
                         {
                             for (int ez = minAz; ez <= maxAz; ez++)
                             {
                                 if (height[ex, ez] < 2) continue; // no ground
                                 long idx = (long)ex * gridH + ez;
-                                if ((flags[idx] & clearBits) == 0) continue;
+                                byte f = flags[idx];
+                                byte lift = 0;
+                                if ((f & footSeal) != 0) lift |= footBit | footSeal;
+                                if ((f & bunnySeal) != 0) lift |= bunnyBit | bunnySeal;
+                                // A blocked bit WITHOUT its seal bit is the
+                                // probe's own verdict: a wall. Keep it.
+                                bool wall = ((f & footBit) != 0 && (f & footSeal) == 0)
+                                    || ((f & bunnyBit) != 0 && (f & bunnySeal) == 0);
+                                if (wall) trigWalls++;
+                                if (lift == 0) continue;
 
-                                flags[idx] &= unchecked((byte)~clearBits);
+                                flags[idx] = (byte)(f & ~lift);
                                 if (Math.Abs(height[ex, ez] - trigH) >
                                     MaxEntranceHeightStepCm)
                                 {
                                     height[ex, ez] = trigH;
                                 }
-                                cleared++;
+                                trigCleared++;
                             }
                         }
+                        cleared += trigCleared;
+                        wallsKept += trigWalls;
+                        if (trigWalls > 0 && wallLines++ < MaxWallLogLines)
+                            MelonLoader.MelonLogger.Msg(
+                                $"[GridGen] entrance {mj.fieldmapID} at ({mj.transform.position.x:F0}," +
+                                $"{mj.transform.position.z:F0}): {trigCleared} cells un-sealed, " +
+                                $"{trigWalls} wall cells kept blocked inside the trigger box.");
                     }
                 }
+                MelonLoader.MelonLogger.Msg(
+                    $"[GridGen] Entrance clearing: {triggers} triggers, {cleared} cells un-sealed, " +
+                    $"{wallsKept} wall cells kept blocked (probe verdicts are never lifted).");
             }
             catch (Exception ex)
             {

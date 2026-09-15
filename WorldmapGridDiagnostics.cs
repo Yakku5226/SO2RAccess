@@ -17,8 +17,10 @@ namespace SO2RAccess
     ///   and a bunny "ride trace" that records when the mounted player
     ///   crosses cells the FOOT grid considers blocked or ocean — real data
     ///   on what the bunny can actually cross.
+    /// - <see cref="LogGridTruthProbe"/> (partial file TruthProbe): baked cell
+    ///   vs a live replay of the bake probe vs the game-body capsule (F10).
     /// </summary>
-    public static class WorldmapGridDiagnostics
+    public static partial class WorldmapGridDiagnostics
     {
         // --- Ride-trace state (Tick) ---------------------------------------
         private const float TraceInterval = 0.5f;

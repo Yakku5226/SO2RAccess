@@ -89,7 +89,12 @@ namespace SO2RAccess
             try
             {
                 var fm = FieldManager.Instance;
-                if (fm == null || fm.IsWorldmap()) return;
+                if (fm == null) return;
+                if (fm.IsWorldmap())
+                {
+                    RecordWorldmapTrail(fm);
+                    return;
+                }
 
                 // Only record when the player is actually in control (not in
                 // camp/battle/dialogue) so cutscene motion doesn't pollute the map.
@@ -111,6 +116,27 @@ namespace SO2RAccess
             {
                 DebugLogger.LogState($"TRAVERSAL record error: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// World map counterpart of the breadcrumb recording: a session-only trail
+        /// for the F11 wall audit, kept only in debug mode (nothing persistent is
+        /// learned from the world map). Any loss of control breaks the trail.
+        /// </summary>
+        private void RecordWorldmapTrail(FieldManager fm)
+        {
+            if (!Main.DebugMode || !IsFieldFree())
+            {
+                _wmTrail.Break();
+                return;
+            }
+            var player = fm.GetControlPlayer();
+            if (player == null)
+            {
+                _wmTrail.Break();
+                return;
+            }
+            _wmTrail.Record(player.transform.position, WorldmapTravel.CurrentMode());
         }
 
         /// <summary>
@@ -150,6 +176,7 @@ namespace SO2RAccess
                 // announcement below is the feedback the player needs).
                 StopGuidance("map change");
                 InvalidateFloorGrid();
+                _wmTrail.Clear();
 
                 // Skip INVALID transitions.
                 if (current == FieldmapID.INVALID)

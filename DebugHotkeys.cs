@@ -27,6 +27,8 @@ namespace SO2RAccess
     ///       once on foot and once mounted to capture both bodies/masks).
     /// F11 — diagnostics: world map pathfinding (RunAll) or, on field maps,
     ///       recorded-traversal reachability report.
+    /// Insert — bake + save the world map fishing stands
+    ///       (<see cref="WorldmapFishingStandBaker"/>).
     /// </summary>
     internal sealed class DebugHotkeys
     {
@@ -208,6 +210,37 @@ namespace SO2RAccess
                 }
                 return true;
             }
+            // Insert — bake the world map fishing stands (debug only)
+            if (kb[ModKeys.Get(ModAction.DebugFishingBake)].wasPressedThisFrame)
+            {
+                try
+                {
+                    WorldmapFishingStandBaker.BakeAndSave();
+                    // The nav list built before the bake has no fishing spots
+                    // and the world map reuses it for up to a minute — drop it
+                    // so the next open rebuilds with the new stands.
+                    _navigationHandler.InvalidateNavList();
+                    DebugLogger.LogState("NAV list dropped after the fishing stand bake.");
+                }
+                catch (Exception ex)
+                {
+                    MelonLoader.MelonLogger.Msg($"Insert fishing stand bake error: {ex.Message}");
+                }
+                return true;
+            }
+            // Delete — restore town-gate walls in the active grid (debug only)
+            if (kb[ModKeys.Get(ModAction.DebugGateWallPatch)].wasPressedThisFrame)
+            {
+                try
+                {
+                    WorldmapGridGatePatch.PatchAndSave();
+                }
+                catch (Exception ex)
+                {
+                    MelonLoader.MelonLogger.Msg($"Delete gate wall patch error: {ex.Message}");
+                }
+                return true;
+            }
             // F10 — travel-mode masks + player collider diagnostics (debug only)
             if (kb[ModKeys.Get(ModAction.DebugTravelMask)].wasPressedThisFrame)
             {
@@ -216,6 +249,7 @@ namespace SO2RAccess
                     WorldmapGridDiagnostics.LogTravelMasks();
                     WorldmapGridDiagnostics.LogPlayerCollider();
                     WorldmapGridDiagnostics.LogHeightTruthCensus();
+                    WorldmapGridDiagnostics.LogGridTruthProbe();
                 }
                 catch (Exception ex)
                 {
@@ -236,6 +270,11 @@ namespace SO2RAccess
                         {
                             if (fm.IsWorldmap())
                             {
+                                // Wall-probe gate for the world map wall tones
+                                // (against this session's recorded trail), then
+                                // the pathfinding diagnostics.
+                                _navigationHandler.RunWorldmapWallProbeAudit(
+                                    player.transform.position);
                                 WorldmapDiagnostics.RunAll(
                                     player.transform.position);
                             }

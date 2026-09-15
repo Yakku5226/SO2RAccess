@@ -28,6 +28,15 @@
     <EmbeddedResource Include="traversals\*.json" />
   </ItemGroup>
 
+  <!-- Baked world map fishing stands (one designated, game-verified stand per
+       body of water), compiled into the DLL for release. A file in
+       UserData\SO2RAccess\stands\ takes priority. To refresh after an Insert
+       rebake in debug mode: copy UserData\SO2RAccess\stands\worldmap_*.json into
+       the project's stands\ folder and rebuild. -->
+  <ItemGroup>
+    <EmbeddedResource Include="stands\*.json" />
+  </ItemGroup>
+
   <!-- World map walkability grids (gzip-compressed), compiled into the DLL
        for release and auto-extracted to UserData\SO2RAccess on first run.
        To refresh after an F9 rebake: gzip UserData\SO2RAccess\worldmap_*.grid

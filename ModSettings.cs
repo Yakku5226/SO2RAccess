@@ -184,6 +184,27 @@ namespace SO2RAccess
         public const int BeaconRangeMin = 5, BeaconRangeMax = 20;
 
         /// <summary>
+        /// Beacon range (m) for chests, landmarks and fishing spots on the world map.
+        /// Its own slider (user decision 2026-09-06); the first test at 100 m was
+        /// "worthless without wall sounds" — things sounded that could not be reached —
+        /// so the default is short. (Renamed from WorldmapBeaconRangeMeters so a saved
+        /// 100 does not survive.)
+        /// </summary>
+        public static int WorldmapObjectBeaconRangeMeters { get; set; } = 30;
+        public const int WorldmapObjectBeaconRangeMin = 10, WorldmapObjectBeaconRangeMax = 100;
+
+        /// <summary>Beacon range (m) for towns and dungeons on the world map, which are hundreds of metres apart.</summary>
+        public static int WorldmapTownBeaconRangeMeters { get; set; } = 100;
+        public const int WorldmapTownBeaconRangeMin = 20, WorldmapTownBeaconRangeMax = 300;
+
+        /// <summary>
+        /// Whether the wall tones also play on the world map. Off by default: the world map
+        /// probe only reports real colliders and the ocean edge, but has its own audit
+        /// (F11 with a recorded trail) that must pass before the default can flip.
+        /// </summary>
+        public static bool WorldmapWallTonesEnabled { get; set; } = false;
+
+        /// <summary>
         /// A wall tone starts (silent) at this distance (m) and is at full volume when
         /// touching; also how far the wall probe looks. Menu slider 2 to 8 m (capped at 8 on
         /// the user's request 2026-09-06: a long probe over unaudited floor invites false tones).
@@ -264,6 +285,11 @@ namespace SO2RAccess
                         ? (BeaconRearMode)data.BeaconRear
                         : BeaconRearMode.Muffled;
                     BeaconRangeMeters = Math.Clamp(data.BeaconRangeMeters, BeaconRangeMin, BeaconRangeMax);
+                    WorldmapObjectBeaconRangeMeters = Math.Clamp(data.WorldmapObjectBeaconRangeMeters,
+                        WorldmapObjectBeaconRangeMin, WorldmapObjectBeaconRangeMax);
+                    WorldmapTownBeaconRangeMeters = Math.Clamp(data.WorldmapTownBeaconRangeMeters,
+                        WorldmapTownBeaconRangeMin, WorldmapTownBeaconRangeMax);
+                    WorldmapWallTonesEnabled = data.WorldmapWallTonesEnabled;
                     WallRangeMeters = Math.Clamp(data.WallRangeMeters, WallRangeMin, WallRangeMax);
                     ApplyKeyBindings(data.KeyBindings);
                 }
@@ -315,6 +341,9 @@ namespace SO2RAccess
                     NavCues = CollectNavCues(),
                     BeaconRear = (int)BeaconRear,
                     BeaconRangeMeters = BeaconRangeMeters,
+                    WorldmapObjectBeaconRangeMeters = WorldmapObjectBeaconRangeMeters,
+                    WorldmapTownBeaconRangeMeters = WorldmapTownBeaconRangeMeters,
+                    WorldmapWallTonesEnabled = WorldmapWallTonesEnabled,
                     WallRangeMeters = WallRangeMeters,
                     KeyBindings = CollectKeyBindingOverrides()
                 };
@@ -425,6 +454,9 @@ namespace SO2RAccess
             public System.Collections.Generic.Dictionary<string, CueSetting> NavCues { get; set; }
             public int BeaconRear { get; set; } = (int)BeaconRearMode.Muffled;
             public int BeaconRangeMeters { get; set; } = 15;
+            public int WorldmapObjectBeaconRangeMeters { get; set; } = 30;
+            public int WorldmapTownBeaconRangeMeters { get; set; } = 100;
+            public bool WorldmapWallTonesEnabled { get; set; } = false;
             public int WallRangeMeters { get; set; } = 6;
 
             /// <summary>

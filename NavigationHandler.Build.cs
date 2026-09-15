@@ -54,6 +54,28 @@ namespace SO2RAccess
             /// an opened chest. Set by the builder so beacon code never parses labels.
             /// </summary>
             public bool      Consumed;
+            /// <summary>
+            /// True for fishing spots (the Interactables category also holds other
+            /// things on field maps). Set by the builder so beacon code never parses labels.
+            /// </summary>
+            public bool      IsFishing;
+            /// <summary>True for world map dungeon symbols; cities are the other Location kind.</summary>
+            public bool      IsDungeon;
+            /// <summary>
+            /// True when a PROVEN region lookup says the target cannot be reached in
+            /// the current travel mode (world map fishing stands). The builder
+            /// annotates the label; the item stays listed.
+            /// </summary>
+            public bool      Unreachable;
+            /// <summary>
+            /// World map fishing only: the lake's nearest bake-PROVEN stand, set when
+            /// it differs from the listed nearest-shore stand. The route planner
+            /// retargets to it once, silently, when the nearest stand's route is
+            /// refused by the body sweep (user decision 2026-09-09).
+            /// </summary>
+            public Vector3?  FishingFallback;
+            /// <summary>Water point to face at <see cref="FishingFallback"/>.</summary>
+            public Vector3?  FishingFallbackFace;
         }
 
         #endregion
@@ -577,11 +599,12 @@ namespace SO2RAccess
 
         /// <summary>
         /// Builds the fishing spot entries of the Interactables category.
-        /// Fields scan live FieldFishingWaterPlace objects; the world map
-        /// has NONE (its spots are painted into the game's native world
-        /// grid data), so spots come from the ConstFishingWaterPlaceParameter
-        /// database there. Both paths share reachability filtering,
-        /// numbering, and the shore-point/face-water arrival contract.
+        /// Fields scan live FieldFishingWaterPlace objects and drop unreachable
+        /// ones; the world map has NONE (its spots are painted into the game's
+        /// native world grid data), so spots come from the baked stands of the
+        /// ConstFishingWaterPlaceParameter database there, and a proven-unreachable
+        /// stand stays listed with the same per-mode suffix towns get. Both paths
+        /// share numbering and the stand/face-water arrival contract.
         /// </summary>
         private void BuildFishingSpots(Vector3 playerPos)
         {
@@ -590,17 +613,22 @@ namespace SO2RAccess
                 : CollectFieldFishingSpots(playerPos);
             if (items.Count == 0) return;
 
-            SortAndFilterUnreachable(items, playerPos);
+            if (_isWorldmap)
+                items.Sort((a, b) => a.Distance.CompareTo(b.Distance));
+            else
+                SortAndFilterUnreachable(items, playerPos);
 
-            // Number if multiple fishing spots on the same map.
-            if (items.Count > 1)
+            // Mark them for the beacon system, number them if there are several,
+            // then annotate the proven-unreachable ones (world map only).
+            bool bunny = _isWorldmap && WorldmapTravel.CurrentMode() == WorldmapTravelMode.Bunny;
+            for (int i = 0; i < items.Count; i++)
             {
-                for (int i = 0; i < items.Count; i++)
-                {
-                    var item = items[i];
-                    item.Label = Loc.Get("nav_fishing_n", i + 1);
-                    items[i] = item;
-                }
+                var item = items[i];
+                item.IsFishing = true;
+                if (items.Count > 1) item.Label = Loc.Get("nav_fishing_n", i + 1);
+                if (item.Unreachable)
+                    item.Label = Loc.Get(bunny ? "nav_wm_unreachable_bunny" : "nav_wm_unreachable_foot", item.Label);
+                items[i] = item;
             }
 
             _categories[CAT_INTERACTABLE].AddRange(items);

@@ -7,7 +7,9 @@ namespace SO2RAccess
 {
     /// <summary>
     /// Plays a spatial audio cue when field enemies are nearby.
-    /// Volume scales with distance, stereo pans with direction relative to the player.
+    /// Volume scales with distance, stereo pans with direction relative to the camera
+    /// (like the beacons). Works on every map including the world map; the range is
+    /// the same everywhere (user decision 2026-09-06).
     /// Scans for enemies periodically and tracks the closest one each frame.
     /// The loop is one <see cref="MixerVoice"/> on the shared <see cref="LoopMixer"/>.
     /// </summary>
@@ -72,11 +74,9 @@ namespace SO2RAccess
             if (player == null) return;
 
             Vector3 playerPos;
-            Vector3 playerForward;
             try
             {
                 playerPos = player.transform.position;
-                playerForward = player.transform.forward;
             }
             catch
             {
@@ -148,17 +148,8 @@ namespace SO2RAccess
                 volume = 1f - (closestDist - MinDistance) / (MaxDistance - MinDistance);
             volume *= ModSettings.EnemyProximitySoundVolume;
 
-            // --- Calculate panning (player-relative direction) ---
-            Vector3 toEnemy = closestPos - playerPos;
-            toEnemy.y = 0f; // horizontal only
-            Vector3 forward = new Vector3(playerForward.x, 0f, playerForward.z);
-
-            float pan = 0f;
-            if (toEnemy.sqrMagnitude > 0.01f && forward.sqrMagnitude > 0.01f)
-            {
-                float angle = Vector3.SignedAngle(forward.normalized, toEnemy.normalized, Vector3.up);
-                pan = Mathf.Clamp(angle / 90f, -1f, 1f);
-            }
+            // --- Panning: camera-relative, the same rule as every beacon (2026-09-06) ---
+            SpatialPan.Compute(playerPos, closestPos, WallProbe.CameraForwardFlat(), out float pan, out _);
 
             // --- Drive audio ---
             if (_voice == null || !_voice.IsActive)
