@@ -486,7 +486,16 @@
 >   loaded (the success line itself was debug-only; now ALWAYS-ON via MelonLogger: "Fishing stands: loaded N water places … source=…").
 >   UserData stands file renamed back. User: the three rebuilt cues "are fine". `lang\XX.json` DELETED (user's call).
 >
-> **NEXT SESSION (session 27), in order — START HERE:**
+> 🚀 **v0.5.0 RELEASED (2026-09-15 ~19:45)** — https://github.com/Yakku5226/SO2RAccess/releases/tag/v0.5.0 — commit a9312b4
+> (64 files; Release build, 0 warnings; zip layout = v0.4.0's: DLL + Tolk DLLs from the game root + README/KNOWN_ISSUES/LICENSE/
+> SOUND_CREDITS/TRANSLATING + lang\ without en.json; root folder SO2RAccess-0.5.0\; asset named SO2RAccess.zip; latest-download
+> link verified 200). MelonInfo = 0.5.0. Everything since v0.4.0 is now committed. Open after release: the Lacuer deferred test
+> (above), stairs/bump sounds, rear-mode preference, bonus gauge (when asked).
+>
+> **NEXT SESSION (session 28):** greeting = no pending test. Ask whether anything from 0.5.0 misbehaves in play; otherwise pick from
+> the open list (stairs sound NavStairs.wav, wall bump NavBump.wav, rear-mode preference) or wait for the Lacuer Front Line Base test.
+>
+> **NEXT SESSION (session 27), in order — all DONE 2026-09-15 except (4) deferred:**
 > (0) ✅ DONE 2026-09-15. Greeting: no pending user test. REMIND THE USER: download the LOSSLESS originals from Freesound (manual login, their
 >     browser — never automate it) for the three cues still built from MP3 previews, then put them in `E:\StarOcean\Sounds\`:
 >       - town beacon NavCity.wav — Breviceps, https://freesound.org/s/457043/
@@ -496,7 +505,7 @@
 > (1) ✅ DONE 2026-09-15 (indirect: no missing-file warning; load line made always-on). Delete `UserData\SO2RAccess\stands\worldmap_expel.json` once → log must say `source=embedded` → restore it.
 > (2) ✅ DONE 2026-09-15. Split `WorldmapFishingStandBaker.Proof.cs` (550) and `.Scan.cs` (600) below 500 lines; rebuild the three cues
 >     (NavFishing/NavDungeon/NavCity) from lossless originals; update README (Delete key already documented).
-> (3) COMMIT everything (version = user's call; middle-number bump candidate: world-map manual nav + fishing stands +
+> (3) ✅ DONE 2026-09-15 as v0.5.0. COMMIT everything (version = user's call; middle-number bump candidate: world-map manual nav + fishing stands +
 >     grid truth tooling). Keep `worldmap_expel.patched-2026-09-13.grid` / `.fresh-2026-09-13.grid` OUT of git.
 > (4) Deferred: the F9 clearing-pass fix is in the code but any future grid rebake must pass the plan's gates
 >     (`logical-sauteeing-iverson.md` Phase 3) — the gate-box comfort-tier cut is known.
