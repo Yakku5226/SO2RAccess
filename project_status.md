@@ -62,8 +62,17 @@
 > now mirrors the game — panel shown → requirements (game data); hidden → `AppendGrowthInfo`: "Grows with
 > Replication, total level 30. +3 until Lvl Up." (each part only while its GameText is shown; new Loc keys
 > `ss_grows_with`, `ss_grows_with_total`). 0 warnings, DLL in Mods 20:24, ⏳ UNTESTED, uncommitted.
-> ⏳ **TEST (F12 on):** Enhance → Skill → R2: learned entries read name, level, description, "Grows with X, total
-> level N", "+N until Lvl Up" (absent at Lv 10); no requirements. Then commit (third-number bump = user's call). IC → Super Specialty tab: same
+> ✅ TESTED OK (20:26 log: "Remaking, Level 9 … Grows with Replication, total level 29. +1 until Lvl Up."; Lv 10 entries
+> drop the until-line). User: "Works perfectly now."
+> 🚀 **v0.5.2 RELEASED** — https://github.com/Yakku5226/SO2RAccess/releases/tag/v0.5.2 (commit f27d08a, MelonInfo 0.5.2).
+> Zip = same layout as 0.5.1 (SO2RAccess-0.5.2\ root, Release DLL, Tolk DLLs from the game root, README/LICENSE/
+> KNOWN_ISSUES/SOUND_CREDITS/TRANSLATING, lang\ without en.json). First `gh release create` died with HTTP 500 on the
+> asset upload and GitHub rolled the whole release back (no tag, no release) — the second attempt succeeded;
+> latest-download link verified redirecting to v0.5.2. lang unchanged since 0.5.0 (only en.json gained keys).
+>
+> **NEXT SESSION (session 31):** nothing pending. Ask whether 0.5.2 misbehaves in play (any menu now that speech is
+> normalized centrally — a "..." ellipsis or a "+3" should still read naturally). Otherwise the open list: stairs
+> sound, wall bump sound, rear-mode preference, spoken-directions quality opinion; Lacuer Front Line Base deferred test. IC → Super Specialty tab: same
 > requirement per entry as before plus met/not met. Send the `CampSL panel:` lines — they decide whether the
 > level-up / total-level texts should be spoken too.
 
