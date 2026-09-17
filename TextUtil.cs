@@ -193,6 +193,33 @@ namespace SO2RAccess
             return string.Join(". ", cleaned);
         }
 
+        /// <summary>Line breaks and runs of whitespace inside game text.</summary>
+        private static readonly Regex _whitespaceRun = new Regex(@"\s+", RegexOptions.Compiled);
+        /// <summary>Whitespace sitting between a word and its punctuation ("word ." → "word.").</summary>
+        private static readonly Regex _spaceBeforePunctuation = new Regex(@"\s+([.,;:!?])", RegexOptions.Compiled);
+        /// <summary>A period tacked onto a question/exclamation mark ("end?." → "end?").</summary>
+        private static readonly Regex _periodAfterTerminal = new Regex(@"([!?])\s*\.(?!\.)", RegexOptions.Compiled);
+        /// <summary>Exactly two periods (a sentence period plus a joiner's), never an ellipsis.</summary>
+        private static readonly Regex _doublePeriod = new Regex(@"(?<!\.)\.\s*\.(?!\.)", RegexOptions.Compiled);
+
+        /// <summary>
+        /// Final clean-up applied to every screen-reader message. Game texts are wrapped
+        /// for the screen (line breaks, trailing spaces before a line break) and many
+        /// readouts join sentences that already end in punctuation, which makes the
+        /// screen reader say "dot" instead of pausing. Collapses whitespace runs to one
+        /// space, removes spaces before punctuation, and merges "?." / "!." / ".." into
+        /// the single mark. Ellipses ("...") are left alone.
+        /// </summary>
+        public static string NormalizeSpeech(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            text = _whitespaceRun.Replace(text, " ");
+            text = _spaceBeforePunctuation.Replace(text, "$1");
+            text = _periodAfterTerminal.Replace(text, "$1");
+            text = _doublePeriod.Replace(text, ".");
+            return text.Trim();
+        }
+
         /// <summary>
         /// Appends the standard ". N of M." list-position suffix to a screen-reader
         /// message. <paramref name="index"/> is 0-based, so index 2 of count 5

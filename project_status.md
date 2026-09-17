@@ -37,6 +37,36 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> 🛠️ **2026-09-17 (session 30): SUPER SPECIALTY REQUIREMENTS (Enhance → Skill → learning screen) + SPEECH
+> PUNCTUATION — BUILT, 0 warnings, DLL in Mods 19:56, ⏳ UNTESTED, uncommitted.** User report: every super
+> specialty on the skill learning screen read the same requirement. Log (19:48, debug on) proved Context B read
+> the shared condition sub-presenter, which the game never fills on that screen: every entry showed the prefab
+> placeholder "取得スキル" + the fixed template wording "2 people are at Lv 4 / 1 person learned Lv 1".
+> **Fix:** `CampMenuHandler.SuperSpecialty.cs` — conditions now come from the game's own data object
+> (`UISkillLearningSuperSpecialSkillInformationData(ssid)`, ssid resolved from the displayed name, same as the IC
+> tab) and are read ONLY when the game shows the condition panel (`activeInHierarchy`); each condition now ends
+> "met" / "not met" (`isAchievementCondition1/2`, new Loc keys `ss_condition_met` / `ss_condition_not_met`).
+> Both contexts share `AppendConditionsFromGameData`. Debug-only `CampSL panel:` line dumps every info-panel
+> text (shown/hidden, messageId, text) so the next log shows what the game displays for learned entries.
+> **Punctuation:** `TextUtil.NormalizeSpeech` runs inside `ScreenReader.Say` for EVERY message: whitespace/line
+> breaks → one space, "word ." → "word.", "?." → "?", ".." → "." (ellipsis kept).
+> **Round 2 (20:18):** user reported "no longer reads the requirements at all" (log had NO debug lines — F12 was off).
+> Cause: the visibility gate — the game hides the condition panel for every entry here. Gate REMOVED: game-data
+> requirements are always spoken; the presenter fallback stays gated. DLL in Mods 20:18, ⏳ UNTESTED.
+> ✅ **TESTED OK (20:19 log):** every entry reads its OWN requirement (Remaking = Replication + Customization,
+> Bodyguard = Scouting + Train, Contraband = Pickpocketing + Replication, Blacksmith = Customization + Alchemy,
+> Group Appraising = Appraising + Crafting), "?." gone. Panel dump: condition panel HIDDEN for every (learned) entry;
+> game shows instead `levelUpSkill` (the specialty whose party total drives the level, e.g. "Replication"),
+> `totalLevel` ("30"), `levelUpDesc` ("+3 until Lvl Up", hidden at Lv 10). Template texts = SYS_1167 / SYS_1168.
+> **Round 3 (20:24, user: "read that info INSTEAD, as it is what is displayed"):** `AppendSkillLearningConditions`
+> now mirrors the game — panel shown → requirements (game data); hidden → `AppendGrowthInfo`: "Grows with
+> Replication, total level 30. +3 until Lvl Up." (each part only while its GameText is shown; new Loc keys
+> `ss_grows_with`, `ss_grows_with_total`). 0 warnings, DLL in Mods 20:24, ⏳ UNTESTED, uncommitted.
+> ⏳ **TEST (F12 on):** Enhance → Skill → R2: learned entries read name, level, description, "Grows with X, total
+> level N", "+N until Lvl Up" (absent at Lv 10); no requirements. Then commit (third-number bump = user's call). IC → Super Specialty tab: same
+> requirement per entry as before plus met/not met. Send the `CampSL panel:` lines — they decide whether the
+> level-up / total-level texts should be spoken too.
+
 > 🌙 **END OF SESSION 14 (2026-09-06 19:50). State: everything below builds clean (0 warnings); DLL in Mods
 > = build of 19:45 (includes the louder town cue); NOTHING COMMITTED since v0.4.0 (a79775e); no version bump.**
 > **Tested OK today:** world map beacons (towns/dungeons/chests/landmarks/fishing), wall tones live + F11 PASS

@@ -125,6 +125,7 @@ namespace SO2RAccess
         public static void Say(string text, bool interrupt = true,
             Priority priority = Priority.Normal)
         {
+            text = TextUtil.NormalizeSpeech(text);
             if (string.IsNullOrEmpty(text)) return;
 
             DebugLogger.LogScreenReader(text);
