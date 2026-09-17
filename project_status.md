@@ -571,6 +571,17 @@
 > No errors. STILL UNSEEN: Mountain Palace arrival on foot; fast-travel window opened+closed without travelling; Krosse→Kurik,
 > Salva, fishing spot regressions. User said "Looks good now" → commit pending (version = user's call, 0.5.1 proposed).
 >
+> 🚀 **2026-09-17 (session 29): v0.5.1 RELEASED** — https://github.com/Yakku5226/SO2RAccess/releases/tag/v0.5.1 (commit
+> 9501eed: multi-goal entrance planning + battle-only world map resume with 0.5 s settle / 3 s carry window; MelonInfo 0.5.1).
+> Zip = same layout as 0.5.0 (SO2RAccess-0.5.1\ root, Release DLL, Tolk DLLs from the game root, README/LICENSE/KNOWN_ISSUES/
+> SOUND_CREDITS/TRANSLATING, lang\ without en.json); latest-download link verified 200. lang unchanged since 0.5.0.
+> NOTE: the game was running during the Release build, so the Mods folder still holds the DEBUG DLL of ~19:30 (same code).
+>
+> **NEXT SESSION (session 30):** nothing pending. Ask whether 0.5.1 misbehaves in play (especially: Mountain Palace arrival on
+> foot, a fast-travel window opened and closed mid-walk without travelling, Krosse→Kurik / Salva / fishing spot). Otherwise the
+> open list: stairs sound, wall bump sound, rear-mode preference, spoken-directions quality opinion; Lacuer Front Line Base
+> deferred test when the story gets there ("DEFERRED TEST").
+>
 > **NEXT SESSION (session 28) — original brief (DONE, superseded by the Mountain Palace work):** greeting = no pending test. Ask whether anything from 0.5.0 misbehaves in play; otherwise pick from
 > the open list (stairs sound NavStairs.wav, wall bump NavBump.wav, rear-mode preference) or wait for the Lacuer Front Line Base test.
 >
