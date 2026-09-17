@@ -571,91 +571,11 @@ namespace SO2RAccess
             CheckFieldmapChange();
             CheckTraversalRecording();
 
-            // Resume auto-walk after battle on world map.
-            if (_wmResumeActive && !_isAutoWalking && IsFieldFree())
-            {
-                try
-                {
-                    var fm = FieldManager.Instance;
-                    if (fm != null && fm.IsWorldmap())
-                    {
-                        _wmResumeActive = false;
-                        DebugLogger.LogState(
-                            $"NAV worldmap: resuming auto-walk to '{_wmResumeLabel}'.");
-
-                        // Restore auto-walk state and recompute path.
-                        _autoWalkTarget = _wmResumeTarget;
-                        _autoWalkLabel = _wmResumeLabel;
-                        _autoWalkCategoryIndex = _wmResumeCategoryIndex;
-                        _autoWalkTransform = _wmResumeTransform;
-                        _autoWalkIsFishing = _wmResumeIsFishing;
-                        _autoWalkFacePosition = _wmResumeFacePosition;
-                        _isWorldmap = true;
-
-                        // Update target from live transform if available.
-                        if (_autoWalkTransform != null)
-                            _autoWalkTarget = _autoWalkTransform.position;
-
-                        // Resume goal: locations re-plan to the stored ring
-                        // point (the entrance), NOT the town-centre symbol —
-                        // a centre-aimed resume always collapses to a
-                        // wall-hugging floor route (2026-07-10 diagnosis).
-                        Vector3 resumeGoal =
-                            _autoWalkCategoryIndex == CAT_LOCATION
-                                ? _wmPathGoal : _autoWalkTarget;
-
-                        var player = fm.GetControlPlayer();
-                        if (player != null)
-                        {
-                            Vector3 playerPos = player.transform.position;
-                            bool resumePathFound = WorldmapCalculateAndStorePath(
-                                playerPos, resumeGoal,
-                                keepBlockedPositions: true);
-
-                            if (resumePathFound)
-                            {
-                                _isAutoWalking = true;
-                                _staticIsAutoWalking = true;
-                                _wmStuckTimer = 0f;
-                                _wmLastStuckCheckPos = playerPos;
-                                _wmDiagTimer = 0f;
-                                // Don't reset _wmRecalcCount or _wmBlockedPositions
-                                // so we keep memory of previously stuck areas.
-                                ScreenReader.Say(
-                                    Loc.Get("nav_autowalk_resuming", _autoWalkLabel));
-                                DebugLogger.LogState(
-                                    $"NAV auto-walk resumed. target={_autoWalkLabel} " +
-                                    $"waypoints={_wmPathWaypoints?.Length ?? 0}");
-                            }
-                            else
-                            {
-                                // Post-battle position has no route to the target
-                                // (e.g. pushed into a sealed pocket). Announce
-                                // instead of walking blind.
-                                ScreenReader.Say(Loc.Get(
-                                    "nav_autowalk_unreachable", _autoWalkLabel));
-                                DebugLogger.LogState(
-                                    $"NAV resume: no path to '{_autoWalkLabel}' " +
-                                    "after battle — resume abandoned.");
-                            }
-                        }
-                        else
-                        {
-                            _wmResumeActive = false;
-                        }
-                    }
-                    else
-                    {
-                        // No longer on world map — clear resume.
-                        _wmResumeActive = false;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _wmResumeActive = false;
-                    DebugLogger.LogState($"NAV resume error: {ex.Message}");
-                }
-            }
+            // Resume auto-walk after a battle on the world map — only for battle
+            // interruptions; menus and fast travel are discarded
+            // (NavigationHandler.Worldmap.Resume.cs).
+            if (_wmResumeActive && !_isAutoWalking)
+                UpdateWorldmapResume();
 
             // Resume auto-walk after a battle on a field map. Mirrors the world
             // map resume above, but only fires for battle interruptions — dialogue,
@@ -686,22 +606,10 @@ namespace SO2RAccess
                     _wmFieldFreeFailCount++;
                     if (_wmFieldFreeFailCount > 10)
                     {
-                        // Save resume info before cancelling — battle will
-                        // return to the same world map, so we can auto-resume.
-                        _wmResumeActive = true;
-                        _wmResumeTarget = _autoWalkTarget;
-                        _wmResumeLabel = _autoWalkLabel;
-                        _wmResumeCategoryIndex = _autoWalkCategoryIndex;
-                        _wmResumeTransform = _autoWalkTransform;
-                        // Fishing identity too — CancelAutoWalk clears both,
-                        // and without them the resumed walk skips the
-                        // bubble-confirmed arrival (false "Arrived").
-                        _wmResumeIsFishing = _autoWalkIsFishing;
-                        _wmResumeFacePosition = _autoWalkFacePosition;
-                        // Keep blocked positions across battles.
-                        DebugLogger.LogState(
-                            $"NAV worldmap: battle interrupt, saving resume for '{_autoWalkLabel}'.");
-                        CancelAutoWalk();
+                        // Save a potential resume (only fires if a battle
+                        // caused the interruption — see UpdateWorldmapResume),
+                        // then cancel.
+                        SaveWorldmapResume();
                         return;
                     }
                     // Brief interruption — skip this frame but don't cancel.

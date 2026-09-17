@@ -492,7 +492,86 @@
 > link verified 200). MelonInfo = 0.5.0. Everything since v0.4.0 is now committed. Open after release: the Lacuer deferred test
 > (above), stairs/bump sounds, rear-mode preference, bonus gauge (when asked).
 >
-> **NEXT SESSION (session 28):** greeting = no pending test. Ask whether anything from 0.5.0 misbehaves in play; otherwise pick from
+> 🏔️ **2026-09-16 (session 28): MOUNTAIN PALACE REFUSALS → MULTI-GOAL RING PLANNING BUILT. 0 warnings, DLL in Mods
+> (~20:10), ⏳ UNTESTED, NOT committed, no version bump.** Log diagnosis (debug run 19:48–19:57): every refusal of Mountain
+> Palace (at Kurik's gate AND all along the road up from Krosse) aimed at a CORNER of the palace's ~20×16 m entrance trigger
+> ((-152.3,226.6) from the west, (-132.3,210.6)/(-132.3,226.6) from the south); the two successful walks aimed at the north face
+> ((-146.9,226.6), (-139.9,226.6)) where the road arrives. `PickReachableRingPoint` chose the ring point NEAREST BY AIR among
+> grid-connected ones; the corners are grid-"walkable" (slopes never block) and region-185-connected only via the 1270 m Lasgus
+> detour, which the body sweep rightly rejects → honest refusal of the wrong question. Same root as [worldmap-grid-truth].
+> **Fix:** `WorldmapPathfinder.FindPath(start, IReadOnlyList<Vector3> goals, …)` = multi-goal A* (goal-cell HashSet; heuristic =
+> distance to goal centroid minus goal-disc radius, admissible; single goal = byte-identical to before; region fast-reject only when
+> NO goal touches the start). `PickReachableRingPoint` stores the whole connected tier (deduped per 0.5 m cell, grounded) in
+> `_wmGoalCandidates`; `WmRouteGoals(target)` returns that set when the target is one of its points, else the target alone (fishing
+> stands/safe exits unchanged). `WorldmapCalculateAndStorePath` re-reads the goal from the path's last waypoint after every plan and
+> re-plan (`_wmPathGoal` = chosen point; log "NAV WM goal set: the cheapest route ends at ring point …"); stuck recalc, battle resume,
+> guidance resume and the F7 route audit all use the set. Files: WorldmapPathfinder.cs, NavigationHandler.Worldmap.Pathfinding.cs,
+> NavigationHandler.Worldmap.cs, NavigationHandler.Worldmap.RouteAudit.cs.
+> **Known limit (told the user):** from Krosse itself the grid still offers false shortcuts through the Lasgus/Krosse walls that are
+> shorter than the true road; the sweep blocks them but only 2 re-plan rounds exist → may still refuse from Krosse. Decide on the
+> round budget only AFTER this test, with the log.
+> **TEST (F12 on): (1) stand at Kurik's gate → walk to Mountain Palace must PLAN (log "goal set of N cells — cheapest route ends
+> at (-14x,226.6)") and arrive with the enter prompt. (2) fast-travel to Krosse, walk toward Kurik, try Mountain Palace every ~100 m:
+> note where it first plans. (3) regression: Kurik→Krosse, Krosse→Kurik, Salva, a fishing spot (unchanged single-goal path).
+> (4) a walk interrupted by a battle must resume ("Resuming walk to …") to the same entrance.**
+>
+> 🌙 **END OF SESSION 28 (2026-09-16 ~20:15). State: multi-goal ring planning built (0 warnings), DLL in Mods = Debug build
+> of ~20:10, NOT committed, MelonInfo still 0.5.0. User tests 2026-09-17.**
+>
+> **NEXT SESSION (session 29), in order:**
+> (1) Greeting: ask for the four test results above (Kurik gate → Mountain Palace plans + arrives; Krosse road: where it first
+>     plans; regressions Kurik↔Krosse / Salva / a fishing spot; battle resume to the same entrance). Read Latest.log with the user's
+>     answers: look for "goal set of N cells — cheapest route ends at", "NAV WM goal set: the cheapest route ends at ring point",
+>     and any "refusing honestly" lines with their ring point.
+> (2) If Mountain Palace still refuses somewhere: read the sweep rounds first. Only then discuss raising the 2-round re-plan
+>     budget in `WorldmapCalculateAndStorePath` (loop `round < 2`), with the log as evidence — no blind tweak. Never touch the
+>     walk grid for this.
+> (3) If all four pass: commit (message: multi-goal entrance planning; third-number bump candidate 0.5.1, version = user's call;
+>     bump MelonInfo in Main.cs to match). Release zip rules: memory session-archive-2026-08 (zip named SO2RAccess.zip, Release
+>     build, Tolk DLLs from the game root).
+> (4) Then back to the open list: stairs sound, wall bump sound, rear-mode preference; Lacuer Front Line Base deferred test.
+>
+> 🧭 **2026-09-17 (session 29): SESSION-28 LOG READ + WORLD MAP RESUME CLASSIFICATION BUILT. 0 warnings, DLL in Mods
+> (~19:05), ⏳ UNTESTED, NOT committed, MelonInfo still 0.5.0.** Log (18:35–18:38, F12 on): (1) Kurik gate → Mountain Palace
+> PLANNED: "goal set of 13 cells — cheapest route ends at (-142.3,226.6)", explicitly not the nearest-by-air (-152.3,226.6) ✅;
+> Landworm battle at 2 s → "Resuming walk to Mountain Palace" to the SAME ring point ✅; user cancelled the walk at 8 s (nav menu)
+> → arrival on foot NOT seen. (2) Krosse's own gate → Mountain Palace PLANNED: round 0 aimed at the south corner (-152.3,210.6),
+> 175 wedges; round 1 re-planned to (-142.3,226.6), 5 wedges; final plan swept clean; ~2.3 s total ✅ — the 2-round budget is
+> enough, leave it. User fast-travelled at 6 s → arrival NOT seen. (3) Regressions (Kurik↔Krosse, Salva, fishing spot) NOT run.
+> **BUG FOUND (pre-existing, not from session 28):** fast travel confirmed mid-walk → the world map resume treated the fast-travel
+> window as a battle, fired during the map transition while FieldManager's WorldmapID was already reset → grid loader asked for
+> "nede" → spoke "World map grid not found… F9" + "Cannot reach Mountain Palace" just before "Mountain Palace Entrance".
+> **Fix:** new `NavigationHandler.Worldmap.Resume.cs` (SaveWorldmapResume / UpdateWorldmapResume / ResumeWorldmapAutoWalk /
+> ClearWorldmapResume) = same classification as the field resume: resume only after `IsBattleActive()` was seen; a non-battle
+> interruption is discarded after `FieldResumeDiscardDelay` (0.6 s of free field); leaving the world map discards. Update() and
+> the interrupt path in NavigationHandler.cs now just call the two methods. Log lines: "NAV worldmap: interrupted, saving resume",
+> "NAV worldmap resume: non-battle interruption, discarding", "NAV worldmap resume: left the world map, discarding".
+> **TEST (F12 on):** (1) Kurik's gate → Mountain Palace: walk the WHOLE way, must arrive with the enter prompt. (2) On the way
+> let a battle happen: "Resuming walk" after it, same entrance. (3) During a world map walk open fast travel and confirm it:
+> NOTHING spoken except the destination name; log must show "non-battle interruption, discarding" or "left the world map".
+> (4) During a walk open and close the fast-travel window WITHOUT travelling: the walk must NOT resume by itself (it is
+> cancelled, no "Resuming walk"); log "non-battle interruption, discarding". (5) Regressions: Kurik→Krosse, Krosse→Kurik,
+> Salva, a fishing spot (single-goal path unchanged). If all pass → commit (multi-goal entrance planning + resume
+> classification; third-number bump candidate 0.5.1, version = user's call; bump MelonInfo in Main.cs).
+>
+> ⚠️ **2026-09-17 (session 29, round 2): REGRESSION FOUND BY THE USER — "auto walk no longer resumes after a battle".** Log
+> 19:18–19:21: both battle resumes DID fire ("Resuming walk to Krosse City" 0.19 s after "Game ready"), but ~0.3 s later the
+> post-battle return blocked the field for >10 frames → "interrupted, saving resume" again → no battle seen → "non-battle
+> interruption, discarding" → walk dead. The old unconditional resume used to revive it a second time (that was how it
+> always "worked"). **Fix BUILT (0 warnings, DLL in Mods ~19:30, ⏳ UNTESTED):** `WmResumeSettleDelay` = 0.5 s of continuous
+> free field after a battle before resuming (the blip lands at ~+0.34 s and lasts ~0.2 s); `WmResumeCarryWindow` = 3 s: an
+> interruption within 3 s of a battle resume keeps the battle credit (log "... (within the post-battle carry window)").
+> Same test list as above; the battle case now must show "Resuming walk" ~0.5 s after the world map is back and the walk must
+> keep going.
+>
+> ✅ **2026-09-17 (session 29, round 3): LOG 19:23–19:27 READ — ALL GOOD.** Kurik gate → Krosse City walked 2 min and ARRIVED
+> with the enter prompt (ring goal (-94.0,-54.7), not nearest-by-air). Krosse gate → Mountain Palace planned again in 3 rounds.
+> Battle at 2 s → "Resuming walk" 1.0 s after "Game ready" (settle delay), walk kept going, NO second interruption. Fast travel
+> opened 4.5 s later (outside the carry window, as intended) → "left the world map, discarding", nothing spurious spoken.
+> No errors. STILL UNSEEN: Mountain Palace arrival on foot; fast-travel window opened+closed without travelling; Krosse→Kurik,
+> Salva, fishing spot regressions. User said "Looks good now" → commit pending (version = user's call, 0.5.1 proposed).
+>
+> **NEXT SESSION (session 28) — original brief (DONE, superseded by the Mountain Palace work):** greeting = no pending test. Ask whether anything from 0.5.0 misbehaves in play; otherwise pick from
 > the open list (stairs sound NavStairs.wav, wall bump NavBump.wav, rear-mode preference) or wait for the Lacuer Front Line Base test.
 >
 > **NEXT SESSION (session 27), in order — all DONE 2026-09-15 except (4) deferred:**

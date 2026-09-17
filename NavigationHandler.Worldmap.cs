@@ -422,13 +422,16 @@ namespace SO2RAccess
                             _autoWalkCategoryIndex == CAT_LOCATION
                                 ? _wmPathGoal : _autoWalkTarget;
                         var newPath = WorldmapPathfinder.FindPath(
-                            playerPos, recalcGoal,
+                            playerPos, WmRouteGoals(recalcGoal),
                             WorldmapTravel.CurrentMode(),
                             _wmBlockedPositions);
                         if (newPath != null && newPath.Length > 0)
                         {
                             _wmPathWaypoints = newPath;
                             _wmPathIndex = 0;
+                            // The re-plan may end on another ring point.
+                            if (_autoWalkCategoryIndex == CAT_LOCATION)
+                                _wmPathGoal = newPath[newPath.Length - 1];
                             _wmLastStuckCheckPos = playerPos;
                             _wmStuckTimer = 0f;
                             DebugLogger.LogState(
@@ -691,6 +694,8 @@ namespace SO2RAccess
 
             if (categoryIndex == CAT_LOCATION)
                 walkTarget = ComputeEnterTriggerTarget(item.Position, playerPos);
+            else
+                _wmGoalCandidates.Clear(); // exact targets plan to one point
 
             if (CalculateAndStorePath(playerPos, walkTarget,
                     allowPartial: true, isCounter: item.IsCounterNpc))

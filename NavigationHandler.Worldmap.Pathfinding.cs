@@ -65,6 +65,31 @@ namespace SO2RAccess
         private const float WmStraightLineFallbackMaxDist = 15f;
 
         /// <summary>
+        /// Every navigable entrance-ring point of the location the current
+        /// world-map route targets (filled by <see cref="PickReachableRingPoint"/>;
+        /// empty for fishing stands and other exact targets). The planner hands
+        /// the whole set to the pathfinder so the route ends at whichever point
+        /// is cheapest to WALK to: the point nearest by air may sit on a cliff
+        /// the grid connects only through a kilometre detour (Mountain Palace
+        /// from Kurik's gate and from the Krosse road, 2026-09-16). Only valid
+        /// for the target it was built for — see <see cref="WmRouteGoals"/>.
+        /// </summary>
+        private readonly List<Vector3> _wmGoalCandidates = new List<Vector3>();
+
+        /// <summary>
+        /// The goal set to plan with for <paramref name="target"/>: the full
+        /// entrance-ring set when the target is one of its points (the first
+        /// plan, a battle resume and a stuck recalc all pass a ring point),
+        /// otherwise the target alone (fishing stands, safe exits, chests).
+        /// </summary>
+        private IReadOnlyList<Vector3> WmRouteGoals(Vector3 target)
+        {
+            if (_wmGoalCandidates.Exists(c => FlatDistance(c, target) < 0.01f))
+                return _wmGoalCandidates;
+            return new[] { target };
+        }
+
+        /// <summary>
         /// Resolves the world-map auto-walk destination for a location: the nearest
         /// navigable point on that location's enter-trigger RING — its
         /// FieldMapjumpCollision trigger collider, the same volume that raises the
@@ -76,6 +101,7 @@ namespace SO2RAccess
         /// </summary>
         private Vector3 ComputeEnterTriggerTarget(Vector3 locationPos, Vector3 playerPos)
         {
+            _wmGoalCandidates.Clear();
             try
             {
                 var collisions = UnityEngine.Object
@@ -184,7 +210,12 @@ namespace SO2RAccess
         /// walkable cells at BOTH entrances, and a cell on the far side's
         /// region is a guaranteed "no route" — that was the "unreachable
         /// Salva from Krosse" bug. Within a tier the nearest candidate to the
-        /// player wins. Candidate points come from the shared
+        /// player is RETURNED as the nominal target, but the whole tier goes
+        /// into <see cref="_wmGoalCandidates"/> and the pathfinder picks the
+        /// one that is cheapest to walk to — "nearest by air" and "in the same
+        /// grid region" together still chose Mountain Palace's cliff-side
+        /// corners, which the grid connects only through the Lasgus detour
+        /// (2026-09-16). Candidate points come from the shared
         /// <see cref="ForEachRingCandidate"/> sampler (also used by the
         /// nav-list reachability check, so the two never disagree). If
         /// nothing tests walkable (triggers fully buried in the model wall,
@@ -205,55 +236,80 @@ namespace SO2RAccess
             WorldmapPathfinder.GetStartRegionIds(playerPos, mode, playerRegions);
 
             // Tier 1: walkable AND in one of the player's start regions.
-            Vector3 bestConn = Vector3.zero;
-            float bestConnSq = float.MaxValue;
+            var connected = new List<Vector3>();
             // Tier 2: walkable (region unknown or different) — old behavior.
-            Vector3 bestWalk = Vector3.zero;
-            float bestWalkSq = float.MaxValue;
+            var walkable = new List<Vector3>();
 
             ForEachRingCandidate(rings, playerPos, cand =>
             {
                 if (!WorldmapPathfinder.IsWalkableWorld(cand, mode))
                     return false;
-                float d = (cand - playerPos).sqrMagnitude;
-                if (d < bestWalkSq) { bestWalkSq = d; bestWalk = cand; }
+                walkable.Add(cand);
                 if (playerRegions.Count > 0 &&
                     playerRegions.Contains(
-                        WorldmapPathfinder.GetRegionId(cand, mode)) &&
-                    d < bestConnSq)
-                {
-                    bestConnSq = d;
-                    bestConn = cand;
-                }
-                return false; // never stop early — we want the NEAREST
+                        WorldmapPathfinder.GetRegionId(cand, mode)))
+                    connected.Add(cand);
+                return false; // never stop early — we want them ALL
             });
 
             string playerSet = string.Join(",", playerRegions);
-            if (bestConnSq < float.MaxValue)
+            if (connected.Count > 0)
             {
+                Vector3 best = StoreRingGoals(connected, playerPos);
                 DebugLogger.LogState(
                     $"NAV WM enter-trigger: connected ring point at " +
-                    $"({bestConn.x:F1},{bestConn.z:F1}), " +
-                    $"{Mathf.Sqrt(bestConnSq):F1}m from player " +
+                    $"({best.x:F1},{best.z:F1}), " +
+                    $"{FlatDistance(best, playerPos):F1}m from player " +
                     $"({mode}, player start regions [{playerSet}], " +
-                    $"{rings.Count} triggers).");
-                return bestConn;
+                    $"{rings.Count} triggers, {_wmGoalCandidates.Count} " +
+                    $"connected points offered to the pathfinder).");
+                return best;
             }
 
-            if (bestWalkSq < float.MaxValue)
+            if (walkable.Count > 0)
             {
+                Vector3 best = StoreRingGoals(walkable, playerPos);
                 DebugLogger.LogState(
                     $"NAV WM enter-trigger: no candidate in player start " +
                     $"regions [{playerSet}] ({mode}); using nearest walkable " +
-                    $"ring point at ({bestWalk.x:F1},{bestWalk.z:F1}), " +
-                    $"{Mathf.Sqrt(bestWalkSq):F1}m from player " +
-                    $"({rings.Count} triggers). If no route exists the " +
+                    $"ring point at ({best.x:F1},{best.z:F1}), " +
+                    $"{FlatDistance(best, playerPos):F1}m from player " +
+                    $"({rings.Count} triggers, {_wmGoalCandidates.Count} " +
+                    $"walkable points offered). If no route exists the " +
                     $"pathfinder will reject it honestly.");
-                return bestWalk;
+                return best;
             }
 
             usedCenter = true;
             return locationPos;
+        }
+
+        /// <summary>
+        /// Grounds the ring candidates (terrain height under each), drops
+        /// duplicates that share a 0.5 m grid cell, stores them as the route's
+        /// goal set and returns the one nearest to the player as the nominal
+        /// target.
+        /// </summary>
+        private Vector3 StoreRingGoals(List<Vector3> candidates, Vector3 playerPos)
+        {
+            _wmGoalCandidates.Clear();
+            var cells = new HashSet<(int, int)>();
+            Vector3 best = candidates[0];
+            float bestSq = float.MaxValue;
+            foreach (var cand in candidates)
+            {
+                if (!cells.Add((Mathf.RoundToInt(cand.x * 2f),
+                        Mathf.RoundToInt(cand.z * 2f))))
+                    continue;
+                Vector3 p = cand;
+                float h = GameUtility.CalcHeight(
+                    new Vector3(p.x, 150f, p.z), out bool ok, 300f);
+                if (ok) p.y = h;
+                _wmGoalCandidates.Add(p);
+                float d = (p - playerPos).sqrMagnitude;
+                if (d < bestSq) { bestSq = d; best = p; }
+            }
+            return best;
         }
 
         /// <summary>
@@ -475,10 +531,14 @@ namespace SO2RAccess
             bool bestPathFloorTier = false;
             int bestFirstBlockedIdx = -1;
 
+            // Locations plan to their whole entrance-ring set; the route ends
+            // on the cheapest point, which becomes the goal from here on
+            // (sweep exemptions, arrival, directions, resumes).
+            Vector3 nominalTarget = targetPos;
             for (int round = 0; round < WmPreValidateMaxRounds; round++)
             {
-                var path = WorldmapPathfinder.FindPath(aStarStart, targetPos,
-                    mode,
+                var path = WorldmapPathfinder.FindPath(aStarStart,
+                    WmRouteGoals(targetPos), mode,
                     _wmBlockedPositions.Count > 0 ? _wmBlockedPositions : null,
                     skipComfortTier: skipComfortTier);
                 bool pathFloorTier = WorldmapPathfinder.LastPathUsedFloorTier;
@@ -588,6 +648,7 @@ namespace SO2RAccess
             // and the walk survives them via slow-follow + prompt arrival —
             // marking a start-side gate pinch would seal the player in and
             // refuse routes they physically just walked, proven at Marze).
+            if (bestPath != null) targetPos = bestPath[bestPath.Length - 1];
             if (bestPath != null && mode == WorldmapTravelMode.Foot)
             {
                 for (int round = 0; round < 2 && bestPath != null; round++)
@@ -610,10 +671,12 @@ namespace SO2RAccess
                     // per round (2026-08-29 log: 7s refusal, half of it spent
                     // re-failing the comfort tier).
                     bestPath = WorldmapPathfinder.FindPath(aStarStart,
-                        targetPos, mode,
+                        WmRouteGoals(targetPos), mode,
                         _wmBlockedPositions.Count > 0 ? _wmBlockedPositions : null,
                         skipComfortTier: bestPathFloorTier);
                     bestPathFloorTier = WorldmapPathfinder.LastPathUsedFloorTier;
+                    if (bestPath != null)
+                        targetPos = bestPath[bestPath.Length - 1];
                 }
 
                 if (bestPath != null &&
@@ -633,6 +696,13 @@ namespace SO2RAccess
             if (bestPath != null && bestPath.Length > 0)
             {
                 _wmLastRouteFloorTier = bestPathFloorTier;
+                _wmPathGoal = targetPos;
+                if (FlatDistance(targetPos, nominalTarget) > 0.01f)
+                    DebugLogger.LogState(
+                        $"NAV WM goal set: the cheapest route ends at ring " +
+                        $"point ({targetPos.x:F1},{targetPos.z:F1}), not the " +
+                        $"nearest-by-air ({nominalTarget.x:F1}," +
+                        $"{nominalTarget.z:F1}).");
 
                 // Concatenate exit path + main path if using safe exit.
                 if (usingSafeExit && exitPath != null && exitPath.Length > 0)

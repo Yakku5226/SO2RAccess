@@ -197,7 +197,10 @@ namespace SO2RAccess
                 }
             }
 
-            var mainLeg = WorldmapPathfinder.FindPath(mainStart, target, mode);
+            // Same goal set as a real walk (the whole entrance ring for a
+            // location, the exact point for a fishing stand).
+            var mainLeg = WorldmapPathfinder.FindPath(mainStart,
+                WmRouteGoals(target), mode);
             if (mainLeg == null || mainLeg.Length == 0)
             {
                 sb.AppendLine(

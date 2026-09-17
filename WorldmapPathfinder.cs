@@ -368,9 +368,33 @@ namespace SO2RAccess
             WorldmapTravelMode mode = WorldmapTravelMode.Foot,
             List<Vector3> blockedPositions = null,
             bool skipComfortTier = false)
+            => FindPath(start, new[] { end }, mode, blockedPositions,
+                skipComfortTier);
+
+        /// <summary>
+        /// Multi-goal variant: <paramref name="goals"/> are ALTERNATIVE
+        /// destinations (every navigable point on a location's entrance
+        /// ring, say). One A* search reaches whichever costs least to walk
+        /// to, so an entrance corner the grid connects only through a
+        /// kilometre-long detour can never win over the road-side point a
+        /// few hundred metres away — the Mountain Palace refusals of
+        /// 2026-09-16, where the ring point nearest BY AIR sat on the cliff.
+        /// The route ends exactly on the chosen goal; callers read it back
+        /// from the last waypoint. With one goal this is the classic search.
+        /// </summary>
+        public static Vector3[] FindPath(Vector3 start,
+            IReadOnlyList<Vector3> goals,
+            WorldmapTravelMode mode = WorldmapTravelMode.Foot,
+            List<Vector3> blockedPositions = null,
+            bool skipComfortTier = false)
         {
             LastNoPathWasDisconnected = false;
             LastPathUsedFloorTier = false;
+            if (goals == null || goals.Count == 0)
+            {
+                DebugLogger.LogState("NAV WM pathfinder: called with no goal.");
+                return null;
+            }
 
             var fm = FieldManager.Instance;
             if (fm == null || !fm.IsExistWorldGridData())
@@ -428,13 +452,8 @@ namespace SO2RAccess
                 // Convert world positions to grid indices.
                 grid.WorldToGrid(start.x, start.z,
                     out int startAx, out int startAz);
-                grid.WorldToGrid(end.x, end.z,
-                    out int endAx, out int endAz);
-
                 startAx = Mathf.Clamp(startAx, 0, gridW - 1);
                 startAz = Mathf.Clamp(startAz, 0, gridH - 1);
-                endAx = Mathf.Clamp(endAx, 0, gridW - 1);
-                endAz = Mathf.Clamp(endAz, 0, gridH - 1);
                 int origStartAx = startAx, origStartAz = startAz;
 
                 // Apply stuck-position blocks (both mode bits — a physical
@@ -529,24 +548,39 @@ namespace SO2RAccess
                     }
                 }
 
-                // Snap start/end to the nearest cell passable for this mode.
+                // Snap the start and every goal to the nearest cell passable
+                // for this mode. Goals sharing a cell collapse into one; a
+                // goal that cannot snap is dropped.
                 if (!grid.IsPassable(startAx, startAz, modeBit))
                     SnapToPassable(ref startAx, ref startAz, grid, modeBit);
-                if (!grid.IsPassable(endAx, endAz, modeBit))
-                    SnapToPassable(ref endAx, ref endAz, grid, modeBit);
+                var goalCells = new List<(int ax, int az, Vector3 world)>();
+                for (int g = 0; g < goals.Count; g++)
+                {
+                    grid.WorldToGrid(goals[g].x, goals[g].z,
+                        out int gax, out int gaz);
+                    gax = Mathf.Clamp(gax, 0, gridW - 1);
+                    gaz = Mathf.Clamp(gaz, 0, gridH - 1);
+                    if (!grid.IsPassable(gax, gaz, modeBit))
+                        SnapToPassable(ref gax, ref gaz, grid, modeBit);
+                    if (!grid.IsPassable(gax, gaz, modeBit)) continue;
+                    if (!goalCells.Exists(c => c.ax == gax && c.az == gaz))
+                        goalCells.Add((gax, gaz, goals[g]));
+                }
 
                 if (!grid.IsPassable(startAx, startAz, modeBit) ||
-                    !grid.IsPassable(endAx, endAz, modeBit))
+                    goalCells.Count == 0)
                 {
                     DebugLogger.LogState(
                         $"NAV WM pathfinder: start or end not on passable " +
                         $"terrain ({mode}). grid={gridW}x{gridH} " +
-                        $"start=({startAx},{startAz}) end=({endAx},{endAz})");
+                        $"start=({startAx},{startAz}) goals={goals.Count}, " +
+                        $"passable={goalCells.Count}");
                     return null;
                 }
+                var firstGoal = goalCells[0];
 
                 // --- Connected-region fast reject (per travel mode) ---
-                // If the target's region differs from every region touching
+                // If EVERY goal's region differs from every region touching
                 // the start (including the cleared 3m disc, whose cells can
                 // bridge the player out of a baked-obstacle pocket), then NO
                 // route exists and a full search would just sweep the whole
@@ -558,22 +592,32 @@ namespace SO2RAccess
                 var regions = GetRegionsForSearch(grid, mode);
                 if (regions != null)
                 {
-                    ushort endRegion = regions[(long)endAx * gridH + endAz];
-                    if (endRegion != 0 &&
-                        !StartTouchesRegion(grid, regions,
-                            origStartAx, origStartAz,
-                            startAx, startAz, endRegion))
+                    bool anyConnected = false;
+                    for (int g = 0; g < goalCells.Count && !anyConnected; g++)
+                    {
+                        ushort endRegion = regions[
+                            (long)goalCells[g].ax * gridH + goalCells[g].az];
+                        anyConnected = endRegion == 0 ||
+                            StartTouchesRegion(grid, regions,
+                                origStartAx, origStartAz,
+                                startAx, startAz, endRegion);
+                    }
+                    if (!anyConnected)
                     {
                         LastNoPathWasDisconnected = true;
                         DebugLogger.LogState(
                             $"NAV WM pathfinder: start and target are in " +
                             $"different connected regions for {mode} " +
-                            $"(target region {endRegion}) — no overland " +
+                            $"(target region " +
+                            $"{regions[(long)firstGoal.ax * gridH + firstGoal.az]}, " +
+                            $"{goalCells.Count} goal cells) — no overland " +
                             $"route exists. Rejected in " +
                             $"{sw.ElapsedMilliseconds}ms.");
                         return null;
                     }
                 }
+
+                var goalSet = new GoalSet(goalCells, gridH);
 
                 // Tiered A* search (FOOT only): first try a route where every
                 // cell has a real clearance margin (PreferredMinClearance) so
@@ -596,7 +640,7 @@ namespace SO2RAccess
                 }
                 else if (foot)
                 {
-                    path = AStarSearch(startAx, startAz, endAx, endAz,
+                    path = AStarSearch(startAx, startAz, goalSet,
                         grid, modeBit, PreferredMinClearance, true,
                         PreferredPassMaxExpansions, out expansions1);
                     if (path == null)
@@ -605,9 +649,11 @@ namespace SO2RAccess
                         // route or an endpoint whose own cell is too narrow
                         // to ever close — these need different fixes, so the
                         // endpoint data goes in the log (D1 investigation,
-                        // 2026-07-10).
+                        // 2026-07-10). With several goals the first one
+                        // stands in for the set.
                         float startClr = grid.GetClearance(startAx, startAz);
-                        float endClr = grid.GetClearance(endAx, endAz);
+                        float endClr = grid.GetClearance(
+                            firstGoal.ax, firstGoal.az);
                         DebugLogger.LogState(
                             $"NAV WM pathfinder: no route at " +
                             $"{PreferredMinClearance:F2}m clearance " +
@@ -615,14 +661,17 @@ namespace SO2RAccess
                             $"to the 0.50m floor. start cell " +
                             $"({startAx},{startAz}) clearance=" +
                             $"{FormatClearance(startClr)}, goal cell " +
-                            $"({endAx},{endAz}) clearance=" +
-                            $"{FormatClearance(endClr)}.");
+                            $"({firstGoal.ax},{firstGoal.az}) clearance=" +
+                            $"{FormatClearance(endClr)}" +
+                            (goalCells.Count > 1
+                                ? $" (first of {goalCells.Count} goal cells)."
+                                : "."));
                     }
                 }
 
                 if (path == null)
                 {
-                    path = AStarSearch(startAx, startAz, endAx, endAz,
+                    path = AStarSearch(startAx, startAz, goalSet,
                         grid, modeBit, 0f, foot, 0, out expansions2);
                     if (foot && path != null)
                         LastPathUsedFloorTier = true;
@@ -634,12 +683,24 @@ namespace SO2RAccess
                         $"NAV WM pathfinder: no path found ({mode}). " +
                         $"grid={gridW}x{gridH} " +
                         $"start=({startAx},{startAz}) " +
-                        $"end=({endAx},{endAz}) " +
+                        $"end=({firstGoal.ax},{firstGoal.az}) " +
+                        $"of {goalCells.Count} goal cells " +
                         $"maxClimb={MaxClimbCm}cm " +
                         $"searched={expansions1 + expansions2} cells " +
                         $"in {sw.ElapsedMilliseconds}ms.");
                     return null;
                 }
+
+                // The search stopped on the cheapest goal cell; the route
+                // must end on that goal's exact world point.
+                Vector2Int reached = path[path.Count - 1];
+                Vector3 end = goalCells.Find(
+                    c => c.ax == reached.x && c.az == reached.y).world;
+                if (goalCells.Count > 1)
+                    DebugLogger.LogState(
+                        $"NAV WM pathfinder: goal set of {goalCells.Count} " +
+                        $"cells — cheapest route ends at " +
+                        $"({end.x:F1},{end.z:F1}).");
 
                 // Convert path to world-space waypoints. Ground Y comes from
                 // the grid's baked heights (the old per-waypoint CalcHeight
@@ -735,6 +796,8 @@ namespace SO2RAccess
         /// uses the persistent generation-stamped buffers — no per-call
         /// allocation or full-grid initialization.
         /// </summary>
+        /// <param name="goals">Goal cells (any one ends the search — the
+        /// first popped is the cheapest to reach) and the heuristic anchor.</param>
         /// <param name="modeBit">Flags-lane blocked bit that makes a cell
         /// impassable for this search.</param>
         /// <param name="minClearance">Hard clearance floor (0 = disabled).
@@ -744,7 +807,7 @@ namespace SO2RAccess
         /// <param name="maxExpansions">Abort after this many cell expansions
         /// (0 = unlimited). Used only by the preferred-clearance pass.</param>
         private static List<Vector2Int> AStarSearch(
-            int sx, int sz, int ex, int ez,
+            int sx, int sz, GoalSet goals,
             WorldmapGridFormat.CachedGrid grid, byte modeBit,
             float minClearance, bool clearancePenalty,
             int maxExpansions, out int expansions)
@@ -763,7 +826,7 @@ namespace SO2RAccess
             _gCost[sIdx] = 0f;
             _state[sIdx] = (ushort)open;
             _parentDir[sIdx] = 255;
-            HeapPush(_heap, (Heuristic(sx, sz, ex, ez), sx, sz));
+            HeapPush(_heap, (goals.Heuristic(sx, sz), sx, sz));
 
             while (_heap.Count > 0)
             {
@@ -773,8 +836,8 @@ namespace SO2RAccess
                 if (_state[cIdx] == closedV) continue;
                 _state[cIdx] = (ushort)closedV;
 
-                if (cx == ex && cz == ez)
-                    return ReconstructPath(gridH, sx, sz, ex, ez);
+                if (goals.Cells.Contains(cIdx))
+                    return ReconstructPath(gridH, sx, sz, cx, cz);
 
                 expansions++;
                 if (maxExpansions > 0 && expansions > maxExpansions)
@@ -846,7 +909,7 @@ namespace SO2RAccess
                         _state[nIdx] = (ushort)open;
                         _parentDir[nIdx] = (byte)d;
 
-                        float f = newG + Heuristic(nx, nz, ex, ez);
+                        float f = newG + goals.Heuristic(nx, nz);
                         HeapPush(_heap, (f, nx, nz));
                     }
                 }
@@ -910,11 +973,52 @@ namespace SO2RAccess
 
         #endregion
 
-        private static float Heuristic(int ax, int az, int bx, int bz)
+        /// <summary>
+        /// The A* destination: one or more goal cells plus an admissible
+        /// heuristic anchor. The heuristic is the straight-line distance to
+        /// the goals' centroid minus the radius of the disc that contains
+        /// every goal — never more than the distance to the nearest goal, so
+        /// the first goal popped is the cheapest to reach, and cheaper than
+        /// taking the minimum over all goals on every expansion. With ONE
+        /// goal the radius is zero and this is the plain Euclidean heuristic
+        /// the single-goal search always used.
+        /// </summary>
+        private sealed class GoalSet
         {
-            float dx = bx - ax;
-            float dz = bz - az;
-            return Mathf.Sqrt(dx * dx + dz * dz);
+            /// <summary>Flat cell indices (x * gridH + z) of every goal.</summary>
+            public readonly HashSet<int> Cells = new HashSet<int>();
+            private readonly float _centerX, _centerZ, _radius;
+
+            public GoalSet(List<(int ax, int az, Vector3 world)> goals,
+                int gridH)
+            {
+                float sumX = 0f, sumZ = 0f;
+                foreach (var g in goals)
+                {
+                    Cells.Add(g.ax * gridH + g.az);
+                    sumX += g.ax;
+                    sumZ += g.az;
+                }
+                _centerX = sumX / goals.Count;
+                _centerZ = sumZ / goals.Count;
+                float radius = 0f;
+                foreach (var g in goals)
+                {
+                    float dx = g.ax - _centerX, dz = g.az - _centerZ;
+                    radius = Mathf.Max(radius, Mathf.Sqrt(dx * dx + dz * dz));
+                }
+                _radius = radius;
+            }
+
+            /// <summary>Admissible estimate (cells) from a cell to the
+            /// nearest goal.</summary>
+            public float Heuristic(int x, int z)
+            {
+                float dx = _centerX - x;
+                float dz = _centerZ - z;
+                float h = Mathf.Sqrt(dx * dx + dz * dz) - _radius;
+                return h > 0f ? h : 0f;
+            }
         }
 
         private static List<Vector2Int> ReconstructPath(
