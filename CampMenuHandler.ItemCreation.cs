@@ -550,15 +550,62 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// Remembers the panel's "Total owned N" line for the highlighted row. Writing
+        /// and Publication show it for every book (probe 2026-09-19: label + count
+        /// active, 0 for unowned books); the action list poll speaks it with the row.
+        /// Keyed by the row name so a late poll never pairs it with another row.
+        /// </summary>
+        private static void CaptureOwnedCount(
+            UIItemCreationInformationPresenter presenter, UIItemCreationInformationData data)
+        {
+            _icPanelOwnedName = null;
+            _icPanelOwnedText = null;
+            if (presenter == null || !data.isItem) return;
+
+            try
+            {
+                var countText = presenter.itemCount;
+                if (countText == null || !countText.gameObject.activeInHierarchy) return;
+                string count = countText.text;
+                if (string.IsNullOrEmpty(count)) return;
+
+                var labelText = presenter.itemCountLabel;
+                string label = labelText != null && labelText.gameObject.activeInHierarchy
+                    ? labelText.text : null;
+
+                _icPanelOwnedName = data.categoryName;
+                _icPanelOwnedText = string.IsNullOrEmpty(label)
+                    ? Loc.Get("ic_have_count", count)
+                    : string.Join(" ", label, count);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"CampIC: owned count read error: {ex.Message}");
+            }
+        }
+
+        /// <summary>The panel's owned-count line when it belongs to <paramref name="rowName"/>, else null.</summary>
+        private static string OwnedCountFor(string rowName)
+        {
+            return !string.IsNullOrEmpty(_icPanelOwnedText) && _icPanelOwnedName == rowName
+                ? _icPanelOwnedText : null;
+        }
+
+        private static string _icPanelOwnedName;
+        private static string _icPanelOwnedText;
+
+        /// <summary>
         /// Postfix hook for UIItemCreationInformationPresenter.Set.
         /// Fires when the creation info panel updates (action screen).
         /// Harmony calls this by name — must match nameof() in ApplyPatches.
         /// </summary>
         private static void CreationInfoPresenter_Set_IC_Postfix(
-            UIItemCreationInformationData data)
+            UIItemCreationInformationPresenter __instance, UIItemCreationInformationData data)
         {
             if (data == null) return;
             if (!IsICActive()) return;
+
+            CaptureOwnedCount(__instance, data);
 
             // Skills with no creation items expose a category/action list instead
             // (Master Chef, Blacksmith, Music, Survival). The generic action poller reads

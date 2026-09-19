@@ -68,6 +68,7 @@ namespace SO2RAccess
         private EquipWizardHandler _equipWizardHandler;
         private PrivateActionHandler _privateActionHandler;
         private BonusGaugeHandler _bonusGaugeHandler;
+        private SkillBookHandler _skillBookHandler;
         private DialogueChoiceHandler _dialogueChoiceHandler;
         private PickpocketHandler _pickpocketHandler;
         private QuickRecoveryHandler _quickRecoveryHandler;
@@ -111,6 +112,7 @@ namespace SO2RAccess
             AudioCuePlayer.LoadSaveSound("Save_sound.wav");
             AudioCuePlayer.LoadPrivateActionSound("PrivateAction.wav");
             AudioCuePlayer.LoadGaugeFillSound("GaugeFill.wav");
+            AudioCuePlayer.LoadGaugeBreakSound("GaugeBreak.wav");
             AudioCuePlayer.LoadJumpSound("Jump.wav");
             AudioCuePlayer.LoadFishPromptSound("bubble_big.wav");
 
@@ -151,6 +153,7 @@ namespace SO2RAccess
             _equipWizardHandler = new EquipWizardHandler();
             _privateActionHandler = new PrivateActionHandler();
             _bonusGaugeHandler = new BonusGaugeHandler();
+            _skillBookHandler = new SkillBookHandler();
             _dialogueChoiceHandler = new DialogueChoiceHandler();
             _pickpocketHandler = new PickpocketHandler();
             _quickRecoveryHandler = new QuickRecoveryHandler();
@@ -269,11 +272,15 @@ namespace SO2RAccess
             _battleStatusHandler.ApplyPatches(_harmony);
             _equipWizardHandler.ApplyPatches(_harmony);
             _bonusGaugeHandler.ApplyPatches(_harmony);
+            _skillBookHandler.ApplyPatches(_harmony);
             _dialogueChoiceHandler.ApplyPatches(_harmony);
             _fieldPromptHandler.ApplyPatches(_harmony);
             _quickRecoveryHandler.ApplyPatches(_harmony);
             _listSelectionHandler.ApplyPatches(_harmony);
             _languageHandler.ApplyPatches(_harmony);
+
+            // Log-only diagnostics for docs/review-2026-09-19.md (temporary).
+            ReviewProbes.ApplyPatches(_harmony);
         }
 
         /// <summary>
@@ -709,6 +716,7 @@ namespace SO2RAccess
             _fishCollectorHandler.Update();
             _listSelectionHandler.Update();
             _subtitleHandler.Update();
+            ReviewProbes.Update();
         }
 
         #endregion

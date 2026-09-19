@@ -75,7 +75,7 @@ namespace SO2RAccess
         private const float WmFishBubbleWaitSeconds = 2f;
 
         /// <summary>Maximum metres of the water creep, measured from the stand.</summary>
-        private const float WmFishWaterCreepMaxDist = 8f;
+        private const float WmFishWaterCreepMaxDist = 12f;
 
         /// <summary>Maximum seconds of the water creep.</summary>
         private const float WmFishWaterCreepMaxSeconds = 8f;
@@ -100,7 +100,36 @@ namespace SO2RAccess
         private static readonly float[] WmFishFanDegrees = { 0f, 35f, -35f, 70f, -70f, 0f };
         private const float WmFishFanStepSeconds = 0.9f;
 
-        /// <summary>Drift (m) from the edge position that ends the sweep (sliding away along the shore).</summary>
+        /// <summary>
+        /// When the game's own player check (<c>FieldManager.CheckFishingPoint</c>) turned
+        /// true, the player stands still until this time so the bubble can appear; 0 when
+        /// not waiting. At the Lacuer east lake the bubble showed in the very frame that
+        /// check turned true, 4 m PAST the baked water point on a shore with no edge,
+        /// while the bake's feet+forward test had been true since the stand (log 2026-09-19).
+        /// </summary>
+        private float _wmFishStillUntil;
+
+        /// <summary>True once a stand-still wait ended without the bubble (one try per arrival).</summary>
+        private bool _wmFishStillSpent;
+
+        /// <summary>
+        /// With no edge to press against, a held stick walks the player away. The sweep
+        /// then pushes only this long at the start of each step — enough to turn the
+        /// character (the game takes its facing from input) — and releases the stick.
+        /// </summary>
+        private const float WmFishFanPulseSeconds = 0.15f;
+
+        /// <summary>Flat unit bearing stand → water point, fixed when the water creep starts.</summary>
+        private Vector3 _wmFishWaterBearing;
+
+        /// <summary>True when the water creep ended without an edge stopping the player.</summary>
+        private bool _wmFishNoEdge;
+
+        /// <summary>
+        /// Drift (m) from the edge position that ends the sweep (sliding away along the
+        /// shore). Not applied without an edge: there the pulses move the player on
+        /// toward the water, which is progress, and the player check ends the sweep.
+        /// </summary>
         private const float WmFishFanMaxDrift = 3f;
 
         /// <summary>Fan state: base bearing toward the water, step index, next step time, anchor position.</summary>
@@ -122,6 +151,11 @@ namespace SO2RAccess
             _wmFishHoldUntil     = 0f;
             _wmFishWaterCreep    = false;
             _wmFishStandShortMeters = 0f;
+            _wmFishWaterBearing  = Vector3.zero;
+            _wmFishNoEdge        = false;
+            _wmFishStillUntil    = 0f;
+            _wmFishStillSpent    = false;
+            ResetFishSearchState();
             DebugLogger.LogState(
                 $"NAV WM fishing: stand reached (targetDist={targetDist:F2}) without bubble — " +
                 "creeping onto the stand.");
@@ -132,7 +166,9 @@ namespace SO2RAccess
         /// One frame of the fishing arrival, in three steps: creep onto the exact
         /// stand cell; creep on toward the water until the water's edge stops the
         /// player (or a distance/time cap); then hold facing the water for
-        /// <see cref="WmFishBubbleWaitSeconds"/>. The bubble itself ends the walk
+        /// <see cref="WmFishBubbleWaitSeconds"/>. A remembered real bubble replaces the
+        /// baked bearing, and a shore search follows when nothing showed (both in
+        /// NavigationHandler.Worldmap.FishingSearch.cs). The bubble itself ends the walk
         /// in the caller's FishPromptShowing branch at any step; this only ever
         /// ends it with the honest "no prompt" verdict. Stuck detection is
         /// bypassed while creeping — pressing gently against the water's edge is
@@ -140,6 +176,14 @@ namespace SO2RAccess
         /// </summary>
         private void UpdateFishCreep(FieldPlayer player, Vector3 playerPos)
         {
+            if (UpdateStandStill(player, playerPos)) return;
+
+            if (_wmFishSearchActive)
+            {
+                UpdateShoreSearch(player, playerPos);
+                return;
+            }
+
             if (_wmFishHoldUntil > 0f)
             {
                 UpdateFacingSweep(player, playerPos);
@@ -164,6 +208,71 @@ namespace SO2RAccess
             CreepToward(_autoWalkTarget, playerPos);
         }
 
+        /// <summary>
+        /// Stops the player the moment the game's player check says "can fish here" and
+        /// waits <see cref="WmFishBubbleWaitSeconds"/> for the bubble (which ends the walk
+        /// in the caller). Tried once per arrival: when the bubble still does not show,
+        /// the facing sweep takes over. Returns true while this step owns the frame.
+        /// </summary>
+        private bool UpdateStandStill(FieldPlayer player, Vector3 playerPos)
+        {
+            if (_wmFishStillUntil > 0f)
+            {
+                if (Time.time < _wmFishStillUntil)
+                {
+                    ReleaseStick();
+                    return true;
+                }
+                _wmFishStillUntil = 0f;
+                if (_wmFishSearchActive)
+                {
+                    // The search walks on; the check re-arms once the player has moved away.
+                    _wmFishStillFailPos = playerPos;
+                    DebugLogger.LogState(
+                        $"NAV WM fishing: player check was true but no bubble within {WmFishBubbleWaitSeconds:F0} s — search continues.");
+                    return false;
+                }
+                _wmFishStillSpent = true;
+                _wmFishWaterCreep = false;
+                DebugLogger.LogState(
+                    $"NAV WM fishing: player check was true but no bubble within {WmFishBubbleWaitSeconds:F0} s — sweeping the facing.");
+                if (_wmFishHoldUntil <= 0f)
+                    BeginBubbleHold(player, playerPos, "player check true, no bubble");
+                return true;
+            }
+
+            if (_wmFishStillSpent || StandStillBlockedHere(playerPos) || !PlayerFishCheck(player)) return false;
+            _wmFishStillUntil = Time.time + WmFishBubbleWaitSeconds;
+            DebugLogger.LogState(
+                $"NAV WM fishing: player check TRUE at ({playerPos.x:F1},{playerPos.y:F1},{playerPos.z:F1}), " +
+                $"{FlatDistance(playerPos, _autoWalkTarget):F1} m from the stand — standing still for the bubble.");
+            ReleaseStick();
+            return true;
+        }
+
+        /// <summary>The game's own "can this player fish here" test; false when it cannot be read.</summary>
+        private static bool PlayerFishCheck(FieldPlayer player)
+        {
+            try
+            {
+                var fm = FieldManager.Instance;
+                return fm != null && player != null && fm.CheckFishingPoint(player);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV WM fishing: CheckFishingPoint failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>Keeps the walk's input ownership but pushes nothing, so the player stands still.</summary>
+        private void ReleaseStick()
+        {
+            _staticIsAutoWalking = true;
+            _wmDirectMoveActive = false;
+            _staticAutoWalkStickDir = Vector2.zero;
+        }
+
         /// <summary>Step two: from the stand on toward the baked water point.</summary>
         private void BeginWaterCreep(FieldPlayer player, Vector3 playerPos, float toStand, float crept)
         {
@@ -173,6 +282,30 @@ namespace SO2RAccess
                 BeginBubbleHold(player, playerPos, "no water point to creep toward");
                 return;
             }
+            // Fixed bearing stand -> water: aiming at the point itself turns
+            // arbitrary once the player gets close to it.
+            Vector3 bearing = _autoWalkFacePosition.Value - _autoWalkTarget;
+            bearing.y = 0f;
+            if (bearing.sqrMagnitude < 0.01f)
+            {
+                bearing = _autoWalkFacePosition.Value - playerPos;
+                bearing.y = 0f;
+            }
+            // A real bubble seen near this stand before beats the baked bearing.
+            _wmFishBubbleGoal = FindRememberedBubble();
+            if (_wmFishBubbleGoal != null)
+            {
+                Vector3 toGoal = _wmFishBubbleGoal.Position - playerPos;
+                toGoal.y = 0f;
+                if (toGoal.sqrMagnitude > 0.01f) bearing = toGoal;
+                DebugLogger.LogState(
+                    $"NAV WM fishing: remembered bubble at ({_wmFishBubbleGoal.X:F1},{_wmFishBubbleGoal.Z:F1}), " +
+                    $"{FlatDistance(playerPos, _wmFishBubbleGoal.Position):F1} m away (seen {_wmFishBubbleGoal.Seen}×) — creeping there.");
+            }
+            _wmFishWaterBearing = bearing.sqrMagnitude < 0.0001f
+                ? player.transform.forward : bearing.normalized;
+            _wmFishNoEdge = false;
+
             _wmFishWaterCreep          = true;
             _wmFishWaterCreepDeadline  = Time.time + WmFishWaterCreepMaxSeconds;
             _wmFishWaterCreepLastPos   = playerPos;
@@ -185,31 +318,52 @@ namespace SO2RAccess
                     : $"NAV WM fishing: STOPPED SHORT of the stand (toStand={toStand:F2} crept={crept:F2}) — " +
                       "something blocks the way onto it; still ") +
                 $"creeping toward the water, up to {WmFishWaterCreepMaxDist:F0} m / {WmFishWaterCreepMaxSeconds:F0} s.");
-            CreepToward(_autoWalkFacePosition.Value, playerPos);
+            CreepDirection(_wmFishWaterBearing);
         }
 
         /// <summary>One frame of the water creep: stop at a stall (the edge), the distance cap or the deadline.</summary>
         private void UpdateWaterCreep(FieldPlayer player, Vector3 playerPos)
         {
             float fromStand = FlatDistance(playerPos, _autoWalkTarget);
-            string stop = null;
-            if (fromStand >= WmFishWaterCreepMaxDist) stop = $"distance cap ({fromStand:F1} m from the stand)";
-            else if (Time.time >= _wmFishWaterCreepDeadline) stop = "time cap";
-            else if (Time.time - _wmFishWaterCreepLastCheck >= WmFishWaterCreepStallSeconds)
+            // The baked water point is NOT a stop: on a shore without an edge the bubble
+            // zone can lie past it. The fixed bearing keeps the aim steady while crossing
+            // it; the player check (UpdateStandStill) ends the creep where fishing works.
+            // A remembered bubble replaces the distance cap with its own reach/overshoot test.
+            string stop = _wmFishBubbleGoal != null
+                ? RememberedCreepStop(playerPos, fromStand)
+                : fromStand >= WmFishWaterCreepMaxDist
+                    ? $"no edge met — distance cap ({fromStand:F1} m from the stand)"
+                    : null;
+            bool noEdge = true;
+            if (stop == null && Time.time >= _wmFishWaterCreepDeadline)
+                stop = $"no edge met — time cap ({fromStand:F1} m from the stand)";
+            if (stop == null && Time.time - _wmFishWaterCreepLastCheck >= WmFishWaterCreepStallSeconds)
             {
                 float moved = FlatDistance(playerPos, _wmFishWaterCreepLastPos);
                 if (moved < WmFishWaterCreepStallDist)
+                {
+                    noEdge = false;
                     stop = $"stalled at the water's edge ({moved:F2} m in {WmFishWaterCreepStallSeconds:F1} s, {fromStand:F1} m from the stand)";
+                }
                 _wmFishWaterCreepLastPos   = playerPos;
                 _wmFishWaterCreepLastCheck = Time.time;
             }
             if (stop != null)
             {
                 _wmFishWaterCreep = false;
+                _wmFishNoEdge = noEdge;
+                // No edge and no remembered point: turning on the spot found nothing at
+                // Lacuer (the zone lay 7 m to the side) — search the shore right away.
+                if (noEdge && _wmFishBubbleGoal == null)
+                {
+                    DebugLogger.LogState($"NAV WM fishing: water creep ended — {stop}.");
+                    if (BeginShoreSearch(player, playerPos)) return;
+                }
                 BeginBubbleHold(player, playerPos, stop);
                 return;
             }
-            CreepToward(_autoWalkFacePosition.Value, playerPos);
+            if (_wmFishBubbleGoal != null) CreepToward(_wmFishBubbleGoal.Position, playerPos);
+            else CreepDirection(_wmFishWaterBearing);
         }
 
         /// <summary>
@@ -221,11 +375,11 @@ namespace SO2RAccess
         /// </summary>
         private void BeginBubbleHold(FieldPlayer player, Vector3 playerPos, string why)
         {
-            Vector3 water = _autoWalkFacePosition ?? (playerPos + player.transform.forward);
-            Vector3 toWater = water - playerPos;
-            toWater.y = 0f;
-            if (toWater.sqrMagnitude < 0.0001f) toWater = player.transform.forward;
-            _wmFishFanBase   = toWater.normalized;
+            // After a water creep the fixed stand -> water bearing is the base; the
+            // "no water point" path (no creep ran) falls back to the facing.
+            _wmFishFanBase = _autoWalkFacePosition.HasValue && _wmFishWaterBearing.sqrMagnitude > 0.5f
+                ? _wmFishWaterBearing
+                : player.transform.forward;
             _wmFishFanStep   = 0;
             _wmFishFanNextAt = Time.time + WmFishFanStepSeconds;
             _wmFishFanAnchor = playerPos;
@@ -233,7 +387,8 @@ namespace SO2RAccess
             DebugLogger.LogState(
                 $"NAV WM fishing: water creep ended — {why}; at ({playerPos.x:F1},{playerPos.z:F1}), " +
                 $"pressing toward the water and sweeping the facing " +
-                $"({WmFishFanDegrees.Length} steps × {WmFishFanStepSeconds:F1} s).");
+                $"({WmFishFanDegrees.Length} steps × {WmFishFanStepSeconds:F1} s" +
+                (_wmFishNoEdge ? $", {WmFishFanPulseSeconds:F2} s pulses — nothing to press against)." : ")."));
             CreepDirection(_wmFishFanBase);
         }
 
@@ -242,19 +397,18 @@ namespace SO2RAccess
         {
             float drift = FlatDistance(playerPos, _wmFishFanAnchor);
             bool done = Time.time >= _wmFishHoldUntil || _wmFishFanStep >= WmFishFanDegrees.Length;
-            if (done || drift > WmFishFanMaxDrift)
+            if (done || (!_wmFishNoEdge && drift > WmFishFanMaxDrift))
             {
-                _wmFishCreepActive = false;
-                string label = _autoWalkLabel;
                 float shortBy = _wmFishStandShortMeters;
                 DebugLogger.LogState(
                     $"NAV WM fishing: facing sweep ended without a bubble " +
                     (done ? "(all steps tried)" : $"(drifted {drift:F1} m along the shore)") +
                     $" at ({playerPos.x:F1},{playerPos.z:F1})" +
                     (shortBy > 0f ? $"; the stand itself was never reached ({shortBy:F1} m short)." : "."));
-                LogFishingArrivalDiag(player, "auto-walk sweep ended");
-                StopAutoWalk();
-                AnnounceArrival(Loc.Get(FishingNoPromptKey(shortBy), label, shortBy.ToString("F1")));
+                _wmFishHoldUntil = 0f;
+                // A stand that was never reached is a blocked way, not a shifted bubble zone.
+                if (shortBy <= 0f && BeginShoreSearch(player, playerPos)) return;
+                EndFishArrivalWithoutBubble(player, "auto-walk sweep ended");
                 return;
             }
             if (Time.time >= _wmFishFanNextAt)
@@ -267,6 +421,13 @@ namespace SO2RAccess
                 }
             }
             if (_wmFishFanStep >= WmFishFanDegrees.Length) return; // next frame ends it
+            float stepStarted = _wmFishFanNextAt - WmFishFanStepSeconds;
+            if (_wmFishNoEdge && Time.time - stepStarted > WmFishFanPulseSeconds)
+            {
+                // Turned; now stand still facing that way so the game can evaluate the prompt.
+                ReleaseStick();
+                return;
+            }
             Vector3 dir = Quaternion.AngleAxis(WmFishFanDegrees[_wmFishFanStep], Vector3.up) * _wmFishFanBase;
             CreepDirection(dir);
         }

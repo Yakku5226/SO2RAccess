@@ -10,12 +10,18 @@ using UnityEngine;
 namespace SO2RAccess
 {
     /// <summary>
-    /// Announces bonus gauge progress and break events during battle.
-    /// Sound cues play at 25% (1 beep), 50% (2 beeps), 75% (3 beeps).
-    /// On break (100%): 4 beeps + screen reader announcement of level and buff.
+    /// Bonus gauge feedback during battle. Spheres fill the gauge; a full gauge raises
+    /// the bonus level (each level switches on more party bonuses); the gauge can BREAK
+    /// (be lost) — that is what the game's BreakBonusGauge means, not a level-up.
     ///
-    /// Detection: polling for gauge fill ratio each frame,
-    /// Harmony hook on BreakBonusGauge (CallerCount 3) for break events.
+    /// Four independent outputs, each with its own mod-menu switch:
+    /// level speech (once at battle start, then on every level change, with the
+    /// bonuses the new level switched on), level beeps (one beep per level on a level
+    /// change), break speech + break cue (gauge lost), and the spoken fill percentage.
+    ///
+    /// Detection: level and fill ratio are polled (the level-up happens inside the
+    /// native IncreaseSphereBonusPoint — log 2026-09-18 showed a level-up with no
+    /// BreakBonusGauge call); the break comes from a Harmony hook on BreakBonusGauge.
     /// </summary>
     public class BonusGaugeHandler
     {
@@ -23,26 +29,36 @@ namespace SO2RAccess
 
         private bool _patchesApplied;
 
-        // Gauge progress tracking (static for hook access).
+        // Tracking is static so the Harmony callbacks can reach it.
         private static int _lastLevel = -1;
-        private static readonly HashSet<int> _announcedThresholds = new();
         private static bool _wasInBattle;
 
         // Highest 5% bucket already spoken for the current level (-1 = none yet).
-        // Separate from the beep thresholds so the spoken percentage and the
-        // beep cue stay independent.
         private static int _lastAnnouncedGaugeBucket = -1;
 
         /// <summary>Step (in percent) between spoken bonus-gauge percentages.</summary>
         private const int GaugePercentStep = 5;
 
-        // Pre-break buff snapshot for detecting newly granted buff.
-        private static readonly Dictionary<BonusBuffType, float> _preBreakValues = new();
-        // Pre-break level to detect spurious BreakBonusGauge calls (e.g. initialization).
-        private static int _preBreakLevel = -1;
+        // Bonuses active at the last settled level — the new level's bonuses are
+        // whatever is active afterwards and is not in here.
+        private static readonly HashSet<BonusBuffType> _activeBuffs = new();
 
-        /// <summary>Gap between repeated beeps in seconds.</summary>
-        private const float GaugeFillRepeatGap = 0.15f;
+        // A level change waits this long before it is spoken, so the game's bonus
+        // value cache has caught up with the new level.
+        private const float LevelSpeechDelay = 0.3f;
+        private static int _pendingLevel = -1;
+        private static float _pendingLevelTime;
+
+        // State captured by the BreakBonusGauge prefix, compared in the postfix.
+        private static int _preBreakLevel = -1;
+        private static float _preBreakRatio;
+
+        /// <summary>
+        /// Gap between repeated beeps in seconds. Each play restarts the cue, and its
+        /// audible part lasts ~0.2 s: at 0.15 s the beeps ran into each other and two
+        /// sounded like one (user report 2026-09-19).
+        /// </summary>
+        private const float GaugeFillRepeatGap = 0.25f;
 
         // All valid BonusBuffType values for iteration.
         private static readonly BonusBuffType[] _allBuffTypes = new[]
@@ -64,7 +80,7 @@ namespace SO2RAccess
         #region Patches
 
         /// <summary>
-        /// Registers Harmony hook on BreakBonusGauge for break detection.
+        /// Registers the Harmony hook on BreakBonusGauge (the gauge being lost).
         /// </summary>
         public void ApplyPatches(HarmonyLib.Harmony harmony)
         {
@@ -75,27 +91,22 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(BattleManager).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(BonusBuffType).TypeHandle);
 
-                try
+                var breakMethod = AccessTools.Method(typeof(BattleManager),
+                    "BreakBonusGauge", new[] { typeof(bool) });
+                if (breakMethod != null)
                 {
-                    var breakMethod = AccessTools.Method(typeof(BattleManager),
-                        "BreakBonusGauge", new[] { typeof(bool) });
-                    if (breakMethod != null)
-                    {
-                        harmony.Patch(breakMethod,
-                            prefix: new HarmonyMethod(typeof(BonusGaugeHandler),
-                                nameof(BreakBonusGauge_Prefix)),
-                            postfix: new HarmonyMethod(typeof(BonusGaugeHandler),
-                                nameof(BreakBonusGauge_Postfix)));
-                        DebugLogger.LogState("BonusGaugeHandler: BreakBonusGauge hook applied.");
-                    }
-                    else
-                    {
-                        MelonLogger.Warning("BonusGaugeHandler: BreakBonusGauge method not found.");
-                    }
+                    harmony.Patch(breakMethod,
+                        prefix: new HarmonyMethod(typeof(BonusGaugeHandler),
+                            nameof(BreakBonusGauge_Prefix)),
+                        postfix: new HarmonyMethod(typeof(BonusGaugeHandler),
+                            nameof(BreakBonusGauge_Postfix)));
+                    // Not debug-only: F12 is pressed long after start-up, and the
+                    // 2026-09-19 review could not confirm the hook from the log.
+                    MelonLogger.Msg("BonusGaugeHandler: BreakBonusGauge hook applied.");
                 }
-                catch (Exception ex)
+                else
                 {
-                    MelonLogger.Warning($"BonusGaugeHandler: BreakBonusGauge hook failed: {ex.Message}");
+                    MelonLogger.Warning("BonusGaugeHandler: BreakBonusGauge method not found.");
                 }
 
                 _patchesApplied = true;
@@ -112,95 +123,52 @@ namespace SO2RAccess
         #region Polling
 
         /// <summary>
-        /// Polls the bonus gauge ratio each frame during battle.
-        /// Plays sound cues at 25%, 50%, 75% thresholds.
+        /// Polls the bonus gauge each frame during battle: speaks the level once on
+        /// entry, reports level changes (speech + beeps) and speaks the fill percentage.
         /// </summary>
         public void Update()
         {
             var bm = BattleManager.Instance;
-            if (bm == null)
-            {
-                if (_wasInBattle) Reset();
-                return;
-            }
 
-            // BattleManager.Instance is a persistent singleton — it exists
-            // outside of battle too. Guard by checking battlePlayerList.
-            var playerList = bm.battlePlayerList;
+            // BattleManager.Instance is a persistent singleton — it exists outside of
+            // battle too, so a battle is recognised by its player list.
+            var playerList = bm?.battlePlayerList;
             if (playerList == null || playerList.Count == 0)
             {
                 if (_wasInBattle) Reset();
                 return;
             }
 
-            if (!_wasInBattle)
-            {
-                _wasInBattle = true;
-                _lastLevel = bm.sphereBonusBuffLevel;
-                _announcedThresholds.Clear();
-
-                // Seed thresholds based on current ratio so we don't replay
-                // sounds for gauge progress that happened before this battle
-                // (stale data from previous battle persists on BattleManager).
-                try
-                {
-                    float seedRatio = bm.GetBattleSphereBonusCurrentLevelRatio();
-                    int seedPct = (int)(seedRatio * 100f);
-                    if (seedPct >= 25) _announcedThresholds.Add(25);
-                    if (seedPct >= 50) _announcedThresholds.Add(50);
-                    if (seedPct >= 75) _announcedThresholds.Add(75);
-                    // Seed the spoken-percentage bucket so we don't replay the
-                    // backlog from a gauge already partially filled on entry.
-                    _lastAnnouncedGaugeBucket = seedPct - (seedPct % GaugePercentStep);
-                    DebugLogger.LogState($"BonusGauge: battle entered, level={_lastLevel}, ratio={seedRatio:F2}, seeded {_announcedThresholds.Count} thresholds.");
-                }
-                catch { }
-            }
-
-            // The beep cue and the spoken percentage are independent features —
-            // either can be on while the other is off. Bail only if BOTH are off.
-            bool beepEnabled = ModSettings.BonusGaugeSoundVolume >= 0.01f
-                && AudioCuePlayer.IsGaugeFillSoundLoaded;
-            bool percentEnabled = ModSettings.BonusGaugePercentAnnounceEnabled;
-            if (!beepEnabled && !percentEnabled) return;
-
-            int level = bm.sphereBonusBuffLevel;
-            if (level != _lastLevel)
-            {
-                _announcedThresholds.Clear();
-                // New level — the gauge ratio resets toward zero, so allow the
-                // spoken percentage to announce from the start of this level.
-                _lastAnnouncedGaugeBucket = -1;
-                _lastLevel = level;
-            }
-
             float ratio;
+            int level;
             try
             {
+                level = bm.sphereBonusBuffLevel;
                 ratio = bm.GetBattleSphereBonusCurrentLevelRatio();
             }
-            catch
+            catch (Exception ex)
             {
+                DebugLogger.LogState($"BonusGauge: read error: {ex.Message}");
                 return;
             }
 
             int pct = (int)(ratio * 100f);
 
-            // Beep cue at 25% / 50% / 75% thresholds.
-            if (beepEnabled)
+            if (!_wasInBattle)
             {
-                if (pct >= 25 && _announcedThresholds.Add(25))
-                    MelonCoroutines.Start(PlayGaugeFillCoroutine(1));
-                if (pct >= 50 && _announcedThresholds.Add(50))
-                    MelonCoroutines.Start(PlayGaugeFillCoroutine(2));
-                if (pct >= 75 && _announcedThresholds.Add(75))
-                    MelonCoroutines.Start(PlayGaugeFillCoroutine(3));
-                // 100% handled by BreakBonusGauge hook.
+                EnterBattle(bm, level, ratio, pct);
+                return;
             }
 
+            if (level != _lastLevel)
+                OnLevelChanged(_lastLevel, level);
+
+            if (_pendingLevel >= 0 && Time.time >= _pendingLevelTime)
+                SpeakPendingLevel(bm);
+
             // Spoken exact percentage, every GaugePercentStep percent as it climbs.
-            // Capped below 100% — the break announcement covers the level-up.
-            if (percentEnabled)
+            // Capped below 100% — the level announcement covers the level-up.
+            if (ModSettings.BonusGaugePercentAnnounceEnabled)
             {
                 int bucket = pct - (pct % GaugePercentStep);
                 if (bucket >= GaugePercentStep && bucket < 100
@@ -212,104 +180,157 @@ namespace SO2RAccess
             }
         }
 
+        /// <summary>
+        /// First frame of a battle. Level and fill carry over from the previous battle,
+        /// so the tracking is seeded from the live values (nothing is replayed) and the
+        /// level is spoken once when it is above zero.
+        /// </summary>
+        private static void EnterBattle(BattleManager bm, int level, float ratio, int pct)
+        {
+            _wasInBattle = true;
+            _lastLevel = level;
+            _pendingLevel = -1;
+            _lastAnnouncedGaugeBucket = pct - (pct % GaugePercentStep);
+            SnapshotActiveBuffs(bm, _activeBuffs);
+
+            DebugLogger.LogState($"BonusGauge: battle entered, level={level}, ratio={ratio:F2}, "
+                + $"active=[{string.Join(", ", _activeBuffs)}].");
+            ReviewProbes.LogBonusRows(bm, level, _allBuffTypes);
+
+            if (level > 0 && ModSettings.BonusGaugeLevelAnnounceEnabled)
+                ScreenReader.SayQueued(Loc.Get("bonus_gauge_level", level));
+        }
+
+        /// <summary>
+        /// The polled level moved (a level-up, or a drop the break hook did not report).
+        /// Beeps at once — one per level — and schedules the speech.
+        /// </summary>
+        private static void OnLevelChanged(int oldLevel, int newLevel)
+        {
+            DebugLogger.LogState($"BonusGauge: level {oldLevel} -> {newLevel}.");
+            _lastLevel = newLevel;
+
+            // New level — the gauge starts again near zero, so the spoken percentage
+            // may announce from the start of this level.
+            _lastAnnouncedGaugeBucket = -1;
+
+            PlayLevelBeeps(newLevel);
+
+            _pendingLevel = newLevel;
+            _pendingLevelTime = Time.time + LevelSpeechDelay;
+        }
+
+        /// <summary>
+        /// Speaks the scheduled level change together with the bonuses that became
+        /// active since the last settled level, then settles on the new set.
+        /// </summary>
+        private static void SpeakPendingLevel(BattleManager bm)
+        {
+            int level = _pendingLevel;
+            _pendingLevel = -1;
+
+            var now = new HashSet<BonusBuffType>();
+            SnapshotActiveBuffs(bm, now);
+
+            var gained = new List<string>();
+            foreach (var bt in _allBuffTypes)
+            {
+                if (now.Contains(bt) && !_activeBuffs.Contains(bt))
+                    gained.Add(Loc.Get($"bonus_buff_{bt.ToString().ToLower()}"));
+            }
+
+            _activeBuffs.Clear();
+            _activeBuffs.UnionWith(now);
+
+            DebugLogger.LogState($"BonusGauge: level {level} settled, gained=[{string.Join(", ", gained)}], "
+                + $"active=[{string.Join(", ", now)}].");
+            ReviewProbes.LogBonusRows(bm, level, _allBuffTypes);
+
+            if (!ModSettings.BonusGaugeLevelAnnounceEnabled) return;
+
+            ScreenReader.SayQueued(gained.Count > 0
+                ? Loc.Get("bonus_gauge_break", level, string.Join(", ", gained))
+                : Loc.Get("bonus_gauge_level", level));
+        }
+
+        /// <summary>Fills <paramref name="target"/> with every bonus that currently has a value.</summary>
+        private static void SnapshotActiveBuffs(BattleManager bm, HashSet<BonusBuffType> target)
+        {
+            target.Clear();
+            foreach (var bt in _allBuffTypes)
+            {
+                // Native call into a changing game API — one bad type must not
+                // lose the rest.
+                try
+                {
+                    if (bm.GetSphereBonusBuffValueCache(bt) > 0f) target.Add(bt);
+                }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogState($"BonusGauge: buff read error ({bt}): {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>Plays one gauge beep per level (nothing for level 0), if enabled.</summary>
+        private static void PlayLevelBeeps(int level)
+        {
+            if (level <= 0 || !ModSettings.BonusGaugeLevelBeepEnabled) return;
+            if (ModSettings.BonusGaugeSoundVolume < 0.01f || !AudioCuePlayer.IsGaugeFillSoundLoaded) return;
+            MelonCoroutines.Start(PlayGaugeFillCoroutine(level));
+        }
+
         #endregion
 
         #region Hook Callbacks
 
-        /// <summary>
-        /// Prefix: snapshot active buffs before break, suppress pending threshold sounds.
-        /// </summary>
+        /// <summary>Prefix: remember level and fill so the postfix can tell what was lost.</summary>
         private static void BreakBonusGauge_Prefix(BattleManager __instance)
         {
             try
             {
-                // Capture level before break to detect spurious calls
-                // (e.g. game calls BreakBonusGauge during initialization).
                 _preBreakLevel = __instance.sphereBonusBuffLevel;
-
-                // Mark all thresholds as announced to prevent duplicate sounds
-                // if polling runs in the same frame.
-                _announcedThresholds.Add(25);
-                _announcedThresholds.Add(50);
-                _announcedThresholds.Add(75);
-
-                // Snapshot current buffs to detect the new one in postfix.
-                _preBreakValues.Clear();
-                foreach (var bt in _allBuffTypes)
-                {
-                    try
-                    {
-                        float val = __instance.GetSphereBonusBuffValueCache(bt);
-                        if (val > 0f)
-                            _preBreakValues[bt] = val;
-                    }
-                    catch { }
-                }
-
-                DebugLogger.LogState($"BonusGauge.BreakPrefix: preLevel={_preBreakLevel}, preBuffCount={_preBreakValues.Count}");
+                _preBreakRatio = __instance.GetBattleSphereBonusCurrentLevelRatio();
             }
             catch (Exception ex)
             {
+                _preBreakLevel = -1;
                 DebugLogger.LogState($"BonusGauge.BreakPrefix error: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// Postfix: play 4 beeps for the break and announce new level and buff type.
+        /// Postfix: the gauge broke. Reported only when something was really lost — the
+        /// game also calls this on an empty gauge, which would be a false alarm.
         /// </summary>
         private static void BreakBonusGauge_Postfix(BattleManager __instance)
         {
             try
             {
                 int postLevel = __instance.sphereBonusBuffLevel;
+                float postRatio = __instance.GetBattleSphereBonusCurrentLevelRatio();
 
-                // Reset thresholds for the new level.
-                _announcedThresholds.Clear();
-                _lastAnnouncedGaugeBucket = -1;
+                bool lost = _preBreakLevel >= 0
+                    && (postLevel < _preBreakLevel
+                        || (postLevel == _preBreakLevel && postRatio < _preBreakRatio - 0.001f));
+
+                DebugLogger.LogState($"BonusGauge.Break: level {_preBreakLevel} -> {postLevel}, "
+                    + $"ratio {_preBreakRatio:F2} -> {postRatio:F2}, lost={lost}.");
+
+                if (!lost) return;
+
+                // Settle the tracking here so the poll does not report the same drop
+                // again as a level change.
                 _lastLevel = postLevel;
+                _pendingLevel = -1;
+                _lastAnnouncedGaugeBucket = -1;
+                SnapshotActiveBuffs(__instance, _activeBuffs);
 
-                // Spurious call check: if the level didn't increase, this is
-                // an initialization/reset call, not an actual gauge break.
-                if (postLevel <= _preBreakLevel)
-                {
-                    DebugLogger.LogState($"BonusGauge.BreakPostfix: spurious (preLevel={_preBreakLevel}, postLevel={postLevel}), skipping.");
-                    return;
-                }
+                if (ModSettings.BonusGaugeBreakSoundEnabled)
+                    AudioCuePlayer.PlayGaugeBreakCue();
 
-                DebugLogger.LogState($"BonusGauge.BreakPostfix: real break! preLevel={_preBreakLevel} → postLevel={postLevel}");
-
-                // Play 4 beeps for break.
-                if (ModSettings.BonusGaugeSoundVolume >= 0.01f
-                    && AudioCuePlayer.IsGaugeFillSoundLoaded)
-                {
-                    MelonCoroutines.Start(PlayGaugeFillCoroutine(4));
-                }
-
-                // Screen reader announcement.
-                if (!ModSettings.BonusGaugeBreakAnnouncementEnabled) return;
-
-                // Find newly added buff by comparing with pre-break snapshot.
-                BonusBuffType newBuff = BonusBuffType.INVALID;
-                foreach (var bt in _allBuffTypes)
-                {
-                    try
-                    {
-                        float val = __instance.GetSphereBonusBuffValueCache(bt);
-                        if (val > 0f && !_preBreakValues.ContainsKey(bt))
-                        {
-                            newBuff = bt;
-                            break;
-                        }
-                    }
-                    catch { }
-                }
-
-                string buffName = newBuff != BonusBuffType.INVALID
-                    ? Loc.Get($"bonus_buff_{newBuff.ToString().ToLower()}")
-                    : Loc.Get("bonus_buff_unknown");
-
-                ScreenReader.SayQueued(Loc.Get("bonus_gauge_break", postLevel, buffName));
-                DebugLogger.LogState($"BonusGauge break announced: level={postLevel}, buff={newBuff}");
+                if (ModSettings.BonusGaugeBreakAnnouncementEnabled)
+                    ScreenReader.SayQueued(Loc.Get("bonus_gauge_lost", postLevel));
             }
             catch (Exception ex)
             {
@@ -323,15 +344,17 @@ namespace SO2RAccess
 
         /// <summary>
         /// Coroutine that plays the gauge fill sound the specified number of times
-        /// with a short gap between each play.
+        /// with a short gap between each play. Real-time wait: the battle's time scale
+        /// (hit stop, slow motion) must not stretch or swallow the gaps.
         /// </summary>
         private static IEnumerator PlayGaugeFillCoroutine(int count)
         {
+            DebugLogger.LogState($"BonusGauge: playing {count} level beep(s), {GaugeFillRepeatGap:F2} s apart.");
             for (int i = 0; i < count; i++)
             {
                 AudioCuePlayer.PlayGaugeFillCue();
                 if (i < count - 1)
-                    yield return new WaitForSeconds(GaugeFillRepeatGap);
+                    yield return new WaitForSecondsRealtime(GaugeFillRepeatGap);
             }
         }
 
@@ -351,10 +374,10 @@ namespace SO2RAccess
         {
             _wasInBattle = false;
             _lastLevel = -1;
+            _pendingLevel = -1;
             _preBreakLevel = -1;
             _lastAnnouncedGaugeBucket = -1;
-            _announcedThresholds.Clear();
-            _preBreakValues.Clear();
+            _activeBuffs.Clear();
         }
 
         #endregion

@@ -1,0 +1,7 @@
+{
+  "Points": [
+    { "WaterPlaceId": 33, "X": 1019.0, "Y": -0.4, "Z": -355.7, "DirX": 0.0, "DirZ": 0.0, "Seen": 1 },
+    { "WaterPlaceId": 33, "X": 1018.4, "Y": -0.3, "Z": -360.9, "DirX": 0.0, "DirZ": -1.0, "Seen": 1 },
+    { "WaterPlaceId": 25, "X": -101.3, "Y": 27.6, "Z": -55.4, "DirX": -1.0, "DirZ": 0.0, "Seen": 1 }
+  ]
+}

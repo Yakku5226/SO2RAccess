@@ -675,6 +675,11 @@ namespace SO2RAccess
                         if (!item.canDecision)
                             sb.Append(", unavailable");
 
+                        // Books (Writing / Publication): the panel's "Total owned N".
+                        string owned = OwnedCountFor(name);
+                        if (owned != null)
+                            sb.Append(". ").Append(owned);
+
                         TextUtil.AppendPosition(sb, idx, count);
                         ScreenReader.Say(sb.ToString());
                         DebugLogger.LogState($"CampIC: action fallback [{idx}] {name}");

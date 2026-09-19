@@ -76,6 +76,12 @@ namespace SO2RAccess
             public Vector3?  FishingFallback;
             /// <summary>Water point to face at <see cref="FishingFallback"/>.</summary>
             public Vector3?  FishingFallbackFace;
+            /// <summary>
+            /// Source object for stable numbering (e.g. the chest/NPC gameObject, or fishing water parameter).
+            /// Used to maintain consistent item numbers across rebuilds on the same map.
+            /// Can be any object type that can be hashed for identity.
+            /// </summary>
+            public object SourceObject;
         }
 
         #endregion
@@ -119,6 +125,7 @@ namespace SO2RAccess
                     Position      = pos,
                     LiveTransform = chest.transform,
                     Consumed      = isOpened,
+                    SourceObject  = chest.gameObject,
                 });
             }
 
@@ -130,9 +137,15 @@ namespace SO2RAccess
             {
                 var  item     = items[i];
                 bool isOpened = item.Label.StartsWith(Loc.Get("nav_chest_opened"));
+
+                // Get or assign a stable number for this chest object
+                int stableNum = isOpened
+                    ? GetStableNumber(CAT_CHEST, item.SourceObject, openedNum++)
+                    : GetStableNumber(CAT_CHEST, item.SourceObject, unopenedNum++);
+
                 item.Label = isOpened
-                    ? Loc.Get("nav_chest_opened_n",   openedNum++)
-                    : Loc.Get("nav_chest_unopened_n", unopenedNum++);
+                    ? Loc.Get("nav_chest_opened_n",   stableNum)
+                    : Loc.Get("nav_chest_unopened_n", stableNum);
                 items[i] = item;
                 DebugLogger.LogGameValue("NAV:CHEST", $"[{item.Label}] dist={item.Distance:F1}");
             }
@@ -621,11 +634,17 @@ namespace SO2RAccess
             // Mark them for the beacon system, number them if there are several,
             // then annotate the proven-unreachable ones (world map only).
             bool bunny = _isWorldmap && WorldmapTravel.CurrentMode() == WorldmapTravelMode.Bunny;
+            int fishingNum = 1;
             for (int i = 0; i < items.Count; i++)
             {
                 var item = items[i];
                 item.IsFishing = true;
-                if (items.Count > 1) item.Label = Loc.Get("nav_fishing_n", i + 1);
+                if (items.Count > 1)
+                {
+                    // Use stable numbering based on source object
+                    int stableNum = GetStableNumber(CAT_INTERACTABLE, item.SourceObject, fishingNum++);
+                    item.Label = Loc.Get("nav_fishing_n", stableNum);
+                }
                 if (item.Unreachable)
                     item.Label = Loc.Get(bunny ? "nav_wm_unreachable_bunny" : "nav_wm_unreachable_foot", item.Label);
                 items[i] = item;
@@ -685,6 +704,7 @@ namespace SO2RAccess
                     // LiveTransform — the collider center is off NavMesh
                     // and would cause arrival distance to be too large.
                     FacePosition  = center,
+                    SourceObject  = spot.gameObject,
                 });
             }
 
@@ -1027,6 +1047,32 @@ namespace SO2RAccess
                     items[i] = item;
                 }
             }
+        }
+
+        /// <summary>
+        /// Gets or assigns a stable number for an object within a category.
+        /// First time: returns the next available number for this category.
+        /// Subsequent times: returns the same number (keyed by object identity).
+        /// </summary>
+        private int GetStableNumber(int categoryIndex, object obj, int nextAvailableNumber)
+        {
+            if (obj == null || categoryIndex < 0 || categoryIndex >= CAT_COUNT)
+                return nextAvailableNumber;
+
+            // Use GetInstanceID for UnityEngine.Object, otherwise use RuntimeHelpers.GetHashCode
+            int id;
+            if (obj is UnityEngine.Object uObj)
+                id = uObj.GetInstanceID();
+            else
+                id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+
+            var dict = _stableObjectIds[categoryIndex];
+
+            if (dict.ContainsKey(id))
+                return dict[id];
+
+            dict[id] = nextAvailableNumber;
+            return nextAvailableNumber;
         }
 
         #endregion

@@ -443,6 +443,14 @@ namespace SO2RAccess
                 _isWorldmap = fm.IsWorldmap();
                 var sw = System.Diagnostics.Stopwatch.StartNew();
 
+                // Clear stable object IDs when entering a new map — numbers will
+                // restart from 1 based on distance order on the new map.
+                if (_listBuiltMapID != mapID)
+                {
+                    for (int i = 0; i < CAT_COUNT; i++)
+                        _stableObjectIds[i].Clear();
+                }
+
                 // Start from nothing. The builders each clear their own category
                 // EXCEPT Interactables (fishing spots and interactable objects are
                 // appended by two builders); closing the list used to clear it

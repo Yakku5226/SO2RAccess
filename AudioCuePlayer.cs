@@ -10,7 +10,7 @@ namespace SO2RAccess
     /// Cue audio comes from <see cref="EmbeddedSounds"/>: WAVs compiled into this DLL,
     /// or the user's own copies of the same names in UserData\SO2RAccess\Sounds.
     /// </summary>
-    public static class AudioCuePlayer
+    public static partial class AudioCuePlayer
     {
         [DllImport("winmm.dll", SetLastError = true)]
         private static extern bool PlaySound(byte[] pszSound, IntPtr hmod, uint fdwSound);
@@ -608,6 +608,8 @@ namespace SO2RAccess
                 _fishPromptSoundPtr = IntPtr.Zero;
             }
             _fishPromptSoundLoaded = false;
+
+            _gaugeBreakCue.Free();
 
             _initialized = false;
         }

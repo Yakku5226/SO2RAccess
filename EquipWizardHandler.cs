@@ -173,6 +173,15 @@ namespace SO2RAccess
                 {
                     _lastDataIndex = dataIdx;
                     _lastMenuIndex = -1;
+                    // After the last character the index steps past the list just before
+                    // the window closes; announcing then repeats the previous character's
+                    // heading without any changes (log 2026-09-19 15:48:30).
+                    var dataList = _selector.equipWizardDataList;
+                    if (dataList == null || dataIdx < 0 || dataIdx >= dataList.Count)
+                    {
+                        DebugLogger.LogState($"EquipWizard: index {dataIdx} is past the last entry — closing, not announced.");
+                        return;
+                    }
                     AnnounceWizardEntry();
                     return;
                 }

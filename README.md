@@ -15,7 +15,7 @@ The mod is built on [MelonLoader](https://melonwiki.xyz/) and uses the [Tolk](ht
 - World map navigation — pathfinding auto-walk or spoken directions to towns, dungeons, undiscovered landmarks and fishing spots across the world map, with honest feedback when a destination cannot be reached on foot.
 - Battle accessibility — target announcements, enemy proximity cues, dodge notifications, and status readouts during real-time battles.
 - Fishing support — navigate to fishing spots and get an audio cue the moment you can cast. When no fishing prompt can appear, the mod says why: the party leader lacks the Fishing skill, or the last step onto the shore is blocked ("Stopped N meters short").
-- Audio cues — distinct sounds for events like a nearby enemy, a dodge window, save points, private actions, and bonus gauge progress. Sound and speech output can be toggled independently.
+- Audio cues — distinct sounds for events like a nearby enemy, a dodge window, save points, private actions, and the bonus gauge (one beep per level when the level changes, a separate sound when the gauge breaks). Sound and speech output can be toggled independently.
 - Community translations — all spoken text lives in a plain JSON file; anyone can translate the mod without code changes, and the mod can follow the game's own language setting automatically. See [TRANSLATING.md](TRANSLATING.md).
 
 ## Requirements
@@ -183,7 +183,8 @@ The notification sounds are sourced from [Freesound](https://freesound.org/) und
 - Menu Beep (save sound) by CogFireStudios — <https://freesound.org/s/531511/> — License: Creative Commons 0
 - Dangerous City (enemy approach) by pholosho_seloane — <https://freesound.org/s/548162/> — License: Creative Commons 0
 - Mobile Phone Notification Sound (private action notification) by TheArbuzikYT — <https://freesound.org/s/840284/> — License: Creative Commons 0
-- Menu Beep (bonus gauge fill) by DrMrSir — <https://freesound.org/s/529560/> — License: Attribution 4.0
+- Bonus gauge break sound: synthesized placeholder made for this mod (no third-party material).
+- Menu Beep (bonus gauge level beeps) by DrMrSir — <https://freesound.org/s/529560/> — License: Attribution 4.0
 - bubble_big (fishing spot arrival) by cdonahueucsd — <https://freesound.org/s/337133/> — License: Attribution 4.0
 - correct (NPC beacon) by ertfelda — <https://freesound.org/s/243701/> — License: Creative Commons 0
 - Bolt Lock 5 (chest beacon) by LordForklift — <https://freesound.org/s/448416/> — License: Creative Commons 0

@@ -56,6 +56,12 @@ namespace SO2RAccess
         internal const float WmSweepEndpointExemptDist = 16f;
 
         /// <summary>
+        /// True only while planning to an UNPROVEN fishing stand that has a proven
+        /// fallback: the route sweep then exempts neither endpoint (see the sweep).
+        /// </summary>
+        private bool _wmSweepWholeRoute;
+
+        /// <summary>
         /// Maximum distance (meters) at which a straight-line fallback is
         /// still used when the grid pathfinder finds no path. Close-range
         /// failures are usually grid-snap artifacts; beyond this, "no path"
@@ -651,12 +657,20 @@ namespace SO2RAccess
             if (bestPath != null) targetPos = bestPath[bestPath.Length - 1];
             if (bestPath != null && mode == WorldmapTravelMode.Foot)
             {
+                // Strict mode (unproven fishing stand with a proven fallback): sweep
+                // the WHOLE route. A refusal there only switches to the proven stand,
+                // so nothing is lost — while the exemption let an 11 m route wedge on
+                // a fence 5.6 m from the stand (log 2026-09-19 14:23).
+                float endpointExempt = _wmSweepWholeRoute ? 0f : WmSweepEndpointExemptDist;
+                if (_wmSweepWholeRoute)
+                    DebugLogger.LogState("NAV WM route sweep: strict — unproven fishing stand, no endpoint exemption.");
+
                 for (int round = 0; round < 2 && bestPath != null; round++)
                 {
                     int wedges = CountRouteWedges(
-                        bestPath, targetPos, WmSweepEndpointExemptDist,
+                        bestPath, targetPos, endpointExempt,
                         markBlocked: true,
-                        startExemptDist: WmSweepEndpointExemptDist);
+                        startExemptDist: endpointExempt);
                     if (wedges == 0) break;
 
                     DebugLogger.LogState(
@@ -681,8 +695,8 @@ namespace SO2RAccess
 
                 if (bestPath != null &&
                     CountRouteWedges(bestPath, targetPos,
-                        WmSweepEndpointExemptDist, markBlocked: false,
-                        startExemptDist: WmSweepEndpointExemptDist) > 0)
+                        endpointExempt, markBlocked: false,
+                        startExemptDist: endpointExempt) > 0)
                 {
                     DebugLogger.LogState(
                         "NAV WM route sweep: no physically passable " +

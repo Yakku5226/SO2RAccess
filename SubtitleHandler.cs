@@ -494,6 +494,15 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// Silent variant of <see cref="DumpVisibleText"/> for diagnostics: logs every
+        /// visible on-screen text under <paramref name="label"/> and returns the count.
+        /// </summary>
+        public static int LogVisibleText(string label)
+        {
+            return SweepVisibleText(label, null, captionPathsOnly: false);
+        }
+
+        /// <summary>
         /// Walks every active TMP text in the scene and logs the non-empty ones.
         /// When <paramref name="seen"/> is supplied, only first sightings are logged.
         /// Returns how many were logged.

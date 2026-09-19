@@ -78,8 +78,20 @@ namespace SO2RAccess
         /// <summary>Volume of the bonus gauge fill sound (0.0 to 1.0). 0 = off.</summary>
         public static float BonusGaugeSoundVolume { get; set; } = 0.7f;
 
-        /// <summary>Whether the bonus gauge break level/buff announcement is enabled.</summary>
+        /// <summary>Whether the bonus gauge BREAK (the gauge being lost) is spoken.</summary>
         public static bool BonusGaugeBreakAnnouncementEnabled { get; set; } = true;
+
+        /// <summary>Whether the break cue plays when the bonus gauge is lost.</summary>
+        public static bool BonusGaugeBreakSoundEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Whether the bonus gauge level is spoken: once at battle start (when above
+        /// zero) and on every level change, with the bonuses the new level switched on.
+        /// </summary>
+        public static bool BonusGaugeLevelAnnounceEnabled { get; set; } = true;
+
+        /// <summary>Whether a level change plays one beep per level (level 2 = 2 beeps).</summary>
+        public static bool BonusGaugeLevelBeepEnabled { get; set; } = true;
 
         /// <summary>
         /// Whether the bonus gauge fill percentage is spoken (every 5%) as it rises.
@@ -257,6 +269,9 @@ namespace SO2RAccess
                     PrivateActionSoundVolume = Math.Clamp(data.PrivateActionSoundVolume, 0f, 1f);
                     BonusGaugeSoundVolume = Math.Clamp(data.BonusGaugeSoundVolume, 0f, 1f);
                     BonusGaugeBreakAnnouncementEnabled = data.BonusGaugeBreakAnnouncementEnabled;
+                    BonusGaugeBreakSoundEnabled = data.BonusGaugeBreakSoundEnabled;
+                    BonusGaugeLevelAnnounceEnabled = data.BonusGaugeLevelAnnounceEnabled;
+                    BonusGaugeLevelBeepEnabled = data.BonusGaugeLevelBeepEnabled;
                     BonusGaugePercentAnnounceEnabled = data.BonusGaugePercentAnnounceEnabled;
                     JumpPromptSoundEnabled = data.JumpPromptSoundEnabled;
                     JumpPromptSoundVolume = Math.Clamp(data.JumpPromptSoundVolume, 0f, 1f);
@@ -325,6 +340,9 @@ namespace SO2RAccess
                     PrivateActionSoundVolume = PrivateActionSoundVolume,
                     BonusGaugeSoundVolume = BonusGaugeSoundVolume,
                     BonusGaugeBreakAnnouncementEnabled = BonusGaugeBreakAnnouncementEnabled,
+                    BonusGaugeBreakSoundEnabled = BonusGaugeBreakSoundEnabled,
+                    BonusGaugeLevelAnnounceEnabled = BonusGaugeLevelAnnounceEnabled,
+                    BonusGaugeLevelBeepEnabled = BonusGaugeLevelBeepEnabled,
                     BonusGaugePercentAnnounceEnabled = BonusGaugePercentAnnounceEnabled,
                     JumpPromptSoundEnabled = JumpPromptSoundEnabled,
                     JumpPromptSoundVolume = JumpPromptSoundVolume,
@@ -436,6 +454,9 @@ namespace SO2RAccess
             public float PrivateActionSoundVolume { get; set; } = 0.7f;
             public float BonusGaugeSoundVolume { get; set; } = 0.7f;
             public bool BonusGaugeBreakAnnouncementEnabled { get; set; } = true;
+            public bool BonusGaugeBreakSoundEnabled { get; set; } = true;
+            public bool BonusGaugeLevelAnnounceEnabled { get; set; } = true;
+            public bool BonusGaugeLevelBeepEnabled { get; set; } = true;
             public bool BonusGaugePercentAnnounceEnabled { get; set; } = false;
             public bool JumpPromptSoundEnabled { get; set; } = true;
             public float JumpPromptSoundVolume { get; set; } = 0.8f;

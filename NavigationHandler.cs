@@ -188,6 +188,11 @@ namespace SO2RAccess
         #region State
 
         private readonly List<NavItem>[] _categories;
+        /// <summary>
+        /// Per-category dictionaries mapping object instance ID to stable assigned number.
+        /// Clears when entering a new map; numbers stay fixed throughout the session on that map.
+        /// </summary>
+        private readonly Dictionary<int, int>[] _stableObjectIds;
         private bool _isOpen;
         private int  _currentCategoryIndex;
         private int  _currentItemIndex;
@@ -419,8 +424,12 @@ namespace SO2RAccess
         public NavigationHandler()
         {
             _categories = new List<NavItem>[CAT_COUNT];
+            _stableObjectIds = new Dictionary<int, int>[CAT_COUNT];
             for (int i = 0; i < CAT_COUNT; i++)
+            {
                 _categories[i] = new List<NavItem>();
+                _stableObjectIds[i] = new Dictionary<int, int>();
+            }
 
             _navPath = new NavMeshPath();
         }

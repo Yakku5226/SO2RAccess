@@ -3,6 +3,7 @@ using Il2CppGame;
 using Il2CppSystem.Collections.Generic;
 using MelonLoader;
 using System;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -121,6 +122,17 @@ namespace SO2RAccess
                 RuntimeHelpers.RunClassConstructor(typeof(UIFieldInformationStackSelector).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIFieldInformationStackDataBase).TypeHandle);
                 RuntimeHelpers.RunClassConstructor(typeof(UIFieldItemInformationStackData).TypeHandle);
+
+                // Item pickup popups: count argument + stock for the carry-cap wording.
+                RuntimeHelpers.RunClassConstructor(typeof(UIFieldController).TypeHandle);
+                harmony.Patch(
+                    AccessTools.Method(typeof(UIFieldController), "ShowItemInformation",
+                        new Type[] { typeof(int), typeof(int), typeof(FactorID) }),
+                    prefix: new HarmonyMethod(typeof(NotificationHandler),
+                        nameof(ShowItemInformation_Prefix)),
+                    postfix: new HarmonyMethod(typeof(NotificationHandler),
+                        nameof(ShowItemInformation_Postfix))
+                );
 
                 // Fires when a tutorial page is displayed or navigated to.
                 harmony.Patch(
@@ -461,6 +473,7 @@ namespace SO2RAccess
                     // High priority: reward popups must not be choked by the skill
                     // readout that fires a few frames later.
                     ScreenReader.Say(announcement, true, ScreenReader.Priority.High);
+                    _lastOverflowAnnounceTime = UnityEngine.Time.unscaledTime;
                     DebugLogger.LogGameValue("OverflowItem",
                         $"msg='{msg}' itemCount={itemList.Count} announced={appended}");
                 }
@@ -582,6 +595,14 @@ namespace SO2RAccess
 
                 string charName = StripTags(__instance?.CharacterName ?? "");
 
+                // CharacterName is empty for some members (log 2026-09-19: char=''
+                // charId=9) — resolve it from the ID like the item creation tabs do.
+                if (string.IsNullOrEmpty(charName) && charId > 0)
+                {
+                    try { charName = ParameterManager.Instance?.GetCharacterFirstName((PlayerID)charId) ?? ""; }
+                    catch (Exception ex) { DebugLogger.LogState($"TalentLearned: name lookup failed: {ex.Message}"); }
+                }
+
                 string announcement = string.IsNullOrEmpty(charName)
                     ? Loc.Get("talent_learned", talentName)
                     : Loc.Get("talent_learned_named", charName, talentName);
@@ -629,6 +650,11 @@ namespace SO2RAccess
                     name = itemName;
             }
 
+            // Money (royalty cheques etc.): the game builds the entry with the raw
+            // resource name "FOL" — spoken as "GET! FOL x1008000" (log 2026-09-19).
+            if (itemID <= 0 && string.Equals(name, "FOL", StringComparison.OrdinalIgnoreCase))
+                return Loc.Get("reward_fol", count.ToString("N0"));
+
             if (!string.IsNullOrEmpty(name))
             {
                 return count > 1
@@ -674,6 +700,12 @@ namespace SO2RAccess
             }
         }
 
+        /// <summary>Unscaled time of the last item popup announcement; far in the past before the first one.</summary>
+        private static float _lastOverflowAnnounceTime = -100f;
+
+        /// <summary>Seconds after an item popup announcement during which the reward line for the same popup is dropped.</summary>
+        private const float RewardAfterOverflowWindow = 0.5f;
+
         /// <summary>
         /// Postfix for GameManager.GiveRewardWithWindow(List, Action, bool, string, string, Jingle).
         /// Fires when the game awards rewards with a popup window via managed code
@@ -686,6 +718,15 @@ namespace SO2RAccess
             try
             {
                 if (rewardParameterList == null || rewardParameterList.Count == 0) return;
+
+                // The reward window is the overflow popup: when that one has just read the
+                // complete list, this second line only cuts it off with a poorer text
+                // (item names unresolved here — a bare "CLEAR", log 2026-09-19 15:46:34).
+                if (UnityEngine.Time.unscaledTime - _lastOverflowAnnounceTime < RewardAfterOverflowWindow)
+                {
+                    DebugLogger.LogState("Reward: skipped, the item popup already announced this reward.");
+                    return;
+                }
 
                 var sb = new StringBuilder();
 
@@ -760,11 +801,26 @@ namespace SO2RAccess
                     }
 
                     string itemAnnouncement = sb.ToString().Trim();
+
+                    // Money lines carry no word at all: the game draws a Fol icon next
+                    // to a bare number (log 2026-09-18: info='169' count=-1 unit=''),
+                    // so "EXP 684. 169" was spoken. A line that is only digits with no
+                    // count and no unit is the Fol gain — give it its label.
+                    if (IsBareFolAmount(info, getText, count, unit))
+                        itemAnnouncement = Loc.Get("reward_fol", info);
+
+                    // Pickup at the carry cap: the game is asked to show 1 but shows
+                    // the capped stock instead ("Pet Food x20") and adds nothing
+                    // (probe 2026-09-19). Say that rather than a misleading amount.
+                    else if (_pickupCountArg >= 0 && count > _pickupCountArg && count == _pickupStock)
+                        itemAnnouncement = Loc.Get("pickup_at_cap", info, count);
+
                     if (!string.IsNullOrEmpty(itemAnnouncement))
                     {
                         QueueNotification(itemAnnouncement);
                         DebugLogger.LogGameValue("FieldInfoStack(item)",
-                            $"getText='{getText}' info='{info}' count={count} unit='{unit}'");
+                            $"getText='{getText}' info='{info}' count={count} unit='{unit}' "
+                            + $"icon='{SafeIconName(itemData)}'");
                     }
                     return;
                 }
@@ -781,6 +837,51 @@ namespace SO2RAccess
                 MelonLogger.Warning(
                     $"FieldInformationStack_ShowInformation_Postfix: {ex.Message}");
             }
+        }
+
+        /// <summary>Count argument and stock of the item pickup being shown; -1 outside one.</summary>
+        private static int _pickupCountArg = -1;
+        private static int _pickupStock = -1;
+
+        /// <summary>
+        /// Prefix for UIFieldController.ShowItemInformation: the popup data built inside
+        /// carries no item ID, so the amount really gained and the stock are noted here.
+        /// </summary>
+        private static void ShowItemInformation_Prefix(int itemID, int count)
+        {
+            _pickupCountArg = count;
+            try { _pickupStock = ItemManager.Instance?.GetItemCount(itemID) ?? -1; }
+            catch (Exception ex)
+            {
+                _pickupStock = -1;
+                DebugLogger.LogState($"Pickup: stock read error: {ex.Message}");
+            }
+        }
+
+        /// <summary>Postfix for UIFieldController.ShowItemInformation: the pickup popup is built.</summary>
+        private static void ShowItemInformation_Postfix()
+        {
+            _pickupCountArg = -1;
+            _pickupStock = -1;
+        }
+
+        /// <summary>
+        /// True when an item-style field notification is the icon-only Fol gain: the
+        /// text is digits (thousands separators allowed) and nothing else is filled in.
+        /// </summary>
+        private static bool IsBareFolAmount(string info, string getText, int count, string unit)
+        {
+            if (string.IsNullOrEmpty(info) || count > 0) return false;
+            if (!string.IsNullOrEmpty(getText) || !string.IsNullOrEmpty(unit)) return false;
+            return info.Any(char.IsDigit)
+                && info.All(c => char.IsDigit(c) || c == ',' || c == '.' || c == ' ');
+        }
+
+        /// <summary>Icon sprite name of a field notification, for the debug log only.</summary>
+        private static string SafeIconName(UIFieldItemInformationStackData itemData)
+        {
+            try { return itemData.icon != null ? itemData.icon.name : ""; }
+            catch { return "?"; }
         }
 
         #endregion

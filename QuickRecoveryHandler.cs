@@ -38,6 +38,12 @@ namespace SO2RAccess
 
         private UIFieldQuickRecoverySelector _selector;
 
+        // The window that owns the field selector; the authority on whether the
+        // quick heal menu is really showing (see IsFieldWindowShowingRecovery).
+        private UIFieldWindow _fieldWindow;
+        private bool _fieldWindowMissingLogged;
+        private bool _lastWindowShowing;
+
         // Camp variant (D-pad Right on the camp root menu, game binding
         // CampQuickRecovery): UICampQuickRecoverySelector under UICampMenuSelector.
         // The camp window reports IsOpened=false while it shows (log 2026-09-06
@@ -162,6 +168,8 @@ namespace SO2RAccess
         public void OnSceneChanged()
         {
             _selector = null;
+            _fieldWindow = null;
+            _lastWindowShowing = false;
             _campSelector = null;
             _campOpen = false;
             _campMode = false;
@@ -215,6 +223,16 @@ namespace SO2RAccess
                     ref _selector, ref _nextFindTime,
                     s => s.gameObject?.activeInHierarchy == true
                          && s.recoveryDataList?.Count > 0);
+
+                // Even with data the overlay is not proof: once the menu has been
+                // used, the selector stays active AND populated after it closes (log
+                // 2026-09-18: a real open was silent because the mod believed it was
+                // already open, and every camp close re-read the heading). The owning
+                // field window knows the truth, so it has the final say.
+                if (isActive && !IsFieldWindowShowingRecovery())
+                {
+                    isActive = false;
+                }
 
                 // The recovery overlay stays active with populated data even while a
                 // scripted event or conversation is running, which previously produced a
@@ -359,6 +377,49 @@ namespace SO2RAccess
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// True when the field window that owns the quick heal overlay is open and in
+        /// its QuickRecovery state. The window is resolved once from the selector's
+        /// parents (GetComponent also works on inactive objects). If it cannot be
+        /// found the old overlay-only detection stays in charge, and that is logged.
+        /// </summary>
+        private bool IsFieldWindowShowingRecovery()
+        {
+            try
+            {
+                if (_fieldWindow == null && _selector != null)
+                {
+                    for (var t = _selector.transform; t != null && _fieldWindow == null; t = t.parent)
+                        _fieldWindow = t.GetComponent<UIFieldWindow>();
+
+                    if (_fieldWindow == null && !_fieldWindowMissingLogged)
+                    {
+                        _fieldWindowMissingLogged = true;
+                        DebugLogger.LogState("QuickRecovery: no UIFieldWindow above the selector — overlay-only detection.");
+                    }
+                }
+
+                if (_fieldWindow == null) return true;
+
+                bool showing = _fieldWindow.IsOpened
+                    && _fieldWindow.OpenFieldState == UIDefine.FieldState.QuickRecovery;
+                if (showing != _lastWindowShowing)
+                {
+                    _lastWindowShowing = showing;
+                    DebugLogger.LogState($"QuickRecovery: field window showing={showing} "
+                        + $"(IsOpened={_fieldWindow.IsOpened}, state={_fieldWindow.OpenFieldState}).");
+                }
+                return showing;
+            }
+            catch (Exception ex)
+            {
+                // Window destroyed on a scene change: drop the cache, re-resolve later.
+                _fieldWindow = null;
+                DebugLogger.LogState($"QuickRecovery: field window check error: {ex.Message}");
+                return false;
+            }
         }
 
         /// <summary>The open variant's projected recovery list (camp or field), or null.</summary>

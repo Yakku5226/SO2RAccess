@@ -377,6 +377,18 @@ namespace SO2RAccess
                         nameof(SkillInfoPresenter_Set_IC_Postfix))
                 );
 
+                // Second Set overload: super specialties on IC tab 2. Carries the
+                // level of a learned skill (the game then shows "Lv N", no requirements).
+                harmony.Patch(
+                    AccessTools.Method(typeof(UISpecialSkillInformationPresenter), "Set",
+                        new Type[] {
+                            typeof(string), typeof(string), typeof(string), typeof(string),
+                            typeof(bool), typeof(bool), typeof(string), typeof(bool), typeof(int)
+                        }),
+                    postfix: new HarmonyMethod(typeof(CampMenuHandler),
+                        nameof(SkillInfoPresenter_SetTwoConditions_Postfix))
+                );
+
                 // UIItemCreationInformationPresenter.Set fires when the creation info
                 // panel updates (action screen, CallerCount 1).
                 harmony.Patch(

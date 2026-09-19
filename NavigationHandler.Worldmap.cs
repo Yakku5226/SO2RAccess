@@ -236,7 +236,9 @@ namespace SO2RAccess
                 // CURRENT facing, and rotating could dismiss it.
                 if (_autoWalkCategoryIndex == CAT_INTERACTABLE &&
                     FieldPromptHandler.FishPromptShowing &&
-                    targetDist <= WmFishBubbleArrivalMeters)
+                    // The creep / shore search left the stand on purpose (a remembered
+                    // bubble can lie farther out), so any bubble during it is the arrival.
+                    (targetDist <= WmFishBubbleArrivalMeters || _wmFishCreepActive))
                 {
                     _wmFishCreepActive = false;
                     StopAutoWalk();
@@ -697,9 +699,13 @@ namespace SO2RAccess
             else
                 _wmGoalCandidates.Clear(); // exact targets plan to one point
 
-            if (CalculateAndStorePath(playerPos, walkTarget,
-                    allowPartial: true, isCounter: item.IsCounterNpc))
-                return true;
+            // An unproven fishing stand with a proven fallback is swept end to end:
+            // failing here costs nothing, the proven stand is planned next.
+            _wmSweepWholeRoute = item.IsFishing && item.FishingFallback.HasValue;
+            bool planned = CalculateAndStorePath(playerPos, walkTarget,
+                allowPartial: true, isCounter: item.IsCounterNpc);
+            _wmSweepWholeRoute = false;
+            if (planned) return true;
 
             // Fishing: the listed stand is the nearest shore point, which may sit
             // at a cliff foot the bake never proved. Retarget ONCE to the lake's

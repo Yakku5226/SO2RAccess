@@ -89,6 +89,22 @@ namespace SO2RAccess
         /// superSpecialSkillLearningPresenter's condition GameText fields.
         /// Called from UpdateICSkillSelection when _icLastTab == 2.
         /// </summary>
+        /// <summary>Skill name and level from the last two-condition Set call (tab 2 rows).</summary>
+        private static string _ssTab2HookName;
+        private static int _ssTab2HookLevel = -1;
+
+        /// <summary>
+        /// Postfix hook for the two-condition UISpecialSkillInformationPresenter.Set
+        /// overload — the one the game uses for super specialties on IC tab 2. Records
+        /// the level (above 0 = learned) for <see cref="TryPollSuperSpecialtyTab"/>.
+        /// Harmony calls this by name — must match nameof() in ApplyPatches.
+        /// </summary>
+        private static void SkillInfoPresenter_SetTwoConditions_Postfix(string skillName, int level)
+        {
+            _ssTab2HookName = skillName;
+            _ssTab2HookLevel = level;
+        }
+
         private void TryPollSuperSpecialtyTab()
         {
             try
@@ -117,6 +133,21 @@ namespace SO2RAccess
 
                 string name = infoPresenter.skillName?.text;
                 fragments.Add(name);
+
+                // A LEARNED super specialty shows "Lv N" and hides the requirements
+                // panel (probe 2026-09-19) — mirror that instead of listing
+                // requirements that no longer matter.
+                int learnedLevel = _ssTab2HookName == name ? _ssTab2HookLevel : -1;
+                if (learnedLevel > 0)
+                {
+                    fragments.Add(Loc.Get("ic_skill_level", learnedLevel));
+                    fragments.Add(infoPresenter.skillDescription?.text);
+                    ScreenReader.Say(TextUtil.JoinSentences(fragments)
+                        + ". " + Loc.Get("ss_position", idx + 1, count));
+                    DebugLogger.LogState($"CampSS tab2: {name} learned lv{learnedLevel}, idx={idx}/{count}");
+                    return;
+                }
+
                 fragments.Add(infoPresenter.skillDescription?.text);
 
                 // Super specialty requirements. The shared sub-presenter

@@ -273,8 +273,14 @@ namespace SO2RAccess
                         continue;
                     }
 
-                    var stand = ChooseFishingStand(file, place, mode, startRegions, playerPos,
+                    // A remembered real bubble beats "nearest the player": the stand next
+                    // to it is where the arrival creep can reach it from.
+                    var remembered = WorldmapBubbleMemory.NearestForPlace(wmId, spot.WaterPlaceID, playerPos);
+                    var stand = ChooseFishingStand(file, place, mode, startRegions,
+                        remembered?.Position ?? playerPos,
                         out bool unreachable, out FishingStandEntry fallback, out string reason);
+                    if (remembered != null)
+                        reason += $"; chosen nearest the remembered bubble ({remembered.X:F1},{remembered.Z:F1})";
                     Vector3 pos = stand.Position;
                     Vector3 face = pos + stand.Facing * file.FrontDistance;
                     float dist = FlatDistance(playerPos, pos);
@@ -298,6 +304,7 @@ namespace SO2RAccess
                         FishingFallbackFace = fallback != null
                             ? fallback.Position + fallback.Facing * file.FrontDistance
                             : (Vector3?)null,
+                        SourceObject        = spot,  // ConstFishingWaterPlaceParameter as stable source
                     });
                 }
                 catch (Exception ex)
@@ -327,18 +334,19 @@ namespace SO2RAccess
         /// stand as the walk's silent fallback. A file without proofs treats every
         /// stand as "proof unknown" (no annotation, no fallback). Bunny travel needs
         /// a bunny-passable cell (the proofs are foot sweeps, so no fallback); the
-        /// psynard reaches everything.
+        /// psynard reaches everything. <paramref name="anchorPos"/> is the player, or the
+        /// remembered real bubble of this water when there is one.
         /// </summary>
         private static FishingStandEntry ChooseFishingStand(FishingStandFile file,
             FishingPlaceStands place, WorldmapTravelMode mode, List<int> startRegions,
-            Vector3 playerPos, out bool unreachable, out FishingStandEntry fallback,
+            Vector3 anchorPos, out bool unreachable, out FishingStandEntry fallback,
             out string reason)
         {
             unreachable = false;
             fallback = null;
             // Nearest first; predicates are only evaluated until the first match.
             var byDistance = place.Stands
-                .OrderBy(s => (s.X - playerPos.x) * (s.X - playerPos.x) + (s.Z - playerPos.z) * (s.Z - playerPos.z))
+                .OrderBy(s => (s.X - anchorPos.x) * (s.X - anchorPos.x) + (s.Z - anchorPos.z) * (s.Z - anchorPos.z))
                 .ToList();
 
             if (mode == WorldmapTravelMode.Psynard)

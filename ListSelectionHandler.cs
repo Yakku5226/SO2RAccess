@@ -131,6 +131,7 @@ namespace SO2RAccess
 
             // Equip wizard / overflow flows
             "UIItemDiscardListItemPresenter",
+            "UIEquipWizardListItemPresenter",
         };
 
         #endregion

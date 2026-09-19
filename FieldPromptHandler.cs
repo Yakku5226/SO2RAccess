@@ -419,10 +419,31 @@ namespace SO2RAccess
                 if (!TryGetPlayerPos(out _fishAnnouncePos))
                     _fishAnnouncePos = UnityEngine.Vector3.zero;
                 DebugLogger.LogGameValue("FieldPrompt", "fishing bubble shown");
+                RememberWorldmapBubble();
             }
             else
             {
                 DebugLogger.LogState("FieldPrompt: fishing bubble hidden.");
+            }
+        }
+
+        /// <summary>
+        /// World map only: saves where the bubble just appeared so later walks to this
+        /// water go straight there (<see cref="WorldmapBubbleMemory"/>).
+        /// </summary>
+        private static void RememberWorldmapBubble()
+        {
+            try
+            {
+                var fm = FieldManager.Instance;
+                var player = fm?.GetControlPlayer();
+                if (player == null || !fm.IsWorldmap()) return;
+                WorldmapBubbleMemory.Record(fm.WorldmapID, fm.GetContactFishingWaterPlaceID(),
+                    player.transform.position, player.transform.forward);
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"FieldPrompt: bubble memory failed: {ex.Message}");
             }
         }
 

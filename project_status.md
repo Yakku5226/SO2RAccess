@@ -37,6 +37,221 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> 🔧 **SESSION 36, later: STABLE OBJECT NUMBERING BUILT — 0 warnings, DLL in Mods, ⏳ UNTESTED, uncommitted.**
+> Navigation items (chests, fishing spots, stairs, doors, warp points) now keep their fixed numbers throughout a map
+> session, independent of distance changes. Implemented via Dictionary<int, int> per category (object ID → assigned number),
+> cleared on map entry. NavItem.SourceObject set during collection for all item types; GetStableNumber() assigns first-come
+> numbers and stores them. Supports both UnityEngine.Object types (ID via GetInstanceID) and Il2Cpp parameter objects
+> (ID via RuntimeHelpers.GetHashCode). NEXT SESSION: test with chests and fishing spots, then decide on safe-exit fix.
+>
+> 📖 **SESSION 36 (2026-09-19, log 17:38–17:47, F12 on): SESSION-35 BUILD READ FROM THE LOG. No code changed yet.**
+> PASS (a): Lacuer east lake (place 33) — `remembered bubble at (1019.0,−355.7), 4.1 m away — creeping there`,
+> `player check TRUE` 0.6 s later, bubble, "Arrived", `BubbleMemory: known point … seen again (2×)`.
+> NOT TESTED: (b) shore search, (c) Krosse, (d) by-hand bubble save, equip wizard, quick heal, gauge toggles.
+> USER QUESTION "why are fishing spots sometimes reachable and sometimes not" — THREE causes found:
+> (1) SAFE EXIT PICKS A POINT BEHIND A BARRIER. Outside Lacuer City the same target (proven stand 737,−172.5) planned
+> fine at 17:40:36 (exit 944.9,−273.7 → 52 wp leg, 579 wp route) and 17:42:05 (exit dropped, 554 wp), but at
+> 17:41:20–32 the exit (892.6,−276.3), "25 m from player", needed a **1525-waypoint (~760 m) leg** — same region, same
+> height, but only joined by a huge loop. Every route then started from that bad point, ran through Mesh_Col rocks at
+> x 855–877 (62–76 wedges per round) and was refused: "No walkable route" for spots 2, 3 AND 4 from that one position.
+> `ComputeSafeExitPoint` checks region + height + walls, never the leg length; only FLOOR-tier exit legs are swept.
+> PROPOSED: drop the safe exit (go direct) when its leg is longer than ~3× the straight 25 m.
+> (2) NUMBERS ARE BY DISTANCE, STANDS ARE NEAREST-THE-PLAYER: "Fishing spot 2" was water place 4 near Lacuer, place 32
+> near Hilton; the Lacuer east lake was spot 3, then spot 4. Place 4 has 139 stands from Hilton to Lacuer, so its
+> chosen stand (and proven/unproven status) changes as the player moves. PROPOSED (user's call): stable names.
+> (3) KNOWN: Hilton gate fences — walk to spot 4 wedged at (744.3,−173.3) right at the start (A3/G1, still open).
+> Place 32 (20 stands, 4 m from place 4's Lacuer stand) has no proven stand → always "unreachable on foot".
+>
+> 🔧 **SESSION 35, later: BUBBLE MEMORY + SHORE SEARCH BUILT — 0 warnings, DLL in Mods, ⏳ UNTESTED, uncommitted.**
+> User decision: BOTH options; user CONFIRMED two distinct gauge beeps (test e PASS).
+> (1) `WorldmapBubbleMemory.cs`: every real world map bubble (auto-walk, search or by hand — hooked in
+> `FieldPromptHandler.RememberWorldmapBubble`) is saved with water place ID + facing to
+> `UserData\SO2RAccess\stands\bubbles_expel.json`; merged within 2 m; embedded seed `stands\bubbles_expel.json` =
+> Lacuer place 33 (1019.0,−355.7) + (1018.4,−360.9), Krosse place 25 (−101.3,−55.4). List build: the stand is chosen
+> nearest the remembered bubble instead of nearest the player. Arrival: `BeginWaterCreep` aims at the remembered
+> point within 25 m of the stand (stop = reached 0.5 m / overshoot +3 m, then the facing sweep with the seen facing).
+> (2) `NavigationHandler.Worldmap.FishingSearch.cs`: shore search = 4 lanes per side, 3 m apart, 12 m long, parallel to
+> the water bearing, one side then the other; stall → next waypoint, 2 stalls in a row → other side; 45 s cap; speaks
+> "No fishing prompt here. Searching along the shore." Runs right after a no-edge creep (no sweep), or after the
+> facing sweep; never when the stand itself was blocked; once per arrival. Player check during the search re-arms
+> after 1 m when a stand-still gave no bubble. (3) A bubble during the creep/search counts as arrival at any distance
+> (was ≤ 12 m from the stand; the Lacuer point is 12.4 m out).
+> **Tests (F12 on):** (a) Lacuer east lake Fishing spot 3 → log `remembered bubble at (…) — creeping there`, must end
+> WITH the bubble; (b) a lake never fished before with no edge → hear "Searching along the shore", read `SHORE SEARCH`
+> + result, then `BubbleMemory: NEW point`; walk there again → goes straight to it; (c) Krosse spot 1 regression;
+> (d) fish anywhere by hand → `BubbleMemory: NEW point` and the json file appears. Still owed: Equipment Wizard
+> repeated heading, quick heal 1–5, gauge toggles, bonus rows probe.
+>
+> 📖 **SESSION 35 (2026-09-19, log 16:08–16:20, F12 on): SESSION-34 BUILD READ FROM THE LOG. No code changed yet.**
+> PASS: (b) Krosse Fishing spot 1 arrives with the bubble (16:09:46, player check true in the same frame);
+> (c) mission reward = ONE line "CLEAR 2,000 Fol, SP x5" + `Reward: skipped, the item popup already announced`;
+> skill books speak "Welch: Knife level 4." etc. (8 uses, each one line); gauge `playing 2 level beep(s), 0.25 s
+> apart` at level 1 → 2 (user's ear still to confirm two distinct beeps). "Bonus level 2" still has no bonus name
+> (`gained=[]`, known type-only diff). NOT TESTED: (d) Equipment Wizard, quick heal 1–5, gauge toggles, bonus rows.
+> FAIL (a): Lacuer east lake (place 33), walk ended on the proven stand (1011,−351), crept SOUTH the full 12.1 m to
+> (1010.9,−363.1) and swept to (1010.7,−368.5): `playerCheck=False` the whole way. By hand the bubble came 5 s later
+> at (1018.3…1018.4, −360.9…−362.3) y −0.3/−0.4, walking SOUTH — same facing, 7 m further EAST. With last session's
+> (1019.0,−355.7) the real bubble zone is a strip x≈1018–1019, z −355…−362. So facing is not the problem, the
+> baked stand is in the wrong place and the bake's test cannot tell. → DESIGN TALK with the user (options: remember
+> observed bubble points per water place; shoreline search at arrival when the cap is hit).
+> NEW: Hilton "Fishing spot 2" (place 4, fallback stand (737,−172.5)) wedged at (746.8,−169.5) 10 m from the target
+> between Hilton's layer-22/23 `Col_Obstacle` fences, 3 re-plans, user cancelled = the open A3/G1 gate-fence case.
+>
+> 🔧 **SESSION 34, later: THREE FIXES BUILT — 0 warnings, DLL in Mods, ⏳ UNTESTED, uncommitted.**
+> (1) Fishing arrival (`NavigationHandler.Worldmap.Fishing.cs`): `UpdateStandStill` polls
+> `FieldManager.CheckFishingPoint(player)` every arrival frame and stops the instant it is true (2 s wait for the
+> bubble, once per arrival, then the facing sweep); the water creep no longer stops at the baked water point, cap
+> 8 → 12 m from the stand; no drift abort when no edge was met. (2) `EquipWizardHandler.UpdateMenu`: no entry
+> announcement when the data index steps past the list (it did just before closing → repeated heading).
+> (3) `NotificationHandler`: `GiveRewardWithWindow` line dropped within 0.5 s after the item popup read the same
+> reward (it cut the full list off with a bare "CLEAR"). NOT a bug: arrival message repeating a just-spoken pickup
+> (deliberate "combined with recent message"); Master Chef = two ingredient lists (user confirmed).
+> **Tests (F12 on):** (a) Lacuer east lake Fishing spot 1 and 3 → must end WITH the bubble; read
+> `player check TRUE at (…)` — if spot 3 (stand 1011,−351, bearing SOUTH) ends `no edge met — distance cap`, the
+> bake needs the player check (bigger job); (b) Krosse spot 1 still arrives; (c) mission reward claim = ONE "CLEAR …"
+> line with item names; (d) Equipment Wizard: decline/accept the last character → no repeated heading.
+> (4) Bonus gauge level beeps: gap 0.15 → 0.25 s + real-time wait (the cue's audible part is ~0.2 s and each play
+> restarts it, so two beeps sounded like one — user report). Test (e): level 2 = two distinct beeps; debug line
+> `BonusGauge: playing N level beep(s)`. If still one beep, another cue on the shared PlaySound channel cuts it.
+> LESSON: never rewrite a source file with PowerShell 5.1 `Get-Content | Set-Content` — it double-encodes UTF-8
+> (NotificationHandler.cs was damaged and repaired this session); use the Edit tool.
+>
+> 📖 **SESSION 34 (2026-09-19, log 15:41–15:50, F12 on): SESSION-33 FIXES READ FROM THE LOG. No code changed yet.**
+> PASS: IC books "Total owned N" (Writing rows); learned super specialty "Level N", no requirements; "none gained,
+> already holding 20" (Vegetables, Daze Bomb); auto-kill "EXP 944. 200 Fol"; Krosse Fishing spot 1 "Arrived"
+> (regression OK); strict sweep logs `route sweep: strict` and falls back to the proven stand as designed.
+> FAIL: Lacuer east lake (water place 33), 3 walks, all "prompt is not showing". EVIDENCE: the bubble appeared by hand
+> at (1019.0,−355.7), y −0.4, in the SAME frame `CheckFishingPoint(player)` (log `/pTrue`) turned true; the
+> feet+forward `CheckWorldmapFishingPoint` (what the bake uses) was already true at the stand 8–9 m earlier. So the
+> game trusts the player check; on this shallow no-edge lake the baked stand + water point sit ~4 m short of the
+> real bubble zone, and the creep stops 1.5 m before the water point, then the 3 m drift abort ends the sweep.
+> Stand (1011,−351) has a SOUTH bearing but the bubble zone found is EAST — unknown whether south ever works.
+> PROPOSED (needs user go): poll `CheckFishingPoint(player)` during the water creep and stop the instant it is true;
+> on no-edge lakes walk on past the water point (cap ~12 m from the stand); no drift abort in no-edge mode.
+> STILL WRONG: Equipment Wizard speaks twice (15:48:30.452 full line, .591 short line cuts it off); mission reward
+> "CLEAR …" spoken twice in two formats 3–20 ms apart; pickup line repeated inside the arrival message (15:50:28).
+> QUESTION: IC Master Chef rows read "Total owned 20" in one list and "Creates: Unknown" in the next — two lists?
+> NOT TESTED: skill book, quick heal 1–5, gauge toggles, bonus rows probe.
+>
+> 🔧 **SESSION 33, evening: FIXES BUILT — ALL ⏳ UNTESTED, 0 warnings, DLL in Mods, nothing committed.** List =
+> `docs/review-2026-09-19.md` section H. **Tests (F12 on):** (1) Lacuer east lake: walk to the fishing spot from far
+> AND from ~10 m — must end WITH the bubble; read `water creep ended — no edge met` + `pulses` lines; from close the
+> log must show `route sweep: strict` and, if refused, the proven stand; (2) regression: one spot with a real edge
+> (Krosse or Arlia 2) still gets the bubble; (3) IC Writing/Publication rows say "Total owned N"; (4) IC tab 2 learned
+> super specialty says "Level N", no requirements; (5) use a skill book → "<name>: <skill> level N" (if it says
+> "skill" read the `SkillBook: no display name` line); (6) pick up a material held at 20 → "none gained, already
+> holding 20"; (7) Equipment Wizard rows spoken once; (8) still owed: bonus rows probe (one level-up), IC result
+> cursor, quick heal 1–5, gauge toggles. Open decisions for the user: announce SP on auto-kills? A3/G1 gate-fence
+> planner design. New file: SkillBookHandler.cs. 0.5.3 candidate after tests (user's call).
+>
+> ✅ **SESSION 33, later: PROBE LOG READ (14:16–14:24).** Answers = `docs/review-2026-09-19.md` section F; fishing
+> failure analysis = section G. Short: IC book panel shows "Total owned N" (mod must speak it); learned super
+> specialties show "Lv N" and NO requirements (mod speaks the opposite); auto-kills grant SP/BP silently; "x20" =
+> capped stock, nothing gained; gauge break hook WORKS (level → 0); skill book shows no text (speak it from
+> `ItemSkillLevelup.OnProcess`). Fishing near Lacuer failed for 3 reasons: gate-fence wedge (same as chest 1), water
+> creep steps ONTO the water point so the facing sweep aborts in 0.5 s, and short routes to unproven stands skip the
+> sweep (16 m endpoint exemption). Probe fixes built (bonus rows index loop; skill book dumps off — they froze the
+> game 9 s), DLL in Mods, 0 warnings. Still untested: bonus rows, IC result cursor, quick heal 1–5, gauge toggles.
+> NEXT: user picks — fishing arrival fix (G2, small), unproven-stand sweep (G3), or the F fixes (all small).
+>
+> 🔬 **SESSION 33 (2026-09-19): REVIEW PROBES BUILT — log-only, 0 warnings, DLL in Mods, ⏳ UNTESTED, uncommitted.**
+> New `ReviewProbes.cs` answers the open questions of `docs/review-2026-09-19.md` (section E there = probe list +
+> what each one logs). Nothing speaks or changes behaviour. **Test run (F12 on FIRST, then):** (1) IC → Writing and
+> Publication, move over owned + unowned books; (2) IC tab 2 super specialties, one learned + one unlearned;
+> (3) two Bodyguard auto-kills, then one real battle; (4) pick up a material held below 20 and one at 20;
+> (5) raise the bonus gauge one level, then get it broken (KO / back attack); (6) create several items at once and
+> land on the result screen; (7) use one skill book; plus the still-owed quick heal tests 1–5 and gauge toggles.
+> NEXT SESSION: search Latest.log for `[Probe:`, write the answers into the review doc, then fix by group (B1 first)
+> and DELETE ReviewProbes.cs + its call sites (Main.cs ×2, BonusGaugeHandler.cs ×2, ItemCreation.Result.cs).
+>
+> 📋 **SESSION 32 (2026-09-19): FULL LOG REVIEW, NO CODE CHANGES.** The user played 08:03–09:26 and asked for a
+> comprehensive discrepancy review instead of fixes. Result = `docs/review-2026-09-19.md` (catalog with checkboxes,
+> evidence timestamps, file:line, sizes). Headlines: field quick heal tests 1–5 were NEVER RUN (key never pressed);
+> the bonus gauge never broke (hook installed, break still untested) and "Bonus level 2" had no bonus name because the
+> diff is type-only; the "chest 1" alternation is three planner mechanisms (resume keeps blocked stamps, comfort-tier
+> safe-exit leg unswept, 16 m endpoint sweep exemption hides a fence 9 m from the goal) around a chest that was never
+> physically reachable; IC book count = game has an `itemCount` slot, mod returns early on "(no items)"; IC super
+> specialty requirements text is correct for that screen (session-30 fix was Enhance-only); no SP is displayed for
+> Bodyguard auto-kills. Plus ~30 sweep findings (equip wizard double speech, silent IC list entries, "None" effect,
+> "GET! FOL x1008000", shop owned count, etc.). NEXT: pick items from the catalog with the user, one group per session.
+> Still uncommitted: everything from session 31 (DLL 21:37). Session 31 tests still owed: quick heal 1–5, gauge 8–9.
+>
+> 🌙 **END OF SESSION 31 (2026-09-18 ~21:45). State: three changes BUILT in ONE DLL (Mods folder, build 21:37,
+> 0 warnings), ALL ⏳ UNTESTED, NOTHING COMMITTED since v0.5.2 (5c8499d). MelonInfo still 0.5.2; 0.5.3 proposed,
+> version = user's call.** The user tests everything on 2026-09-19 and will send Latest.log.
+> **SESSION 32 STARTS HERE — ask for these results (F12 debug on), details in the three entries below:**
+> - Quick heal on the field: (1) D-pad Right with someone hurt → heading + "Yes" at once, Up/Down, L3 status, result;
+>   (2) no "Quick Recovery" heading after closing camp / the IC shortcut / the nav menu; (3) full health → only
+>   "Cannot Quick Heal."; (4) camp quick heal still reads. Silent open → read `QuickRecovery: field window showing=`,
+>   fallback = Show()/Hide()/ForceHide() postfixes on the field selector (the camp variant's pattern).
+> - Fol label: (5) auto-kill on the field → "EXP N. N Fol"; item pickups unchanged (debug line now logs the icon name).
+> - Bonus gauge: (6) battle start with level above 0 → "Bonus level N."; (7) level-up → N beeps + "Bonus level N,
+>   <bonus>" (check `BonusGauge: level N settled, gained=[…]`); (8) gauge lost → placeholder sound + "Bonus gauge broken,
+>   level N" (read `BonusGauge.Break:` — does a break drop the level to 0 or only the fill?); (9) each of the four
+>   menu toggles silences only its own output.
+> - Still open for the user: choose a real gauge break sound (placeholder is synthesized) → `GaugeBreak.wav`, then
+>   update the README credit line. After a passing test: commit (+ release if the user wants 0.5.3).
+> - Unchanged open list: stairs sound, wall bump sound, rear-mode preference, spoken-directions quality opinion,
+>   Lacuer Front Line Base deferred test.
+> - Changed files: QuickRecoveryHandler.cs (573 lines, split candidate), NotificationHandler.cs, BonusGaugeHandler.cs
+>   (rewritten), AudioCuePlayer.cs (now partial) + NEW AudioCuePlayer.GaugeBreak.cs, ModSettings.cs,
+>   ModMenuHandler.Sound.cs, Main.cs, lang/en.json, NEW soundcues/GaugeBreak.wav.gz, README.md, docs/game-api.md.
+>
+> 🎚️ **2026-09-18 (session 31, later): BONUS GAUGE REWORK — BUILT, 0 warnings, DLL in Mods 21:37, ⏳ UNTESTED, uncommitted.**
+> User asked whether the gauge announcements are correct. Log proof they were not: 21:09:55 "Gauge 95" → 21:09:59
+> "Gauge 5", next battle enters level=1 — a real level-up with NO BreakBonusGauge call and no speech.
+> `BattleManager.BreakBonusGauge` (+ `StartBonusGaugeBreakDirecting`) = the gauge being LOST; the level-up happens inside
+> native `IncreaseSphereBonusPoint`. The old "Bonus level N, buff" message hung on the break hook, so it never fired, and
+> the old "level did not rise = spurious" skip swallowed every real break. Level + fill PERSIST between battles.
+> **New behaviour (user's design), `BonusGaugeHandler.cs` rewritten:**
+> (1) battle start: "Bonus level N." once, only when N > 0; (2) level change (polled `sphereBonusBuffLevel`): N beeps
+> of GaugeFill.wav at once (level 2 = 2 beeps; the old 25/50/75 % beeps are REMOVED — beeps now mean level), speech
+> 0.3 s later "Bonus level N, <bonuses newly active>" (diff of `GetSphereBonusBuffValueCache`), plain "Bonus level N."
+> when no new bonus is found; (3) break (hook, only when level or fill really dropped): placeholder cue + "Bonus gauge
+> broken, level N."; (4) percentage speech unchanged (every 5 %, default off).
+> **Mod menu → sound submenu, new rows:** "Bonus gauge level beeps", "Bonus gauge break sound" (after the gauge volume
+> row), "Bonus gauge level announcement" (before the existing "Bonus gauge break announcement", which now really
+> means the break). All default ON; the gauge volume slider scales beeps and break cue. Settings keys:
+> `BonusGaugeLevelAnnounceEnabled`, `BonusGaugeLevelBeepEnabled`, `BonusGaugeBreakSoundEnabled`.
+> **Placeholder sound:** `soundcues\GaugeBreak.wav.gz` = synthesized 0.5 s falling two-tone sweep with a noise crack
+> (16-bit stereo 44.1 kHz, no third-party material). Replace = drop a real `GaugeBreak.wav` into
+> UserData\SO2RAccess\Sounds or gzip over the bundled one; then update the README credit line.
+> New `AudioCuePlayer.GaugeBreak.cs`: reusable private `MemoryCue` class (AudioCuePlayer is now `partial`) — use it for
+> future one-shot cues instead of copying the per-cue field block. New en.json keys: `bonus_gauge_level`,
+> `bonus_gauge_lost`, three `mod_menu_label_gauge_*` (other languages fall back to English until translated).
+> **Test (F12 on):** (6) battle start with level above 0 → "Bonus level N."; (7) fill the gauge → N beeps + "Bonus level
+> N, <bonus>" — send the `BonusGauge: level … settled, gained=[…]` line if the bonus name is missing or wrong;
+> (8) lose the gauge (failed counter / character KO / back attack) → placeholder sound + "Bonus gauge broken, level N" —
+> send the `BonusGauge.Break:` line either way (it shows whether a break drops the level to 0 or only the fill);
+> (9) each of the four toggles silences only its own output.
+>
+> 🩹 **2026-09-18 (session 31): FIELD QUICK HEAL (D-pad Right outside camp) STALE DETECTION — FIX BUILT, 0 warnings,
+> DLL in Mods 21:20, ⏳ UNTESTED, uncommitted.** User report: opening quick heal on the field reads nothing until Yes
+> is chosen; afterwards the heading ("Quick Recovery. Recover party? Yes…") is spoken again after EVERY menu close.
+> Log (Latest.log 20:55–21:06): once the menu has been used, `UIFieldQuickRecoverySelector` stays
+> `activeInHierarchy` AND keeps `recoveryDataList` populated after it closes. So the mod believed the menu was open
+> all the time: a real open was no transition (silent), and each camp/IC close (IsFieldFree false → true) looked like
+> a fresh open (20:55:26, 20:56:20, 20:58:17, 21:06:26 — each right after "CampMenu: window closed").
+> **Fix (`QuickRecoveryHandler.cs`):** new `IsFieldWindowShowingRecovery()` — the owning `UIFieldWindow` (resolved
+> once from the selector's parents) must report `IsOpened` AND `OpenFieldState == UIDefine.FieldState.QuickRecovery`.
+> Debug line on every change: `QuickRecovery: field window showing=… (IsOpened=…, state=…)`. If no window is found
+> the old overlay-only detection stays and logs "no UIFieldWindow above the selector".
+> File is now 573 lines (over the 500 target; split candidate: result/status announcements).
+>
+> **Also built (21:25, same DLL): Fol label on field pickup lines.** Auto-kills (enemy defeated on the field without a
+> battle) spoke "EXP 684. 169" — the second number is the Fol gain; the game draws only a Fol icon beside a bare
+> number (`UIFieldItemInformationStackData`: info='169' count=-1 unit='' getText=''). `NotificationHandler.cs`:
+> `IsBareFolAmount` (digits only, no count/unit/getText) → `Loc.Get("reward_fol")` → "EXP 684. 169 Fol". The debug
+> line now also logs the icon sprite name (evidence for a stricter rule later). Verified against battle results in
+> the same log (672 EXP / 219 Fol, 70 EXP / 40 Fol). Test (5): auto-kill an enemy → "EXP N. N Fol"; item pickups unchanged.
+>
+> **NEXT SESSION / TEST (F12 on):** (1) field, D-pad Right with someone hurt → heading + "Yes" must be spoken at
+> once; Up/Down reads Yes/No; L3 reads party status; Yes → result. (2) Afterwards open and close camp, the IC
+> shortcut, the nav menu → NO "Quick Recovery" heading. (3) Party at full health → only "Cannot Quick Heal.".
+> (4) Camp quick heal (camp root, D-pad Right) still reads. If (1) is silent: send the `field window showing=` lines —
+> fallback plan = Harmony postfixes on the field selector's Show()/Hide()/ForceHide(), the pattern the camp variant
+> already uses. Then commit (0.5.3 candidate, user's call).
+>
 > 🛠️ **2026-09-17 (session 30): SUPER SPECIALTY REQUIREMENTS (Enhance → Skill → learning screen) + SPEECH
 > PUNCTUATION — BUILT, 0 warnings, DLL in Mods 19:56, ⏳ UNTESTED, uncommitted.** User report: every super
 > specialty on the skill learning screen read the same requirement. Log (19:48, debug on) proved Context B read

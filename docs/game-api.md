@@ -874,6 +874,30 @@ announcing — the pattern to reuse for any other selector that wakes stale.
   `IsFieldFree()` gate so beacons, wall tones and guidance stay quiet during it.
   Safety: the flag is dropped if the selector goes inactive without a Hide().
 
+### Bonus gauge — what the methods really mean (2026-09-18)
+
+- `BattleManager.sphereBonusBuffLevel` + `GetBattleSphereBonusCurrentLevelRatio()` (0..1 within the level)
+  are the truth; both PERSIST between battles.
+- Level-up: inside native `IncreaseSphereBonusPoint(int)` (from `OnGetBonusSphere`). No hookable
+  level-up method is called — poll the level.
+- `BreakBonusGauge(bool isDirection)` + `Start/EndBonusGaugeBreakDirecting` = the gauge being LOST
+  (the shatter), NOT a level-up. Also called on an empty gauge, so compare level/ratio before and after.
+- `ResetBonusGauge(bool isAllReset)` also exists (unobserved; the poll reports any level drop it causes).
+- Active bonuses: `GetSphereBonusBuffValueCache(BonusBuffType)` > 0; which bonuses a level grants
+  comes from the formation's sphere allocation (`ConstBattleSphereBonusParameter`).
+
+### Field quick heal — open state (2026-09-18)
+
+- `UIFieldQuickRecoverySelector` is NOT a reliable open signal: after its first use it stays
+  `activeInHierarchy` with `recoveryDataList` populated while closed (log 2026-09-18: silent
+  real opens, heading re-read after every camp close).
+- Authority: the owning `UIFieldWindow` (a parent of the selector; field `quickRecoverySelector`).
+  Open = `IsOpened` AND `OpenFieldState == UIDefine.FieldState.QuickRecovery`. The same window
+  hosts PickPocket, FishingBait, FishingResult and LocationPoint states.
+- Opened by `GameUIManager.OpenFieldQuickRecoveryWindow()`; closed through
+  `UIFieldWindow.OnEndQuickRecovery`. Show()/Hide()/ForceHide() on the selector are virtual
+  overrides (hookable, the camp variant's pattern) — kept as the fallback if the window check fails.
+
 ### Camp menu story hint (speech balloon)
 - Trigger: postfix on `UICampWindow.SetSpeechBalloon(List<UIDotCharacterData>, bool)` — fires
   when the camp screen (re)builds the dot-character strip. Wait ~0.4s then read.
@@ -1284,7 +1308,19 @@ or pushed the stick by hand. The feet+forward call also flickers true/false at a
 (party followers in the ray?). So the arrival now keeps pressing the stick gently toward the
 water and sweeps the push direction (0/±35/±70°, `UpdateFacingSweep`); diagnostics log
 `CheckFishingPoint(FieldPlayer)` beside the feet+forward call to learn which one the game
-trusts. (6) **Gate pinch = the town's own collider, not just "near the ring".** The 5 m rule
+trusts. **ANSWER (log 2026-09-19 15:49:53, Lacuer east lake, water place 33): the game trusts
+`CheckFishingPoint(FieldPlayer)`** — the bubble appeared in the very frame it turned true, at
+(1019.0,−355.7) y −0.4 (shallow water, shore without an edge), while the feet+forward
+`CheckWorldmapFishingPoint` (the bake's test) had been true since the stand 8–9 m earlier. The
+arrival therefore polls the player check every frame (`UpdateStandStill`) and no longer stops at
+the baked water point. The player check needs the live player, so the bake cannot call it per tile.
+**2026-09-19 16:17 follow-up:** from the same stand (1011,−351) a 12 m creep SOUTH never turned the
+player check true; by hand the bubble came at (1018.4,−360.9), also walking south — the zone is a
+~2 m wide strip 7 m BESIDE the creep line, so position decides, not facing. Hence (a)
+`WorldmapBubbleMemory`: every real world map bubble is saved (`stands\bubbles_*.json`, embedded seed +
+UserData) and the creep aims at the nearest remembered point within 25 m of the stand; (b) the shore
+search (`NavigationHandler.Worldmap.FishingSearch.cs`): lanes 3 m apart beside the creep line, both
+sides, player check polled every frame. (6) **Gate pinch = the town's own collider, not just "near the ring".** The 5 m rule
 forgave an Arlia riverbank `Col_Obstacle` L23 4.6 m from ring MF_0003_01A and the walk stuck
 on `Mesh_Col` exactly there. `WorldmapMapjumps.IsGateCollider`: the blocker has a
 `FieldMapjumpCollision` among its parents (`GetComponentInParent`); `IsGatePinch` requires

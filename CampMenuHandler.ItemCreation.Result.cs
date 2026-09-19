@@ -34,6 +34,16 @@ namespace SO2RAccess
             try { isActive = _icResultSelector.gameObject.activeInHierarchy; }
             catch { return; }
 
+            // Temporary diagnostic (review 2026-09-19, B3): the game's own cursor.
+            try
+            {
+                var probeList = _icResultSelector.TryCast<UIListSelectorBase>();
+                if (probeList != null)
+                    ReviewProbes.TrackResultCursor(probeList.currentIndex,
+                        probeList.currentDataList?.Count ?? 0, isActive);
+            }
+            catch { /* diagnostic only */ }
+
             bool shouldPoll = _icResultState.CheckEntry(
                 isActive,
                 () => ScreenReader.Say(Loc.Get("ic_result_heading")),
