@@ -37,12 +37,13 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
-> 🔧 **SESSION 36, later: STABLE OBJECT NUMBERING BUILT — 0 warnings, DLL in Mods, ⏳ UNTESTED, uncommitted.**
+> ✅ **SESSION 36, final: STABLE OBJECT NUMBERING BUILT, COMMITTED — 0 warnings, DLL in Mods, ⏳ UNTESTED (deferred).**
 > Navigation items (chests, fishing spots, stairs, doors, warp points) now keep their fixed numbers throughout a map
 > session, independent of distance changes. Implemented via Dictionary<int, int> per category (object ID → assigned number),
 > cleared on map entry. NavItem.SourceObject set during collection for all item types; GetStableNumber() assigns first-come
 > numbers and stores them. Supports both UnityEngine.Object types (ID via GetInstanceID) and Il2Cpp parameter objects
-> (ID via RuntimeHelpers.GetHashCode). NEXT SESSION: test with chests and fishing spots, then decide on safe-exit fix.
+> (ID via RuntimeHelpers.GetHashCode).
+> **NEXT SESSION (37):** test stable numbering alongside safe-exit fix for fishing spot accessibility. Then 0.5.3 release.
 >
 > 📖 **SESSION 36 (2026-09-19, log 17:38–17:47, F12 on): SESSION-35 BUILD READ FROM THE LOG. No code changed yet.**
 > PASS (a): Lacuer east lake (place 33) — `remembered bubble at (1019.0,−355.7), 4.1 m away — creeping there`,
