@@ -174,32 +174,10 @@ namespace SO2RAccess
         {
             routed = false;
 
-            // 2. Same safe-exit logic.
-            Vector3 safeExit = ComputeSafeExitPoint(playerPos);
-            bool usingSafeExit = Vector3.Distance(safeExit, playerPos) > 5f;
-
-            // 3. Same two legs (fresh planning state: no blocked zones).
-            Vector3[] exitLeg = null;
-            string exitTier = "-";
-            Vector3 mainStart = playerPos;
-            if (usingSafeExit)
-            {
-                exitLeg = WorldmapPathfinder.FindPath(playerPos, safeExit, mode);
-                if (exitLeg != null && exitLeg.Length > 0)
-                {
-                    exitTier = WorldmapPathfinder.LastPathUsedFloorTier
-                        ? "FLOOR" : "comfort";
-                    mainStart = safeExit;
-                }
-                else
-                {
-                    exitLeg = null; // real walk goes direct then, so do we
-                }
-            }
-
-            // Same goal set as a real walk (the whole entrance ring for a
-            // location, the exact point for a fishing stand).
-            var mainLeg = WorldmapPathfinder.FindPath(mainStart,
+            // Route directly from the player's current position (no safe-exit
+            // intermediate point). The route sweep handles gate pinches at the
+            // real start via the 16m endpoint exemption and IsGatePinch logic.
+            var mainLeg = WorldmapPathfinder.FindPath(playerPos,
                 WmRouteGoals(target), mode);
             if (mainLeg == null || mainLeg.Length == 0)
             {
@@ -214,17 +192,14 @@ namespace SO2RAccess
             string mainTier = WorldmapPathfinder.LastPathUsedFloorTier
                 ? "FLOOR" : "comfort";
 
-            // 4. Physics sweep over both legs.
+            // 4. Physics sweep over the route.
             int wedges = 0, heightMismatches = 0, forgiven = 0;
             float worstMismatch = 0f;
             Vector3? firstWedge = null;
-            if (exitLeg != null)
-                SweepLeg(exitLeg, "exit", label, wallMask, sb,
-                    ref wedges, ref heightMismatches, ref worstMismatch, ref firstWedge, ref forgiven);
-            SweepLeg(mainLeg, "main", label, wallMask, sb,
+            SweepLeg(mainLeg, "route", label, wallMask, sb,
                 ref wedges, ref heightMismatches, ref worstMismatch, ref firstWedge, ref forgiven);
 
-            int totalWps = (exitLeg?.Length ?? 0) + mainLeg.Length;
+            int totalWps = mainLeg.Length;
             string firstWedgeNote = "";
             if (firstWedge.HasValue)
             {
@@ -237,8 +212,7 @@ namespace SO2RAccess
                 (wedges == 0 ? "WALKABLE" : $"{wedges} WEDGE SEGMENTS") +
                 (forgiven > 0 ? $" ({forgiven} gate pinch segments forgiven, within " +
                     $"{WorldmapMapjumps.RingWedgeMeters:F0}m of an entrance ring)" : "") +
-                $" | legs: exit={exitTier}({exitLeg?.Length ?? 0}wp) " +
-                $"main={mainTier}({mainLeg.Length}wp) total={totalWps}wp" +
+                $" | {mainTier}({totalWps}wp)" +
                 $" | grid-vs-live height mismatches>1m: {heightMismatches}" +
                 (heightMismatches > 0 ? $" (worst {worstMismatch:F1}m)" : "") +
                 firstWedgeNote);

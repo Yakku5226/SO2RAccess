@@ -318,132 +318,6 @@ namespace SO2RAccess
             return best;
         }
 
-        /// <summary>
-        /// Computes a safe exit point when the player is STARTING near a town:
-        /// a point ~25m away in the direction AWAY from the nearest trigger
-        /// (toward open terrain), so the A* leaves the town's wall ring cleanly
-        /// before routing to the target. Checks both L22 obstacles and L23 CharaWalls.
-        /// </summary>
-        private Vector3 ComputeSafeExitPoint(Vector3 playerPos)
-        {
-            const float SafeDistance = 25f;
-            int bothLayerMask = (1 << 22) | (1 << 23);
-
-            try
-            {
-                // Find the nearest entrance (a map jump with a ground-level
-                // trigger ring) to the player — shared scan, same entrance
-                // rule as the reachability cache and the fishing stand bake.
-                var mapjumps = WorldmapMapjumps.CollectAll();
-                bool found = false;
-                Vector3 triggerCenter = playerPos;
-                float nearestGroundDist = float.MaxValue;
-                foreach (var (_, position, rings) in mapjumps)
-                {
-                    if (rings.Count == 0) continue;
-                    float dist = Vector3.Distance(position, playerPos);
-                    if (dist < nearestGroundDist)
-                    {
-                        nearestGroundDist = dist;
-                        triggerCenter = position;
-                        found = true;
-                    }
-                }
-
-                if (!found || nearestGroundDist > 30f)
-                    return playerPos; // Not near a town.
-
-                // Direction outward: from trigger center through player
-                // position and beyond (away from the town).
-                Vector3 outward = playerPos - triggerCenter;
-                outward.y = 0f;
-                if (outward.sqrMagnitude < 0.01f)
-                    outward = Vector3.forward;
-                outward.Normalize();
-
-                // Try outward direction first, then 8 directions.
-                Vector3[] directions = new Vector3[9];
-                directions[0] = outward;
-                for (int d = 0; d < 8; d++)
-                {
-                    float angle = d * 45f * Mathf.Deg2Rad;
-                    directions[d + 1] = new Vector3(
-                        Mathf.Sin(angle), 0f, Mathf.Cos(angle));
-                }
-
-                // A candidate must be FLAT OPEN TERRAIN THE PLAYER CAN WALK
-                // TO. The old checks (has ground + no walls within 2m) also
-                // passed elevated rock plateaus: a top 6m above the player is
-                // open, but the leg to it threads body-width gaps up the
-                // rocks and physically wedges (D1 Salva failure, 2026-07-10).
-                int playerRegion = WorldmapPathfinder.GetRegionId(playerPos);
-                int rejHeight = 0, rejWalls = 0, rejGrid = 0, rejGround = 0;
-
-                foreach (var dir in directions)
-                {
-                    Vector3 candidate = playerPos + dir * SafeDistance;
-
-                    float h = GameUtility.CalcHeight(
-                        candidate, out bool hasGround, 50f);
-                    if (!hasGround) { rejGround++; continue; }
-                    candidate.y = h;
-
-                    // Same level as the player — an exit point is supposed to
-                    // be the open field next to town, never a ledge above or
-                    // a pit below.
-                    if (Mathf.Abs(h - playerPos.y) > 2f) { rejHeight++; continue; }
-
-                    // Check no L22 OR L23 obstacles — we want wide open terrain.
-                    try
-                    {
-                        var hits = UnityEngine.Physics.OverlapSphere(
-                            candidate, 2.0f, bothLayerMask);
-                        bool blocked = false;
-                        if (hits != null)
-                        {
-                            foreach (var col in hits)
-                            {
-                                if (col != null && !col.isTrigger)
-                                {
-                                    blocked = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if (blocked) { rejWalls++; continue; }
-                    }
-                    catch { rejWalls++; continue; }
-
-                    // Grid sanity (fail open: unknown regions never reject):
-                    // the cell must be walkable and in the player's region.
-                    if (!WorldmapPathfinder.IsWalkableWorld(candidate))
-                    { rejGrid++; continue; }
-                    int candRegion = WorldmapPathfinder.GetRegionId(candidate);
-                    if (playerRegion != 0 && candRegion != 0 &&
-                        candRegion != playerRegion)
-                    { rejGrid++; continue; }
-
-                    DebugLogger.LogState(
-                        $"NAV WM safe exit: found at ({candidate.x:F1}," +
-                        $"{candidate.z:F1}) {SafeDistance:F0}m from player " +
-                        $"(y={h:F1}, rejected before it: {rejGround} no-ground, " +
-                        $"{rejHeight} height, {rejWalls} walls, {rejGrid} grid)");
-                    return candidate;
-                }
-
-                DebugLogger.LogState(
-                    "NAV WM safe exit: no valid exit point " +
-                    $"({rejGround} no-ground, {rejHeight} height, " +
-                    $"{rejWalls} walls, {rejGrid} grid) — going direct.");
-                return playerPos;
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState(
-                    $"NAV WM safe exit error: {ex.Message}");
-                return playerPos;
-            }
-        }
 
         /// <summary>
         /// Calculates a world map path using the CalcHeight-based A* pathfinder.
@@ -487,51 +361,7 @@ namespace SO2RAccess
             // (resolved by ComputeEnterTriggerTarget when the walk started), so we
             // route straight to it — the model stays fully impassable in the grid.
 
-            // If starting near a town, compute a safe exit point first.
-            // Route: player → safe exit → target. This prevents the A* from
-            // cutting through the town's obstacle ring or CharaWall boundary.
-            Vector3 safeExit = ComputeSafeExitPoint(playerPos);
-            bool usingSafeExit = Vector3.Distance(safeExit, playerPos) > 5f;
-
-            // If using a safe exit, compute two-part path:
-            // player → safe exit → target.
             Vector3 aStarStart = playerPos;
-            Vector3[] exitPath = null;
-            if (usingSafeExit)
-            {
-                DebugLogger.LogState(
-                    $"NAV WM safe exit: routing via ({safeExit.x:F1}," +
-                    $"{safeExit.z:F1}) before heading to target");
-                exitPath = WorldmapPathfinder.FindPath(
-                    playerPos, safeExit, mode, _wmBlockedPositions);
-                if (exitPath != null && exitPath.Length > 0)
-                {
-                    // A floor-tier exit leg threads body-width gaps; sweep it
-                    // and drop the safe exit rather than wedge on the way to
-                    // it (the exit is an optimization, never required).
-                    if (WorldmapPathfinder.LastPathUsedFloorTier &&
-                        CountRouteWedges(exitPath, safeExit, 0f,
-                            markBlocked: false) > 0)
-                    {
-                        DebugLogger.LogState(
-                            "NAV WM safe exit: floor-tier exit leg is " +
-                            "physically blocked (body sweep) — going direct.");
-                        exitPath = null;
-                        usingSafeExit = false;
-                    }
-                    else
-                    {
-                        aStarStart = safeExit;
-                    }
-                }
-                else
-                {
-                    DebugLogger.LogState(
-                        "NAV WM safe exit: no path to exit point, going direct.");
-                    exitPath = null;
-                    usingSafeExit = false;
-                }
-            }
 
             Vector3[] bestPath = null;
             bool bestPathFloorTier = false;
@@ -718,21 +548,7 @@ namespace SO2RAccess
                         $"nearest-by-air ({nominalTarget.x:F1}," +
                         $"{nominalTarget.z:F1}).");
 
-                // Concatenate exit path + main path if using safe exit.
-                if (usingSafeExit && exitPath != null && exitPath.Length > 0)
-                {
-                    var combined = new Vector3[exitPath.Length + bestPath.Length];
-                    exitPath.CopyTo(combined, 0);
-                    bestPath.CopyTo(combined, exitPath.Length);
-                    _wmPathWaypoints = combined;
-                    DebugLogger.LogState(
-                        $"NAV WM: combined path: {exitPath.Length} exit + " +
-                        $"{bestPath.Length} main = {combined.Length} total waypoints");
-                }
-                else
-                {
-                    _wmPathWaypoints = bestPath;
-                }
+                _wmPathWaypoints = bestPath;
                 _wmPathIndex = 0;
 
                 // Diagnostic: log first 10 waypoints to verify path direction.
