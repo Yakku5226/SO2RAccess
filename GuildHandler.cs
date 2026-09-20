@@ -35,6 +35,7 @@ namespace SO2RAccess
         private static UIMissionWindow _missionWindow = null;
         private static bool _guildOpen = false;
         private static int _findCooldown = 0;
+        private static bool _missionNotRegisteredLogged;
 
         // Guild quest list — the actual readable accept-missions menu.
         private static UIQuestSelector _questSelector = null;
@@ -131,7 +132,23 @@ namespace SO2RAccess
                     var guiMgr = GameUIManager.Instance;
                     if (guiMgr != null)
                     {
-                        var wc = guiMgr.GetWindow(UIDefine.WindowType.Mission);
+                        // GetWindow THROWS (KeyNotFoundException) while the window is not
+                        // registered yet — every scene load before a save is loaded. That
+                        // is an expected "not yet", so it is logged once, without the
+                        // IL2CPP stack trace, and the search falls through.
+                        WindowComponent wc = null;
+                        try
+                        {
+                            wc = guiMgr.GetWindow(UIDefine.WindowType.Mission);
+                        }
+                        catch (Exception)
+                        {
+                            if (!_missionNotRegisteredLogged)
+                            {
+                                _missionNotRegisteredLogged = true;
+                                DebugLogger.LogState("Guild: mission window not registered yet — will retry.");
+                            }
+                        }
                         if (wc != null)
                         {
                             _missionWindow = wc.TryCast<UIMissionWindow>();

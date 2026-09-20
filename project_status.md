@@ -59,6 +59,38 @@
 > (5) REVERTED (48b11c9): a beacon filter that skipped `Unreachable` fishing spots. It did not touch the menu, and
 > "unreachable" includes "no stand PROVEN", so it silenced spots that may be walkable by hand.
 >
+> ✅ **OPTION 1 LOG RESULT (09:52–09:54), committed:** HILTON PASS — `goal zone strict`, 5 wedges, re-plan empty,
+> "Cannot reach Fishing spot 1" 3.2 s after the key press, NO walking (most of the 3.2 s = two failed 1.5 s A*
+> searches over 1.4 M cells; a cheaper "no route" answer near walled pockets would make it instant). Arlia spot 2
+> arrived with the bubble (5th time). No `Guild find error` at the title screen. KROSSE CONTROL NOT RUN (low risk: its
+> listed stand is the unproven remembered-bubble stand, already swept strictly; the grid-only fallback is only used if
+> that is refused). **STILL BAD: Arlia Fishing spot 1** — fallback (−37,−395) is place 1, FLOOR-tier proof 21.6 m from
+> Arlia's symbol centre, so not "grid-only" by the ≤ 16 m rule; from the gate (−46.8,−404.5) the walk slid NW along
+> `Wall_Arlia` (stuck at x −46 → −50.2), 5 re-plans, 28 s, "Cannot reach". Same disease (proof anchored inside the
+> town walls + start-side forgiveness), longer route. Proof lengths of all 31 proven stands were listed this session:
+> ≤ 30 m from a symbol centre = places 1, 2, 4, 19, 20, 25, 34, 38, 53. PROPOSED NEXT (needs user go): a LOG-ONLY
+> goal-zone audit on every fishing walk ("strict sweep would have refused: N wedges") to collect data on working
+> spots (Arlia spot 2 has ring 4.4 m and WORKS — a blanket strict rule might wrongly refuse it) before widening the
+> rule; then the Option 2 anchor research.
+>
+> 🔧 **OPTION 1 AS BUILT (user go 2026-09-20).**
+> `FishingStandEntry.GridOnlyProof` (proven, proof route ≤ 16 m) → NavItem `FishingGridOnlyProof` /
+> `FishingFallbackGridOnly` → `_wmSweepGoalZoneStrict`: within 16 m of the stand every segment is swept (start
+> exemption off there), goal exemption 2 m like the bake; far from the stand nothing changes. List log now shows
+> `proven=…/GRID-ONLY` and `fallbackProof=GRID-ONLY`. Also built: GuildHandler title-screen exception spam fix
+> (GetWindow throws before a save is loaded → one quiet log line). **Tests (F12 on FIRST):** (a) Hilton gate →
+> Fishing spot 1: expect `goal zone strict` + refusal within ~2 s, "Cannot reach", no walking; (b) KROSSE gate →
+> its fishing spot = the control, must still arrive (if it is refused, read which collider: that decides whether the
+> gate-pinch forgiveness needs to cover it); (c) Arlia spot 2 still arrives; (d) title screen: no `Guild find error`.
+> ⚠ **CORRECTION to the root cause below:** the bake DOES sweep start-side segments; it forgives blocked ones there
+> (`hiddenStart`) if the enclosure test passes. The real flaw: `CollectAnchors()` anchors every proof at the map
+> jump's own position = the TOWN SYMBOL CENTRE, inside the town's CharacterWall/fence colliders, where the player can
+> never stand. Hilton's stand is 6.8 m from that centre, behind the fences; the player leaves town at
+> (750.8,−170.7) outside them. **OPTION 2 (re-bake) NEEDS A DESIGN DECISION FIRST:** anchor proofs where the player
+> really appears when leaving a town. Source unknown — not in game-api.md; candidates: find the game's world map
+> return position per town in the decompiled data, or record observed exit positions as the player leaves towns
+> (same idea as bubble memory). Do not re-bake before that is settled.
+>
 > ✅ **FALLBACK FIX CONFIRMED IN THE LOG (09:13–09:15), committed.** Arlia 09:13:36 and Hilton 09:14:55 both show
 > `refusing honestly` → `route refused by the body sweep — no straight-line fallback` → `planning to the proven stand`.
 > Second entry to the same bug also closed (a re-plan that comes back EMPTY after wedges is a refusal too — Arlia 09:09).

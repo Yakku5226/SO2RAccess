@@ -62,6 +62,20 @@ namespace SO2RAccess
         private bool _wmSweepWholeRoute;
 
         /// <summary>
+        /// True only while planning to a fishing stand whose bake proof swept
+        /// nothing (<see cref="FishingStandEntry.GridOnlyProof"/>). The sweep then
+        /// does the proof's job at walk time: within the usual exemption distance
+        /// of the GOAL every segment is swept (no start exemption there either),
+        /// except the last <see cref="WmGridOnlyGoalExemptDist"/> metres — the
+        /// shoreline step, the bake's own goal exemption. The start exemption far
+        /// from the goal stays, so leaving a distant town gate is unaffected.
+        /// </summary>
+        private bool _wmSweepGoalZoneStrict;
+
+        /// <summary>Goal exemption (m) for a grid-only-proof stand; equals the bake's ProofGoalExemptMeters.</summary>
+        private const float WmGridOnlyGoalExemptDist = 2f;
+
+        /// <summary>
         /// Maximum distance (meters) at which a straight-line fallback is
         /// still used when the grid pathfinder finds no path. Close-range
         /// failures are usually grid-snap artifacts; beyond this, "no path"
@@ -493,15 +507,26 @@ namespace SO2RAccess
                 // so nothing is lost — while the exemption let an 11 m route wedge on
                 // a fence 5.6 m from the stand (log 2026-09-19 14:23).
                 float endpointExempt = _wmSweepWholeRoute ? 0f : WmSweepEndpointExemptDist;
+                float goalExempt = endpointExempt;
+                float strictGoalZone = 0f;
                 if (_wmSweepWholeRoute)
                     DebugLogger.LogState("NAV WM route sweep: strict — unproven fishing stand, no endpoint exemption.");
+                else if (_wmSweepGoalZoneStrict)
+                {
+                    goalExempt = WmGridOnlyGoalExemptDist;
+                    strictGoalZone = WmSweepEndpointExemptDist;
+                    DebugLogger.LogState(
+                        "NAV WM route sweep: goal zone strict — the stand's proof was grid-only, sweeping to " +
+                        $"{goalExempt:F0} m of the stand, no start exemption within {strictGoalZone:F0} m of it.");
+                }
 
                 for (int round = 0; round < 2 && bestPath != null; round++)
                 {
                     int wedges = CountRouteWedges(
-                        bestPath, targetPos, endpointExempt,
+                        bestPath, targetPos, goalExempt,
                         markBlocked: true,
-                        startExemptDist: endpointExempt);
+                        startExemptDist: endpointExempt,
+                        strictGoalZoneDist: strictGoalZone);
                     if (wedges == 0) break;
 
                     DebugLogger.LogState(
@@ -536,8 +561,9 @@ namespace SO2RAccess
 
                 if (bestPath != null &&
                     CountRouteWedges(bestPath, targetPos,
-                        endpointExempt, markBlocked: false,
-                        startExemptDist: endpointExempt) > 0)
+                        goalExempt, markBlocked: false,
+                        startExemptDist: endpointExempt,
+                        strictGoalZoneDist: strictGoalZone) > 0)
                 {
                     DebugLogger.LogState(
                         "NAV WM route sweep: no physically passable " +
@@ -646,7 +672,7 @@ namespace SO2RAccess
         /// </summary>
         private int CountRouteWedges(Vector3[] path, Vector3 goal,
             float goalExemptDist, bool markBlocked,
-            float startExemptDist = 0f)
+            float startExemptDist = 0f, float strictGoalZoneDist = 0f)
         {
             var fm = FieldManager.Instance;
             var player = fm != null ? fm.GetControlPlayer() : null;
@@ -661,10 +687,15 @@ namespace SO2RAccess
             {
                 float gdx = path[i].x - goal.x;
                 float gdz = path[i].z - goal.z;
-                if (gdx * gdx + gdz * gdz <= exemptSq) continue;
+                float goalDistSq = gdx * gdx + gdz * gdz;
+                if (goalDistSq <= exemptSq) continue;
+                // Inside the strict goal zone the start exemption does not apply: a
+                // player starting at the gate next to the stand is exactly the case
+                // the grid-only proof never checked.
+                bool inStrictGoalZone = goalDistSq <= strictGoalZoneDist * strictGoalZoneDist;
                 float sdx = path[i].x - path[0].x;
                 float sdz = path[i].z - path[0].z;
-                if (sdx * sdx + sdz * sdz <= startExemptSq) continue;
+                if (!inStrictGoalZone && sdx * sdx + sdz * sdz <= startExemptSq) continue;
 
                 try
                 {

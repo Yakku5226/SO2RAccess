@@ -67,6 +67,18 @@ namespace SO2RAccess
         [JsonIgnore]
         public bool Proven => !string.IsNullOrEmpty(ProvenFrom);
 
+        /// <summary>
+        /// True when the bake's proof route was no longer than the sweep's start
+        /// exemption, so not one segment of it was body-swept: the stand is
+        /// "proven" by the grid alone (2026-09-20: Hilton 737,−172.5, a 6.8 m proof
+        /// with the gate fences between the player and the stand; Krosse has the
+        /// same kind of proof and is fine). The walk sweeps the goal zone itself
+        /// for these. 0 m = older file, unknown, treated as a real proof.
+        /// </summary>
+        [JsonIgnore]
+        public bool GridOnlyProof => Proven && ProofRouteMeters > 0f
+            && ProofRouteMeters <= NavigationHandler.WmSweepEndpointExemptDist;
+
         /// <summary>Runtime convenience view of X/Y/Z. Not written to the file: a Vector3 self-references through <c>normalized</c> and cycles the JSON writer.</summary>
         [JsonIgnore]
         public UnityEngine.Vector3 Position => new UnityEngine.Vector3(X, Y, Z);

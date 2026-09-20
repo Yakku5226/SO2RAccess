@@ -76,6 +76,10 @@ namespace SO2RAccess
             public Vector3?  FishingFallback;
             /// <summary>Water point to face at <see cref="FishingFallback"/>.</summary>
             public Vector3?  FishingFallbackFace;
+            /// <summary>World map fishing only: the listed stand's proof swept nothing (see <see cref="FishingStandEntry.GridOnlyProof"/>).</summary>
+            public bool      FishingGridOnlyProof;
+            /// <summary>World map fishing only: the same for <see cref="FishingFallback"/>.</summary>
+            public bool      FishingFallbackGridOnly;
             /// <summary>
             /// Source object for stable numbering (e.g. the chest/NPC gameObject, or fishing water parameter).
             /// Used to maintain consistent item numbers across rebuilds on the same map.

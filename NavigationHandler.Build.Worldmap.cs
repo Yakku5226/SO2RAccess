@@ -288,7 +288,8 @@ namespace SO2RAccess
                     DebugLogger.LogGameValue("NAV:FISHING:BUILD",
                         $"id={spot.WaterPlaceID} stand=({pos.x:F1},{pos.y:F1},{pos.z:F1}) of {place.Stands.Count} " +
                         $"clearance={stand.Clearance:F2} floorTierOnly={place.FloorTierOnly} " +
-                        $"proven={(stand.Proven ? $"{stand.ProvenFrom}/{stand.ProofTier}" : "-")} " +
+                        $"proven={(stand.Proven ? $"{stand.ProvenFrom}/{stand.ProofTier}{(stand.GridOnlyProof ? "/GRID-ONLY" : "")}" : "-")} " +
+                        (fallback != null && fallback.GridOnlyProof ? "fallbackProof=GRID-ONLY " : "") +
                         $"dist={dist:F1} unreachable={unreachable} fallback=" +
                         (fallback != null ? $"({fallback.X:F1},{fallback.Z:F1}) {FlatDistance(playerPos, fallback.Position):F0} m" : "none") +
                         $" ({reason})");
@@ -304,6 +305,8 @@ namespace SO2RAccess
                         FishingFallbackFace = fallback != null
                             ? fallback.Position + fallback.Facing * file.FrontDistance
                             : (Vector3?)null,
+                        FishingGridOnlyProof    = stand.GridOnlyProof,
+                        FishingFallbackGridOnly = fallback != null && fallback.GridOnlyProof,
                         SourceObject        = spot,  // ConstFishingWaterPlaceParameter as stable source
                     });
                 }

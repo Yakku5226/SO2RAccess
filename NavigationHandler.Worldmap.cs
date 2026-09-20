@@ -702,9 +702,12 @@ namespace SO2RAccess
             // An unproven fishing stand with a proven fallback is swept end to end:
             // failing here costs nothing, the proven stand is planned next.
             _wmSweepWholeRoute = item.IsFishing && item.FishingFallback.HasValue;
+            // A proven stand whose proof swept nothing gets its goal zone swept now.
+            _wmSweepGoalZoneStrict = item.IsFishing && !_wmSweepWholeRoute && item.FishingGridOnlyProof;
             bool planned = CalculateAndStorePath(playerPos, walkTarget,
                 allowPartial: true, isCounter: item.IsCounterNpc);
             _wmSweepWholeRoute = false;
+            _wmSweepGoalZoneStrict = false;
             if (planned) return true;
 
             // Fishing: the listed stand is the nearest shore point, which may sit
@@ -720,9 +723,13 @@ namespace SO2RAccess
             item.Position     = fallback;
             item.FacePosition = item.FishingFallbackFace;
             item.FishingFallback = null;
+            item.FishingGridOnlyProof = item.FishingFallbackGridOnly;
             walkTarget = fallback;
-            return CalculateAndStorePath(playerPos, walkTarget,
+            _wmSweepGoalZoneStrict = item.FishingFallbackGridOnly;
+            bool fallbackPlanned = CalculateAndStorePath(playerPos, walkTarget,
                 allowPartial: true, isCounter: item.IsCounterNpc);
+            _wmSweepGoalZoneStrict = false;
+            return fallbackPlanned;
         }
 
         #endregion
