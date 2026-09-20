@@ -159,7 +159,8 @@ namespace SO2RAccess
         /// Fishing spots sound from the shore point the list would walk to. (The
         /// water centre was tried first, but a world map lake is hundreds of
         /// metres across and its centre is nowhere a player can fish from.)
-        /// Only fishing items of the Interactables category qualify.
+        /// Only fishing items of the Interactables category qualify. Unreachable
+        /// spots (all stands in disconnected regions) are excluded.
         /// </summary>
         private void AddFishingSpots(List<BeaconTarget> into)
         {
@@ -168,6 +169,7 @@ namespace SO2RAccess
             {
                 var item = items[i];
                 if (!item.IsFishing) continue;
+                if (item.Unreachable) continue;
 
                 Vector3 pos = item.Position;
                 into.Add(new BeaconTarget
