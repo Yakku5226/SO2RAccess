@@ -59,6 +59,21 @@
 > (5) REVERTED (48b11c9): a beacon filter that skipped `Unreachable` fishing spots. It did not touch the menu, and
 > "unreachable" includes "no stand PROVEN", so it silenced spots that may be walkable by hand.
 >
+> 🧭 **NEXT SESSION STARTS HERE — OPTION 2 DESIGN (user rejected the log-only audit 2026-09-20: it would need every
+> fishing spot tested by hand).** FOUND IN THE DECOMPILED DATA: `MapjumpLayoutData` has `fieldmapID`, `position`,
+> `toFieldmapID`, **`toPosition`**, `toDirection` (+ psynard variants). For a town gate whose `toFieldmapID` is the
+> world map, `toPosition` = where the player really appears outside the town (expected ≈ Hilton (750.8,−170.7),
+> Arlia (−46.8,−404.5) — VERIFY these two first against the logs of 2026-09-20). PLAN: (1) how to enumerate
+> MapjumpLayoutData (MapjumpLayoutParameter / MapjumpParameterCollection) → document in game-api.md; (2) bake:
+> `CollectAnchors()` uses `toPosition` instead of the town symbol centre; (3) hypothesis to test IN THE BAKE, not by
+> walking: the start-side forgiveness (`hiddenStart` + enclosure test) only existed because routes started inside the
+> town's own colliders — with real anchors, sweep with no start exemption (keep IsGatePinch + 2 m goal exemption);
+> (4) automatic validation, no per-spot walking: the bake prints a verdict table and must agree with ground truth we
+> already own — every remembered bubble in `bubbles_expel.json` (real fishing) must stay proven, Hilton place 4 and
+> Arlia place 1 from their own gates must come out unproven or get a different, truly reachable stand; any
+> disagreement = stop and look, do not ship the file; (5) the nav list then says "unreachable on foot" up front and
+> Option 1's runtime rule becomes a safety net.
+>
 > ✅ **OPTION 1 LOG RESULT (09:52–09:54), committed:** HILTON PASS — `goal zone strict`, 5 wedges, re-plan empty,
 > "Cannot reach Fishing spot 1" 3.2 s after the key press, NO walking (most of the 3.2 s = two failed 1.5 s A*
 > searches over 1.4 M cells; a cheaper "no route" answer near walled pockets would make it instant). Arlia spot 2
