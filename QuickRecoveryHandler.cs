@@ -238,9 +238,11 @@ namespace SO2RAccess
                 // scripted event or conversation is running, which previously produced a
                 // false "Quick Recovery. Recover party?..." announcement mid-cutscene
                 // (the menu's own isPause flag is False during these, so it can't be
-                // used). The menu is only legitimately reachable during free field
-                // control, so suppress detection entirely otherwise.
-                if (isActive && IsBlockedByEventOrDialogue())
+                // used). Only events and conversations suppress it: the broader
+                // FieldState.IsFieldFree() test silenced every real open once the field
+                // window became the authority (log 2026-09-20 07:35: window showing=True,
+                // no heading), most likely through its game-pause check.
+                if (isActive && IsEventOrDialogueBlocking())
                 {
                     isActive = false;
                 }
@@ -343,18 +345,27 @@ namespace SO2RAccess
 
         /// <summary>
         /// True when the field is NOT in a state where the quick-recovery menu can
-        /// legitimately be open — i.e. a scripted event/cutscene is running, the game
-        /// is paused, or a conversation is on screen. Used to ignore the overlay's
-        /// stale active+populated state during cutscenes (see <see cref="Update"/>).
+        /// legitimately be open — i.e. a scripted event/cutscene is running or a
+        /// conversation is on screen. Used to ignore the overlay's stale
+        /// active+populated state during cutscenes (see <see cref="Update"/>).
         /// </summary>
-        private bool IsBlockedByEventOrDialogue()
+        private bool IsEventOrDialogueBlocking()
         {
-            // FieldState covers the common cases: no field/player, game paused,
-            // EventManager running (cutscenes/scripted scenes), camp or shop open.
-            if (!FieldState.IsFieldFree()) return true;
+            // Deliberately NOT FieldState.IsFieldFree(): its pause / camp / shop tests
+            // are answered by the field window state check in Update, and they kept
+            // the heading silent while the menu was really open.
+            try
+            {
+                var eventMgr = Il2CppGame.EventManager.Instance;
+                if (eventMgr != null && eventMgr.IsRunning) return true;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"QuickRecovery: event check error: {ex.Message}");
+            }
 
-            // Belt-and-suspenders: a conversation can be showing for a frame while
-            // the field still reports free. Check the conversation window directly.
+            // Belt-and-suspenders: a conversation can be showing for a frame even
+            // if EventManager reports free. Check the conversation window directly.
             try
             {
                 if (_conversationWindow == null
@@ -371,7 +382,7 @@ namespace SO2RAccess
             catch (Exception ex)
             {
                 // Window destroyed on scene change, etc. — drop the cache and treat
-                // as not-blocking (FieldState already handled the important cases).
+                // as not-blocking.
                 _conversationWindow = null;
                 DebugLogger.LogState($"QuickRecovery: conversation check error: {ex.Message}");
             }

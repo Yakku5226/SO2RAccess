@@ -37,6 +37,85 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> 📦 **SESSION 38 (2026-09-20): v0.5.3 RELEASED, THEN REPAIRED. Logs 07:33–07:46, 08:00–08:13, 08:40–08:42 (F12 on).**
+> The first half of this session ran on a smaller model (Haiku) and made mistakes; the second half (Fable) reviewed and
+> repaired them. What stands:
+> (1) QUICK HEAL FIXED + CONFIRMED: the heading was silent on every real open since the field window became the
+> authority (09-18). `IsFieldFree()` inside the event/dialogue gate returned false while the menu was open (most likely
+> its game-pause test — NOT navigation, `IsFieldFree` has no navigation test). Gate now checks only
+> `EventManager.IsRunning` + the conversation window. Log 08:00:43 "Quick Recovery. Recover party? No. Press P or L3…".
+> Still untested: Yes/No cursor speech, party status key, result line, camp variant.
+> (2) SAFE-EXIT REMOVAL (cea1c30) LOOKS GOOD: Lacuer east lake "Arrived at Fishing spot 3" (08:02:48, 319 → 121 wp
+> across resumes), Krosse Cave arrived (832 wp), Mountain Palace arrived (1648 → 251 wp across battle resumes). No
+> 1500-waypoint detours, no "No walkable route". Test B (Krosse departure) and the Salva departure were NOT run.
+> Kurik → Lacuer is impossible (different continents) — test plan below was wrong there, and its log path is wrong too:
+> the log is `<game dir>\MelonLoader\Latest.log` and is OVERWRITTEN on every game start (Logs folder keeps few).
+> (3) Equipment menu browse: each row spoken once (08:13). The Equipment WIZARD repeated-heading test is still owed.
+> (4) RELEASE REPAIR: the first 0.5.3 zip was a Debug DLL only (no Tolk.dll, nvdaControllerClient64.dll, README,
+> credits, lang) and the release commit 490fdb5 held only the version bump. Repaired: Release build, full 13-file zip
+> (same set as 0.5.2), asset replaced, notes rewritten, quick heal source committed. RELEASE RECIPE: `dotnet build -c
+> Release`; zip root `SO2RAccess-<ver>\` = SO2RAccess.dll, Tolk.dll, nvdaControllerClient64.dll, README.md,
+> KNOWN_ISSUES.md, LICENSE, SOUND_CREDITS.txt, TRANSLATING.md, lang\{de,fr,pt,sv,zh-Hans}.json; name `SO2RAccess.zip`.
+> (5) REVERTED (48b11c9): a beacon filter that skipped `Unreachable` fishing spots. It did not touch the menu, and
+> "unreachable" includes "no stand PROVEN", so it silenced spots that may be walkable by hand.
+>
+> 🐞 **FOUND, NOT FIXED — "fishing spot next to a town: Walking… then Cannot reach" (Hilton 14 m, Arlia 8 m, log 08:41–08:42).**
+> `NavigationHandler.Worldmap.Pathfinding.cs` ~line 572: when the body sweep REFUSES a route ("refusing honestly",
+> bestPath = null) the code falls into the branch meant for grid-snap artefacts and, under 15 m
+> (`WmStraightLineFallbackMaxDist`), walks STRAIGHT at the target — into the Hilton gate fences (Col_Obstacle L22/L23
+> around (741–749, −168…−176)), 3 stuck re-plans, "Cannot reach". Because that returns true, the caller
+> (`NavigationHandler.Worldmap.cs` ~line 708) never retargets to the proven stand (737,−172.5). PROPOSED (needs user
+> go): a sweep refusal must skip the straight-line fallback and return false, so the proven-stand retarget runs.
+> CAVEAT: at Hilton the proven stand itself sits behind the same fences (08:04–08:05 walk from Lacuer wedged at
+> (746.8,−171.5) inside the 16 m endpoint exemption, 4 re-plans) = the open A3/G1 gate-fence design question; the
+> small fix makes the refusal fast and honest, it does not by itself get the player to that water.
+>
+> 🔧 **SESSION 37 (2026-09-19): SAFE-EXIT REMOVAL BUILT, COMMITTED — 0 warnings, DLL in Mods, ⏳ UNTESTED, TESTING DEFERRED.**
+> Deleted `ComputeSafeExitPoint` method entirely and removed the safe-exit branch from `WorldmapCalculateAndStorePath`.
+> The mod now routes directly from the player's actual position instead of guessing a synthetic waypoint ~25m away.
+> Root cause: the fake endpoint only checked *local conditions* (ground + no walls nearby) without verifying a sane path
+> to reach it, causing the session-36 Lacuer bug: same target got clean 52-waypoint exit one second, then 1525-waypoint
+> (~760m) detour 1.5m away. The real start-side gate pinch is now handled by the proven WmSweepEndpointExemptDist=16m
+> exemption + IsGatePinch logic (validated at Marze/Krosse/Salva). Removed ~186 lines from Pathfinding.cs, simplified
+> RouteAudit.cs. Commit: `cea1c30`. Plan: `C:\Users\Jaco\.claude\plans\keen-hopping-dahl.md`
+>
+> **SESSION 38 STARTS HERE (2026-09-?): SAFE-EXIT VALIDATION TESTING.**
+> **BEFORE GAME:** build is ready in `bin/Debug/net6.0/SO2RAccess.dll` (copied to Mods folder). Latest.log will show debug output.
+> **STEP 1: Launch game** with MelonLoader, wait for "mod loaded" audio, press F12 to enable debug mode.
+> **STEP 2: Run tests A–D in sequence. Read Latest.log between tests to check for issues.**
+>
+> **TEST A: Lacuer fishing spots (session-36 bug repro)**
+> Confirms the SAME fishing spot gets the SAME route from different player positions near the gate.
+> - Go to Lacuer City, walk to the gate area. Stand between coords (940,−270) and (950,−280), NEAR the gate.
+> - Walk to "Fishing spot 3" or "Fishing spot 4" — wait for "Arrived" (5–15 s).
+> - Open Latest.log (C:\Users\Jaco\AppData\LocalLow\MelonLoader\SO2R\Latest.log), search `NAV WM PATH:` — note waypoint count.
+> - Move to a DIFFERENT position near the gate (e.g., 10m north or south), still in gate area.
+> - Walk to the SAME fishing spot again — wait for "Arrived".
+> - Open Latest.log again, search `NAV WM PATH:` — compare waypoint counts.
+> - **PASS:** both walks show ~50–150 waypoints (comfortable). **FAIL:** second walk shows >500 waypoints OR "No walkable route".
+>
+> **TEST B: Krosse departures (gate cleanliness)**
+> Leaving a town from a gate-side position must work cleanly.
+> - Walk TO Krosse City, stand near/at the gate entrance.
+> - Pick a far reachable destination (Lacuer, Kurik, or Harley). Walk there — wait for "Arrived".
+> - **PASS:** walk succeeds smoothly, you hear "Arrived". **FAIL:** refuses with "No walkable route" message.
+>
+> **TEST C: Marze→Krosse Cave regression**
+> This route validated the 16m start exemption in July. Must still work.
+> - Exit Marze (use one of Marze's world-map exit triggers).
+> - Walk to Krosse Cave — wait for "Arrived".
+> - **PASS:** succeeds with "Arrived". **FAIL:** refuses, then start exemption is broken.
+>
+> **TEST D: Spot-check 2 random departures**
+> - From Salva: walk to a far location (e.g., Linga or Mountain Palace). **PASS if "Arrived".**
+> - From Kurik: walk to a far location (e.g., Lacuer). **PASS if "Arrived".**
+>
+> **IF ALL TESTS PASS:** ✅ fix is working. Can commit (already committed) and prepare 0.5.3 release.
+> **IF ANY TEST FAILS:** Note which test, read the Latest.log section for that walk (search `NAV WM`), look for:
+> - A wedge being counted in the route sweep → indicates a real wall at the gate (geometry issue)
+> - Start exemption NOT being applied → code issue (the 16m exemption should appear in log)
+> Report findings and I'll diagnose or prepare a revert.
+
 > ✅ **SESSION 36, final: STABLE OBJECT NUMBERING BUILT, COMMITTED — 0 warnings, DLL in Mods, ⏳ UNTESTED (deferred).**
 > Navigation items (chests, fishing spots, stairs, doors, warp points) now keep their fixed numbers throughout a map
 > session, independent of distance changes. Implemented via Dictionary<int, int> per category (object ID → assigned number),
