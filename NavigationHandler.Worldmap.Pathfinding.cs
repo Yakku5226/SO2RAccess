@@ -485,6 +485,7 @@ namespace SO2RAccess
             // marking a start-side gate pinch would seal the player in and
             // refuse routes they physically just walked, proven at Marze).
             if (bestPath != null) targetPos = bestPath[bestPath.Length - 1];
+            bool sweepRefused = false;
             if (bestPath != null && mode == WorldmapTravelMode.Foot)
             {
                 // Strict mode (unproven fishing stand with a proven fallback): sweep
@@ -521,6 +522,16 @@ namespace SO2RAccess
                     bestPathFloorTier = WorldmapPathfinder.LastPathUsedFloorTier;
                     if (bestPath != null)
                         targetPos = bestPath[bestPath.Length - 1];
+                    else
+                    {
+                        // No way around the wedges is the sweep's refusal too, not a
+                        // grid artifact (Arlia, log 2026-09-20 09:09: one wedge, empty
+                        // re-plan, then the straight-line fallback into the gate fence).
+                        sweepRefused = true;
+                        DebugLogger.LogState(
+                            "NAV WM route sweep: no route left around the impassable " +
+                            "segments — refusing honestly.");
+                    }
                 }
 
                 if (bestPath != null &&
@@ -534,6 +545,7 @@ namespace SO2RAccess
                         "-tier route after re-planning — refusing honestly.");
                     WorldmapPathfinder.LastNoPathWasDisconnected = true;
                     bestPath = null;
+                    sweepRefused = true;
                 }
             }
 
@@ -578,6 +590,20 @@ namespace SO2RAccess
                 // obstacle course was the old "grind into a wall for 10+
                 // seconds, then give up" behavior — fail fast and honestly
                 // instead. The caller announces unreachable.
+                //
+                // A sweep refusal is never a grid artifact: the body capsule met
+                // real colliders. Walking straight at the target then drove the
+                // player into the Hilton and Arlia gate fences and, by reporting
+                // success, kept the caller from retargeting to the lake's proven
+                // stand (log 2026-09-20 08:41-08:42).
+                if (sweepRefused)
+                {
+                    DebugLogger.LogState(
+                        "NAV worldmap: route refused by the body sweep — no " +
+                        "straight-line fallback, reporting unreachable.");
+                    return false;
+                }
+
                 float fbDx = targetPos.x - playerPos.x;
                 float fbDz = targetPos.z - playerPos.z;
                 float fbDist = Mathf.Sqrt(fbDx * fbDx + fbDz * fbDz);

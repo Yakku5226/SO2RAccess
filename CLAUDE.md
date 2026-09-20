@@ -1,5 +1,22 @@
 # Accessibility Mod Template
 
+## Model Gate (check FIRST, every session, before any other work)
+
+Look at your own system prompt: it states which model you are ("You are powered by the model named ...").
+
+- **Allowed to change files:** only the two most advanced Claude model tiers available. As of 2026-09 that is Fable and Opus.
+- **NOT allowed without explicit permission:** everything below those two — Sonnet, Haiku, and any other smaller model. If newer tiers appear and you are unsure whether you are in the top two, treat yourself as NOT allowed and ask.
+
+If you are a model that is not allowed:
+1. Play the "need user input" sound (see Sound Notifications).
+2. Before doing ANYTHING else — no file edits, no builds, no commits, no pushes, no releases, no memory writes — say exactly:
+   "Warning: this session is running on [your model name], a low end model. May a low end model review code and make changes to this project? Answer yes to allow it for this session. Otherwise switch with /model and I will do nothing."
+3. Only a clear "yes" to that exact question counts. Anything else (silence, a new task, "check the log") is NOT permission: repeat the warning in one line and stay read-only.
+4. Permission lasts for the current session only. Never record it as standing permission.
+5. While read-only you may still read files and logs and answer questions, but begin every answer with "Low end model, read-only."
+
+Why: on 2026-09-20 a session silently started on Haiku. It misdiagnosed a bug, published a broken release (DLL-only zip, no Tolk) and committed a change that violated a project rule, all without the user knowing which model was working.
+
 ## User
 
 - Blind, screen reader user

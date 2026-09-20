@@ -59,7 +59,33 @@
 > (5) REVERTED (48b11c9): a beacon filter that skipped `Unreachable` fishing spots. It did not touch the menu, and
 > "unreachable" includes "no stand PROVEN", so it silenced spots that may be walkable by hand.
 >
-> 🐞 **FOUND, NOT FIXED — "fishing spot next to a town: Walking… then Cannot reach" (Hilton 14 m, Arlia 8 m, log 08:41–08:42).**
+> ✅ **FALLBACK FIX CONFIRMED IN THE LOG (09:13–09:15), committed.** Arlia 09:13:36 and Hilton 09:14:55 both show
+> `refusing honestly` → `route refused by the body sweep — no straight-line fallback` → `planning to the proven stand`.
+> Second entry to the same bug also closed (a re-plan that comes back EMPTY after wedges is a refusal too — Arlia 09:09).
+> Regression: Arlia Fishing spot 2 arrived with the bubble twice (09:09:33, 09:14:33).
+> 🔬 **ROOT CAUSE OF "PROVEN STAND STILL WEDGES" FOUND, NOT FIXED (design talk first):** 8 of the 31 proven stands
+> have a proof route of 16 m or less, i.e. entirely inside the bake's 16 m start exemption, so NOTHING was swept (the
+> bake logs these as `PROVEN BY GRID ONLY`). Places 4 (Hilton: 737,−172.5 / 737,−167.5, routes 6.8 / 7.4 m),
+> 25 (Krosse), 34, 53 have ONLY such stands. Hilton's anchor is a ring point on the stand's side of the gate fences;
+> the player leaves town on the other side at (750.8,−170.7) → wedge at (745.0,−173.8), stuck stamp closes the only
+> gap, `recalc found no path`, "Cannot reach" after 11 s. Arlia place 1 fallback (−37,−395): 5 stuck re-plans along
+> the town wall x −46…−50, 28 s. Krosse (place 25) has the same hollow proof but WORKS, so "demote every short
+> proof" would break a good spot — needs data. OPTIONS for the user: (a) runtime: when a fishing target's proof is
+> grid-only, sweep strictly (2 m goal exemption like the bake, no start exemption) → Hilton refuses at once and is
+> honest, Krosse still passes if its route is really clear; (b) re-bake with the proof sweeping short routes strictly,
+> so the file itself stops calling them proven and the list says "unreachable on foot" up front; (c) both.
+> ALSO SEEN: `Guild find error: KeyNotFoundException 'Mission'` 9× at the title screen (09:12:59–09:13:01), harmless
+> spam but it is an exception per poll — look at GuildHandler's find when convenient.
+>
+> 🔧 **Fallback fix as built (user go 2026-09-20).** A sweep
+> refusal now returns false before the straight-line fallback (`sweepRefused` flag, Pathfinding.cs). **Tests (F12 on):**
+> (a) Hilton gate → Fishing spot 1: log must show `route refused by the body sweep — no straight-line fallback`, then
+> `nearest shore point … refused — planning to the proven stand (737.0,-172.5)`; note whether that walk arrives or
+> wedges on the fences (= A3/G1 evidence); (b) Arlia gate → Fishing spot 1, same lines; (c) regression: Arlia Fishing
+> spot 2 (arrived 08:41:53) and Lacuer east lake still arrive. Also: CLAUDE.md now has a Model Gate (top two model
+> tiers only, currently Fable and Opus; anything lower must ask permission first).
+>
+> 🐞 **FOUND 2026-09-20, fix above — "fishing spot next to a town: Walking… then Cannot reach" (Hilton 14 m, Arlia 8 m, log 08:41–08:42).**
 > `NavigationHandler.Worldmap.Pathfinding.cs` ~line 572: when the body sweep REFUSES a route ("refusing honestly",
 > bestPath = null) the code falls into the branch meant for grid-snap artefacts and, under 15 m
 > (`WmStraightLineFallbackMaxDist`), walks STRAIGHT at the target — into the Hilton gate fences (Col_Obstacle L22/L23
