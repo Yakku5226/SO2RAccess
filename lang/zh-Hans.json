@@ -7,6 +7,7 @@
   "debug_gridaudit_result": "地面网格审计：匹配路径点 {0}/{1}，连通边 {2}/{3}，坠落违规 {4} 处，候选坡道 {5} 个。",
   "debug_gridaudit_nogrid": "地面网格审计：此地图没有可探测的内容。",
   "debug_wallaudit_result": "Wall probe audit: {0} false walls on {1} walked edges, wall density {2} percent.",
+  "debug_navmeshaudit_result": "NavMesh audit: {0} of {1} breadcrumbs off the NavMesh, {2} of {3} walked links cut.",
   "_section_binding_dump_clash_check_runs_when": "按键转储/冲突检查（调试模式开启时运行）",
   "binddump_all_free": "模组按键检查：所有按键均未被占用。",
   "binddump_clashes": "模组按键检查：{0} 个按键与游戏按键冲突。详情见日志。",

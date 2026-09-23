@@ -7,6 +7,7 @@
   "debug_gridaudit_result": "Bodenraster-Prüfung: {0} von {1} Wegpunkten gefunden, {2} von {3} Kanten verbunden, {4} Absturzverstöße, {5} Rampenkandidaten.",
   "debug_gridaudit_nogrid": "Bodenraster-Prüfung: auf dieser Karte gibt es nichts zu prüfen.",
   "debug_wallaudit_result": "Wall probe audit: {0} false walls on {1} walked edges, wall density {2} percent.",
+  "debug_navmeshaudit_result": "NavMesh audit: {0} of {1} breadcrumbs off the NavMesh, {2} of {3} walked links cut.",
   "_section_binding_dump_clash_check_runs_when": "Binding dump / clash check (runs when debug mode turns on)",
   "binddump_all_free": "Mod-Tastenprüfung: alle Tasten frei.",
   "binddump_clashes": "Mod-Tastenprüfung: {0} Tasten kollidieren mit Spielbelegungen. Details stehen im Log.",

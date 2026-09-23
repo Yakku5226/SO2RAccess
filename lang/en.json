@@ -7,6 +7,7 @@
   "debug_gridaudit_result": "Floor grid audit: {0} of {1} breadcrumbs matched, {2} of {3} edges connected, {4} drop violations, {5} ramp candidates.",
   "debug_gridaudit_nogrid": "Floor grid audit: nothing to probe on this map.",
   "debug_wallaudit_result": "Wall probe audit: {0} false walls on {1} walked edges, wall density {2} percent.",
+  "debug_navmeshaudit_result": "NavMesh audit: {0} of {1} breadcrumbs off the NavMesh, {2} of {3} walked links cut.",
   "debug_wmwallaudit_no_trail": "No world map trail recorded yet. Walk around in debug mode first, then press F11.",
   "_section_binding_dump_clash_check_runs_when": "Binding dump / clash check (runs when debug mode turns on)",
   "binddump_all_free": "Mod key check: all keys free.",

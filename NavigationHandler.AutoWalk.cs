@@ -812,6 +812,39 @@ namespace SO2RAccess
             return false;
         }
 
+        /// <summary>
+        /// True when a wall face stands across one of the path's segments, judged
+        /// by the probe the wall tones use (field profile, gated by the F11 wall
+        /// audit). Each segment is probed from its start over its own length in
+        /// pieces no longer than the probe's reach, with the audit's slack so a
+        /// corner cut close to a wall does not count. Names the first crossing.
+        /// </summary>
+        private static bool NavMeshPathCrossesWall(Vector3[] corners, out string blocker)
+        {
+            blocker = null;
+            if (corners == null || corners.Length < 2) return false;
+            for (int i = 0; i < corners.Length - 1; i++)
+            {
+                Vector3 p = corners[i], q = corners[i + 1];
+                Vector3 dir = new Vector3(q.x - p.x, 0f, q.z - p.z);
+                float len = dir.magnitude;
+                if (len <= WallAuditSlack) continue;
+                dir /= len;
+                for (float offset = 0f; offset < len; offset += WallProbe.MaxRange)
+                {
+                    float piece = Mathf.Min(WallProbe.MaxRange, len - offset);
+                    if (piece <= WallAuditSlack) break;
+                    Vector3 from = Vector3.Lerp(p, q, offset / len);
+                    var r = WallProbe.ProbeDirection(from, dir, piece, describe: true);
+                    if (!r.HasObstacle || r.Distance >= piece - WallAuditSlack) continue;
+                    blocker = $"'{r.Collider ?? "?"}'/L{r.Layer} {r.Distance:F1} m into leg {i} " +
+                              $"({p.x:F1},{p.y:F1},{p.z:F1})->({q.x:F1},{q.y:F1},{q.z:F1})";
+                    return true;
+                }
+            }
+            return false;
+        }
+
         /// <summary>Copies an IL2CPP NavMeshPath corner array into a managed array.</summary>
         private static Vector3[] CopyCorners(NavMeshPath path)
         {
@@ -938,6 +971,19 @@ namespace SO2RAccess
             else if (TryFindCompletePath(playerPos, targetPos, _navPath))
             {
                 corners = CopyCorners(_navPath);
+                // 1b. A complete NavMesh path that runs through a wall face is a
+                //     NavMesh that lies about this map (Krosse event copy,
+                //     2026-09-23: its only link to the inn went through a closed
+                //     door). When a recorded route exists, take that instead: it
+                //     was really walked, so this can only swap to a proven route.
+                if (!isCounter && UseTraversal() && NavMeshPathCrossesWall(corners, out string blocker)
+                    && _traversal.FindPath(playerPos, targetPos, out var tcWall) && tcWall != null)
+                {
+                    DebugLogger.LogState(
+                        $"NAV: NavMesh path crosses {blocker} - taking the recorded breadcrumb route instead.");
+                    corners = tcWall;
+                    fromTraversal = true;
+                }
             }
             // 2. A recorded traversal route (dungeons the player has walked). The
             //    waypoints are real walked positions, so the route is walkable.

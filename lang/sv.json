@@ -7,6 +7,7 @@
   "debug_gridaudit_result": "Golvnätsgranskning: {0} av {1} brödsmulor matchade, {2} av {3} kanter anslutna, {4} fallöverträdelser, {5} rampkandidater.",
   "debug_gridaudit_nogrid": "Golvnätsgranskning: inget att sondera på den här kartan.",
   "debug_wallaudit_result": "Wall probe audit: {0} false walls on {1} walked edges, wall density {2} percent.",
+  "debug_navmeshaudit_result": "NavMesh audit: {0} of {1} breadcrumbs off the NavMesh, {2} of {3} walked links cut.",
   "_section_binding_dump_clash_check_runs_when": "Binding dump / clash check (runs when debug mode turns on)",
   "binddump_all_free": "Kontroll av moddens tangenter: alla tangenter är lediga.",
   "binddump_clashes": "Kontroll av moddens tangenter: {0} tangenter krockar med spelets bindningar. Se loggen för detaljer.",

@@ -20,6 +20,11 @@ namespace SO2RAccess
         private const float FloorMapLevelWindow = 3f;
         /// <summary>Most solid colliders listed one per line after the map.</summary>
         private const int FloorMapMaxColliders = 300;
+        /// <summary>
+        /// On a map too large to draw, colliders within this distance of the
+        /// player are still listed, so a stuck spot in a town can be read.
+        /// </summary>
+        private const float FloorMapListRadius = 30f;
 
         /// <summary>
         /// Draws the room around the player as text, one row per 0.75 m, north
@@ -48,7 +53,14 @@ namespace SO2RAccess
             int h = Mathf.CeilToInt(b.size.z / FloorMapCell) + 1;
             if (w > FloorMapMaxCells || h > FloorMapMaxCells)
             {
-                MelonLogger.Msg($"[SO2RAccess] [FLOORMAP] area {b.size.x:F0} x {b.size.z:F0} m is too large to draw, skipped.");
+                // Towns: no drawing, but the lists still answer "what is in front
+                // of the player" (Krosse event copy, 2026-09-23: the walk stuck in
+                // a NavMesh sliver and the log had no collider to blame).
+                MelonLogger.Msg($"[SO2RAccess] [FLOORMAP] area {b.size.x:F0} x {b.size.z:F0} m is too large to draw; " +
+                                $"listing colliders within {FloorMapListRadius:F0} m of the player instead.");
+                var around = new Bounds(playerPos, new Vector3(FloorMapListRadius * 2f, 0f, FloorMapListRadius * 2f));
+                LogSolidColliders(around);
+                LogDoorsTriggersStairs();
                 return;
             }
 

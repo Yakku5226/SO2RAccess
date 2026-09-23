@@ -289,6 +289,10 @@ namespace SO2RAccess
                                 // Wall-probe gate for the manual-nav wall sounds.
                                 _navigationHandler.RunWallProbeAudit(
                                     player.transform.position);
+                                // NavMesh vs. breadcrumbs: where auto-walk's first
+                                // choice of route can be wrong about this map.
+                                _navigationHandler.RunNavMeshAudit(
+                                    player.transform.position);
                             }
                         }
                     }

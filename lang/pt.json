@@ -7,6 +7,7 @@
   "debug_gridaudit_result": "Auditoria da grelha do chão: {0} de {1} marcas encontradas, {2} de {3} ligações conectadas, {4} violações de queda, {5} rampas candidatas.",
   "debug_gridaudit_nogrid": "Auditoria da grelha do chão: nada para sondar neste mapa.",
   "debug_wallaudit_result": "Wall probe audit: {0} false walls on {1} walked edges, wall density {2} percent.",
+  "debug_navmeshaudit_result": "NavMesh audit: {0} of {1} breadcrumbs off the NavMesh, {2} of {3} walked links cut.",
   "_section_binding_dump_clash_check_runs_when": "Binding dump / clash check (runs when debug mode turns on)",
   "binddump_all_free": "Verificação de teclas do mod: todas as teclas estão livres.",
   "binddump_clashes": "Verificação de teclas do mod: {0} teclas em conflito com os comandos do jogo. Veja o log para detalhes.",
