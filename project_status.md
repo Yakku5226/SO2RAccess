@@ -37,6 +37,8 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> 🚀 **v0.5.5 RELEASED 2026-09-23 19:48** (tag v0.5.5 = dd24b42, 13-file zip, Release build): interactable registry, breadcrumb wall-shortcut fix (+ bridge-safe load cleanup), NavMesh-stuck → breadcrumb retry, F11 floor map / collider / door dump, and the hotfix: spoken directions on the keyboard = apostrophe (`ModAction.NavGuide`, Field context, rebindable, F1 help, README). ⏳ UNTESTED in release form: registry rows, prompt speech, apostrophe key. Registry and prompt tests 1–6 below still owed.
+
 > 🚪 **SESSION 41b (2026-09-23, parallel session starocean-99): BOWMAN'S HOUSE EVENT MAP (MF_0019_30C). BUILT, 0 warnings, DLL in Mods 17:06, ⏳ UNTESTED, uncommitted.**
 > The event copy of the house has a NavMesh that does not match its walls: "complete path" to Precis walks into the shop counter (Col_Obstacle x[-2,2.2] z[2.5,4.3]) and the pillar nook at (-2.4,2.8). The story trigger (-0.8,1.0,10.8) sits half a metre behind a closed door (Mesh_Door_L0 x[-1.5,0.2] z[9.8,10.3]) at the end of a corridor (x -2.1..0.7, z 6.5..9.8) entered from the big west room through a 2 m gap at z≈6.7. Doors open on approach (the user walked the west door at (-5.5,3.1)).
 > Built: (1) breadcrumb-first retry: a walk stuck on a NavMesh path sets `_preferTraversalRoute` and recomputes from the recorded route (`NavigationHandler.cs` stuck handler, `CalculateAndStorePathCore` step 0); (2) debug: give-up probe names the colliders around the player (`LogBlockerProbe`), NAV:EVENT / filtered lines print pos; (3) F11 on field maps now logs a wall-aware text floor map (`NavigationHandler.FloorMapDump.cs`, 0.75 m per char, `WallProbe.AnyFaceAround`) plus every solid collider's bounds, and a grid-route check per nav item (`AuditNavItems`).
