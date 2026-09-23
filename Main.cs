@@ -12,7 +12,7 @@ using Il2CppGame;
 // Accessing game code before the game is fully loaded will crash.
 // Safe access begins in OnSceneWasLoaded() or when CheckGameReady() passes.
 
-[assembly: MelonInfo(typeof(SO2RAccess.Main), "SO2RAccess", "0.5.3", "Accessibility Mod")]
+[assembly: MelonInfo(typeof(SO2RAccess.Main), "SO2RAccess", "0.5.5", "Accessibility Mod")]
 // Universal: no game-name check, so the mod loads on both the full game and the
 // demo (their internal product names may differ, but the game code is identical).
 [assembly: MelonGame]
@@ -362,7 +362,8 @@ namespace SO2RAccess
                     ModKeys.DisplayName(ModAction.PauseCharRight),
                     ModKeys.DisplayName(ModAction.CampStoryHint),
                     ModKeys.DisplayName(ModAction.QuickRecoveryStatus),
-                    ModKeys.DisplayName(ModAction.DebugToggle)));
+                    ModKeys.DisplayName(ModAction.DebugToggle),
+                    ModKeys.DisplayName(ModAction.NavGuide)));
                 return true;
             }
 
@@ -449,6 +450,11 @@ namespace SO2RAccess
             {
                 DebugLogger.LogInput(ModKeys.DisplayName(ModAction.NavAutoWalkToggle), "NavAutoWalkToggle");
                 return _navigationHandler.ModelessAutoWalkToggle();
+            }
+            if (kb[ModKeys.NavGuide].wasPressedThisFrame)
+            {
+                DebugLogger.LogInput(ModKeys.DisplayName(ModAction.NavGuide), "NavGuide");
+                return _navigationHandler.ModelessGuideToggle();
             }
 
             // Movement keys cancel auto-walk silently — player takes manual control.

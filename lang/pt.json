@@ -570,6 +570,7 @@
   "keybind_action_NavItemPrev": "Navegação, item anterior",
   "keybind_action_NavItemNext": "Navegação, próximo item",
   "keybind_action_NavAutoWalkToggle": "Navegação, caminhada automática",
+  "keybind_action_NavGuide": "Navegação, instruções faladas",
   "keybind_action_PauseTierDown": "Pausa de batalha, nível de informação anterior",
   "keybind_action_PauseTierUp": "Pausa de batalha, próximo nível de informação",
   "keybind_action_PauseCharLeft": "Pausa de batalha, personagem anterior",

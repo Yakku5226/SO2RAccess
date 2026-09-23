@@ -570,6 +570,7 @@
   "keybind_action_NavItemPrev": "Navigation, vorheriger Eintrag",
   "keybind_action_NavItemNext": "Navigation, nächster Eintrag",
   "keybind_action_NavAutoWalkToggle": "Navigation, automatisches Laufen",
+  "keybind_action_NavGuide": "Navigation, gesprochene Wegbeschreibung",
   "keybind_action_PauseTierDown": "Kampfpause, Infostufe runter",
   "keybind_action_PauseTierUp": "Kampfpause, Infostufe hoch",
   "keybind_action_PauseCharLeft": "Kampfpause, vorheriger Charakter",

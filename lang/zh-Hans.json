@@ -570,6 +570,7 @@
   "keybind_action_NavItemPrev": "导航，上一项目",
   "keybind_action_NavItemNext": "导航，下一项目",
   "keybind_action_NavAutoWalkToggle": "导航，自动行走",
+  "keybind_action_NavGuide": "导航，语音指路",
   "keybind_action_PauseTierDown": "战斗暂停，信息级别降低",
   "keybind_action_PauseTierUp": "战斗暂停，信息级别提高",
   "keybind_action_PauseCharLeft": "战斗暂停，上一角色",

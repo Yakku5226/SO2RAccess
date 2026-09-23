@@ -570,6 +570,7 @@
   "keybind_action_NavItemPrev": "Navigation, élément précédent",
   "keybind_action_NavItemNext": "Navigation, élément suivant",
   "keybind_action_NavAutoWalkToggle": "Navigation, marche automatique",
+  "keybind_action_NavGuide": "Navigation, indications vocales",
   "keybind_action_PauseTierDown": "Pause de combat, niveau d'information inférieur",
   "keybind_action_PauseTierUp": "Pause de combat, niveau d'information supérieur",
   "keybind_action_PauseCharLeft": "Pause de combat, personnage précédent",

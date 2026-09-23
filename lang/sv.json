@@ -570,6 +570,7 @@
   "keybind_action_NavItemPrev": "Navigering, föregående objekt",
   "keybind_action_NavItemNext": "Navigering, nästa objekt",
   "keybind_action_NavAutoWalkToggle": "Navigering, automatisk gång",
+  "keybind_action_NavGuide": "Navigering, talade vägbeskrivningar",
   "keybind_action_PauseTierDown": "Stridspaus, lägre informationsnivå",
   "keybind_action_PauseTierUp": "Stridspaus, högre informationsnivå",
   "keybind_action_PauseCharLeft": "Stridspaus, föregående karaktär",

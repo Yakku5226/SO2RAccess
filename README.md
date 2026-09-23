@@ -83,6 +83,7 @@ read aloud.
 - Minus and Equals — previous / next navigation category
 - Left bracket and Right bracket — previous / next item in the category
 - Backslash — walk to the selected item; press again while walking to stop
+- Apostrophe — spoken directions to the selected item (the keyboard twin of L2 + left stick down); press again on the same item to stop, or on another item to switch
 - Apostrophe (while the camp menu is open) — read the current story hint
 - P (while the Quick Recovery prompt is open) — read party status
 

@@ -24,6 +24,7 @@ namespace SO2RAccess
         NavItemPrev,
         NavItemNext,
         NavAutoWalkToggle,
+        NavGuide,              // spoken directions to the selected item (gamepad: L2 + stick down)
 
         // Battle pause menu (same physical keys as nav — different context)
         PauseTierDown,
@@ -95,6 +96,10 @@ namespace SO2RAccess
             { ModAction.NavItemPrev,       Key.LeftBracket },
             { ModAction.NavItemNext,       Key.RightBracket },
             { ModAction.NavAutoWalkToggle, Key.Backslash },
+            // Spoken directions. Apostrophe is also the camp story hint and
+            // nothing in the game's own keyboard map (binding dump 2026-09-23);
+            // the two mod uses live in different contexts, so they never clash.
+            { ModAction.NavGuide,          Key.Quote },
 
             // Battle pause — same family, different context
             { ModAction.PauseTierDown,  Key.Minus },
@@ -135,6 +140,7 @@ namespace SO2RAccess
             { ModAction.NavItemPrev,       ModKeyContext.Field },
             { ModAction.NavItemNext,       ModKeyContext.Field },
             { ModAction.NavAutoWalkToggle, ModKeyContext.Field },
+            { ModAction.NavGuide,          ModKeyContext.Field },
 
             { ModAction.PauseTierDown,  ModKeyContext.BattlePause },
             { ModAction.PauseTierUp,    ModKeyContext.BattlePause },
@@ -197,6 +203,7 @@ namespace SO2RAccess
         public static Key NavItemPrev         => _keys[ModAction.NavItemPrev];
         public static Key NavItemNext         => _keys[ModAction.NavItemNext];
         public static Key NavAutoWalkToggle   => _keys[ModAction.NavAutoWalkToggle];
+        public static Key NavGuide            => _keys[ModAction.NavGuide];
         public static Key PauseTierDown       => _keys[ModAction.PauseTierDown];
         public static Key PauseTierUp         => _keys[ModAction.PauseTierUp];
         public static Key PauseCharLeft       => _keys[ModAction.PauseCharLeft];

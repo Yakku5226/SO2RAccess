@@ -96,6 +96,20 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// Keyboard twin of the gamepad "L2 + left stick down" gesture: spoken
+        /// directions to the selected item. Same rules as <see cref="GuideTo"/>:
+        /// a second press on the same item stops, a press on another item
+        /// switches. Returns false (key passes through to the game) when the
+        /// field is not free.
+        /// </summary>
+        public bool ModelessGuideToggle()
+        {
+            if (!EnsureListReady(allowRefresh: false)) return false;
+            GuideTo();
+            return true;
+        }
+
+        /// <summary>
         /// Guarantees the background list is built and current before a modeless
         /// key acts. Rebuilds when the list is absent, built for another map, or
         /// (category keys only) older than <see cref="ListRefreshSeconds"/>.
