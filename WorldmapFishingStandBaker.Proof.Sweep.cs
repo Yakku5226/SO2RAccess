@@ -205,13 +205,14 @@ namespace SO2RAccess
         /// Body-capsule sweep over a route (the walk's own segment test). Segments
         /// within <see cref="ProofGoalExemptMeters"/> of the stand are not swept
         /// (the shoreline step itself). Segments within the walk's 16 m start
-        /// exemption of the route start or the anchor ARE swept but a blocked one
-        /// is not a wedge: town-gate pinches are sweep-conservative and passable
-        /// (validated by the July walks; a 2026-09-13 bake without this exemption
-        /// refused 10 lakes). Such hidden start-side wedges are counted in
-        /// <paramref name="hiddenStart"/>: a proven stand with any of them must
-        /// pass <see cref="IsEnclosed"/>, which is how the Arlia shore pocket
-        /// behind the town wall is told from a real gate. A blocked segment that
+        /// zone of the route start or the anchor are swept AND get the
+        /// standing-still overlap test. A blocked one is a wedge like any other
+        /// (counted in <paramref name="startSide"/> as evidence) unless
+        /// <see cref="ProofStartExemption"/> restores the old rule: then it is
+        /// hidden and counted in <paramref name="hiddenStart"/>, and a proven
+        /// stand with any of them must pass <see cref="IsEnclosed"/> (a
+        /// 2026-09-13 bake from the town symbol centres without that exemption
+        /// refused 10 lakes). A blocked segment that
         /// <see cref="WorldmapMapjumps.IsGatePinch"/> recognises as the town's own
         /// entrance collider is forgiven outright (<paramref name="forgiven"/>).
         /// Every other impassable segment's start is added to
@@ -220,8 +221,9 @@ namespace SO2RAccess
         /// </summary>
         private static int SweepRoute(Vector3[] path, Vector3 anchorPos, Vector3 goal, int mask,
             List<Vector3> blocked, out string firstWedge, out int forgiven, out int swept,
-            out int hiddenStart, out string firstHidden)
+            out int hiddenStart, out string firstHidden, out int startSide)
         {
+            startSide = 0;
             firstWedge = null;
             firstHidden = null;
             forgiven = 0;
@@ -233,7 +235,7 @@ namespace SO2RAccess
             for (int i = 0; i < path.Length - 1; i++)
             {
                 if (FlatDistanceSq(path[i], goal) <= goalExemptSq) continue;
-                bool startExempt = FlatDistanceSq(path[i], path[0]) <= startExemptSq
+                bool startZone = FlatDistanceSq(path[i], path[0]) <= startExemptSq
                     || FlatDistanceSq(path[i], anchorPos) <= startExemptSq;
 
                 Collider blocker;
@@ -248,7 +250,7 @@ namespace SO2RAccess
                         // the 2026-09-13 Krosse-side bake proved the Arlia pocket
                         // that way (its route begins inside the town wall). The
                         // standing-still overlap test does not have that blind spot.
-                        if (!startExempt || !BodyOverlapsWall(path[i], mask, out blocker)) continue;
+                        if (!startZone || !BodyOverlapsWall(path[i], mask, out blocker)) continue;
                     }
                 }
                 catch (Exception ex)
@@ -262,7 +264,7 @@ namespace SO2RAccess
                     forgiven++;
                     continue; // gate pinch: the town's own collider beside the road
                 }
-                if (startExempt)
+                if (startZone && ProofStartExemption)
                 {
                     hiddenStart++;
                     if (firstHidden == null)
@@ -270,6 +272,7 @@ namespace SO2RAccess
                     continue; // start-side pinch: exempt as in the walk, but remembered
                 }
                 wedges++;
+                if (startZone) startSide++;
                 blocked.Add(path[i]);
                 if (firstWedge == null)
                 {

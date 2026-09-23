@@ -54,13 +54,23 @@ namespace SO2RAccess
         /// </summary>
         private const float EnclosureEscapeMeters = 12f;
 
-        /// <summary>A location entrance the proof can start a route from.</summary>
+        /// <summary>
+        /// The 2026-09-20 hypothesis under test: the start-side forgiveness (a
+        /// blocked segment within 16 m of the route start is hidden, then judged
+        /// by the enclosure test) only existed because proofs started at the town
+        /// symbol centre, inside the town's own colliders. With real exit anchors
+        /// the start zone is swept like the rest of the route; gate pinches stay
+        /// forgiven. True restores the old forgiveness for a comparison bake.
+        /// </summary>
+        private static readonly bool ProofStartExemption = false;
+
+        /// <summary>A point the player really appears at when leaving a location; proof routes start here.</summary>
         private sealed class Anchor
         {
-            /// <summary>Destination fieldmap ID of the entrance, e.g. MF_0009_01A.</summary>
+            /// <summary>Source fieldmap and map jump ID of the exit, e.g. MF_0009_01A:MAPJUMP_031.</summary>
             public string Label;
             public Vector3 Position;
-            /// <summary>Foot region of the entrance cell (0 = unknown, never used to skip).</summary>
+            /// <summary>Foot region of the exit cell (0 = unknown, never used to skip).</summary>
             public int Region;
         }
 
@@ -71,15 +81,13 @@ namespace SO2RAccess
         /// no anchors or no chunk data exist — the runtime then treats every stand
         /// as "proof unknown".
         /// </summary>
-        private static void ProveStands(FieldPlayer player, WorldmapGridFormat.CachedGrid grid,
-            FishingStandFile file)
+        private static void ProveStands(WorldmapGridFormat.CachedGrid grid, FishingStandFile file,
+            List<Anchor> anchors, int mask, string maskNote)
         {
-            var anchors = CollectAnchors();
             file.ProofAnchors = anchors.Count;
             if (anchors.Count == 0)
             {
-                Log("Phase 5: no entrance anchors found (no ground-level map jump triggers) — " +
-                    "route proofs skipped, every stand stays 'proof unknown'.");
+                Log("Phase 5: no exit anchors — route proofs skipped, every stand stays 'proof unknown'.");
                 return;
             }
 
@@ -95,13 +103,12 @@ namespace SO2RAccess
                 return;
             }
 
-            int mask = NavigationHandler.ResolveBodySweepMask(player, out string maskNote);
-            Log($"Phase 5: {anchors.Count} entrance anchors; sweep {maskNote}; start exemption " +
-                $"{NavigationHandler.WmSweepEndpointExemptDist:F0} m (start-side wedges still swept and counted), goal exemption " +
-                $"{ProofGoalExemptMeters:F0} m; a stand whose route hid a start-side wedge must pass the enclosure test " +
-                $"(body flood must reach {EnclosureEscapeMeters:F0} m within {EnclosureSearchMeters:F0} m).");
-            foreach (var a in anchors)
-                Log($"Phase 5: anchor {a.Label} at ({a.Position.x:F0},{a.Position.y:F0},{a.Position.z:F0}) foot region {a.Region}.");
+            Log($"Phase 5: {anchors.Count} exit anchors; sweep {maskNote}; " +
+                (ProofStartExemption
+                    ? $"start exemption {NavigationHandler.WmSweepEndpointExemptDist:F0} m (start-side wedges hidden, then the enclosure test: " +
+                      $"body flood must reach {EnclosureEscapeMeters:F0} m within {EnclosureSearchMeters:F0} m)"
+                    : "NO start exemption (start-side wedges refuse the route; gate pinches stay forgiven)") +
+                $"; goal exemption {ProofGoalExemptMeters:F0} m.");
             file.ProofsBaked = true;
             LogWallCensus();
 
@@ -136,24 +143,6 @@ namespace SO2RAccess
 
         /// <summary>The scanned map jumps of the running bake (ring distances in the wedge evidence lines).</summary>
         private static List<(FieldmapID fieldmapID, Vector3 position, List<Collider> rings)> _proofMapjumps;
-
-        /// <summary>Every map jump with a ground-level trigger ring, labelled by its destination fieldmap.</summary>
-        private static List<Anchor> CollectAnchors()
-        {
-            var anchors = new List<Anchor>();
-            _proofMapjumps = WorldmapMapjumps.CollectAll();
-            foreach (var (fieldmapID, position, rings) in _proofMapjumps)
-            {
-                if (rings.Count == 0) continue;
-                anchors.Add(new Anchor
-                {
-                    Label = fieldmapID.ToString(),
-                    Position = position,
-                    Region = WorldmapPathfinder.GetRegionId(position, WorldmapTravelMode.Foot),
-                });
-            }
-            return anchors;
-        }
 
         /// <summary>
         /// The proof's progress on one stand: which of its nearest anchors is
@@ -300,13 +289,13 @@ namespace SO2RAccess
             p.SkipComfort = floor;
 
             int tiles = LoadRouteTiles(loader, path, grid, cellsPerTile, tilesX, tilesZ);
-            int wedges, forgiven, swept, hiddenStart;
+            int wedges, forgiven, swept, hiddenStart, startSide;
             string firstWedge, firstHidden;
             string enclosed = null;
             try
             {
                 wedges = SweepRoute(path, anchor.Position, standPos, mask, p.Blocked,
-                    out firstWedge, out forgiven, out swept, out hiddenStart, out firstHidden);
+                    out firstWedge, out forgiven, out swept, out hiddenStart, out firstHidden, out startSide);
                 if (wedges == 0 && hiddenStart > 0)
                 {
                     // The start exemption hid a wall on this route: a real gate
@@ -351,8 +340,13 @@ namespace SO2RAccess
                     $"{path.Length} waypoints, round {round}, {tiles} tiles{gateNote}{sweptNote}, {sw.ElapsedMilliseconds} ms.");
                 return true;
             }
+            // Evidence for the start exemption hypothesis: a route the old rule
+            // would have waved through to the enclosure test.
+            string lenientNote = !ProofStartExemption && startSide == wedges
+                ? $" (all {startSide} within {NavigationHandler.WmSweepEndpointExemptDist:F0} m of the start — the old start exemption would have hidden them)"
+                : "";
             Log($"Phase 5: {where} from {from} round {round}: refused — {wedges} wedges on the " +
-                (floor ? "floor" : "comfort") + $"-tier route{gateNote}, first {firstWedge}; " +
+                (floor ? "floor" : "comfort") + $"-tier route{lenientNote}{gateNote}, first {firstWedge}; " +
                 $"{sw.ElapsedMilliseconds} ms.");
             if (round >= MaxProofRounds) NextAnchor(p);
             else p.Round++;

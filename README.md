@@ -9,12 +9,13 @@ The mod is built on [MelonLoader](https://melonwiki.xyz/) and uses the [Tolk](ht
 - Full menu narration — the camp menu and all of its sub-screens (items, equipment, battle skills, status, formation, tactics, item creation, specialties, operations, missions), shops, guilds, save screens, and the game-over menu. Where a screen has tabs along the top, cycling them with L1/R1 announces the party member or item category you land on, together with the row under the cursor.
 - Dialogue readout — conversation text is read aloud, including unvoiced lines the game only shows on screen.
 - Cutscene subtitles — the subtitle line under movie cutscenes and the caption text events show above characters are read as they appear. Can be turned off in the mod settings menu (F4).
-- Field navigation — a navigation menu lists nearby NPCs, exits, treasure chests, save points, stairs and climb points (ladders, ivy walls), and interactable objects; pick one and the mod walks you there automatically. When a target sits on a level the mod cannot walk to yet, it tells you how far away it is, and where the shape of the floor suggests the climb or descent begins.
+- Field navigation — a navigation menu lists nearby NPCs, exits, treasure chests, save points, stairs, climb points (ladders, ivy walls) and ledges, warp panels and magic circles, puzzle doors and boulders, and interactable objects (fishing spots, gathering points, switches, statues, floor panels and any other mechanism that takes a button press); pick one and the mod walks you there automatically. When a target sits on a level the mod cannot walk to yet, it tells you how far away it is, and where the shape of the floor suggests the climb or descent begins.
 - Spoken directions — instead of being walked, be guided: pick an item and the mod calls out which way to push the stick and how far, leg by leg, as you walk it yourself. Where no walked route exists yet, it follows the shape of the floor and says so ("unverified route"); the route you then walk is remembered for next time. On the world map the directions follow the same route auto-walk would take and re-plan only when you get stuck or stray far off it.
-- Manual navigation sounds — walk by ear: four looping tones grow louder as a wall gets closer ahead, to the right, behind or to the left of the camera, and nearby NPCs, unopened chests, doors and exits, locations, save points, fishing spots and known jump ledges each have a repeating beacon that pans toward the object and grows louder as you approach. On the world map, towns and dungeons have beacons of their own, with a longer range. Every tone and beacon has its own on/off switch and volume in the mod settings menu (F4), under Wall sounds and Object beacons. Slopes and ramps are told apart from walls by the shape of the floor, so a climbable path never plays a wall tone.
+- Manual navigation sounds — walk by ear: four looping tones grow louder as a wall gets closer ahead, to the right, behind or to the left of the camera, and nearby NPCs, unopened chests, doors and exits, locations, save points, fishing spots, gathering points and known jump ledges each have a repeating beacon that pans toward the object and grows louder as you approach. On the world map, towns and dungeons have beacons of their own, with a longer range. Every tone and beacon has its own on/off switch and volume in the mod settings menu (F4), under Wall sounds and Object beacons. Slopes and ramps are told apart from walls by the shape of the floor, so a climbable path never plays a wall tone.
 - World map navigation — pathfinding auto-walk or spoken directions to towns, dungeons, undiscovered landmarks and fishing spots across the world map, with honest feedback when a destination cannot be reached on foot.
 - Battle accessibility — target announcements, enemy proximity cues, dodge notifications, and status readouts during real-time battles.
 - Fishing support — navigate to fishing spots and get an audio cue the moment you can cast. When no fishing prompt can appear, the mod says why: the party leader lacks the Fishing skill, or the last step onto the shore is blocked ("Stopped N meters short").
+- Interaction prompts — whenever the game shows its button guide above the player (talk, open, examine, jump, save, use), the mod speaks it with the game's own words, for example "Press Cross to Examine.", once per approach. One switch in the mod settings menu turns all prompt speech off.
 - Audio cues — distinct sounds for events like a nearby enemy, a dodge window, save points, private actions, and the bonus gauge (one beep per level when the level changes, a separate sound when the gauge breaks). Sound and speech output can be toggled independently.
 - Community translations — all spoken text lives in a plain JSON file; anyone can translate the mod without code changes, and the mod can follow the game's own language setting automatically. See [TRANSLATING.md](TRANSLATING.md).
 
@@ -115,7 +116,7 @@ distance at which a tone begins; it is loudest when touching) and Wall tones on 
 world map (off by default; on the world map the tones react only to real
 obstacles and the water's edge, never to slopes). Object beacons holds one on/off and volume pair
 per kind of object (NPCs, chests, doors and exits, locations, towns, dungeons, save points,
-jump points, stairs and ladders, fishing spots), the Beacon range (5 to 20 metres, how far away a beacon starts),
+jump points, stairs and ladders, fishing spots, gathering points), the Beacon range (5 to 20 metres, how far away a beacon starts),
 the World map beacon range (10 to 100 metres, default 30, for chests, landmarks and fishing spots on the world map),
 the World map town and dungeon range (20 to 300 metres, default 100), and Beacons behind you:
 Muffled (the default) makes a beacon behind the camera sound as if through a
@@ -195,6 +196,7 @@ The notification sounds are sourced from [Freesound](https://freesound.org/) und
 - Busy Room Ambience, Small crowd (town beacon) by Breviceps — <https://freesound.org/s/457043/> — License: Creative Commons 0
 - Twin Bells (dungeon beacon) by Streetpoptunez — <https://freesound.org/s/653752/> — License: Creative Commons 0
 - waves-lapping (fishing spot beacon) by cyoung510 — <https://freesound.org/s/523399/> — License: Creative Commons 0
+- Gathering point beacon: synthesized placeholder made for this mod (no third-party material).
 - Wall proximity tones — generated for this mod
 
 ## License

@@ -62,7 +62,7 @@ namespace SO2RAccess
                 AddCategory(into, CAT_LOCATION, item => item.IsDungeon ? NavCueKind.Dungeon : NavCueKind.City);
                 AddCategory(into, CAT_CHEST, NavCueKind.Chest);
                 AddCategory(into, CAT_MARKER, NavCueKind.Location);
-                AddFishingSpots(into);
+                AddCategory(into, CAT_INTERACTABLE, item => InteractableRegistry.BeaconFor(item.Kind));
                 return true;
             }
 
@@ -74,7 +74,10 @@ namespace SO2RAccess
             AddCategory(into, CAT_SAVE, NavCueKind.Save);
             AddCategory(into, CAT_WARP, NavCueKind.Location);
             AddCategory(into, CAT_STAIRS, NavCueKind.Stairs);
-            AddFishingSpots(into);
+            // Interactables mix kinds: fishing spots sound from the shore point the
+            // list would walk to, gathering points from the sparkle; the registry
+            // says which kinds have a cue at all.
+            AddCategory(into, CAT_INTERACTABLE, item => InteractableRegistry.BeaconFor(item.Kind));
             AddJumpLedges(into);
             return true;
         }
@@ -151,31 +154,6 @@ namespace SO2RAccess
                     Live = item.LiveTransform,
                     Label = item.Label,
                     Id = StableId(kind.Value, item.Position, item.LiveTransform)
-                });
-            }
-        }
-
-        /// <summary>
-        /// Fishing spots sound from the shore point the list would walk to. (The
-        /// water centre was tried first, but a world map lake is hundreds of
-        /// metres across and its centre is nowhere a player can fish from.)
-        /// Only fishing items of the Interactables category qualify.
-        /// </summary>
-        private void AddFishingSpots(List<BeaconTarget> into)
-        {
-            var items = _categories[CAT_INTERACTABLE];
-            for (int i = 0; i < items.Count; i++)
-            {
-                var item = items[i];
-                if (!item.IsFishing) continue;
-
-                Vector3 pos = item.Position;
-                into.Add(new BeaconTarget
-                {
-                    Kind = NavCueKind.Fishing,
-                    Position = pos,
-                    Label = item.Label,
-                    Id = StableId(NavCueKind.Fishing, pos, null)
                 });
             }
         }

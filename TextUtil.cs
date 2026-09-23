@@ -50,6 +50,32 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// The game's System text for a message key with the button icon and any
+        /// other tags removed ("&lt;sprite name=Cross&gt;Jump" → "Jump"); null when
+        /// the key is empty or the text does not resolve (native-only keys).
+        /// </summary>
+        public static string ResolveSystemText(string messageID)
+        {
+            if (string.IsNullOrEmpty(messageID)) return null;
+            try
+            {
+                string text = TextManager.Instance?.GetMessage(messageID, TextManager.MessageType.System);
+                if (string.IsNullOrEmpty(text)) return null;
+                text = _spriteTagRemover.Replace(text, "");
+                text = StripTags(text);
+                return text.Length == 0 ? null : text;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"TextUtil: system text '{messageID}' failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>Removes sprite tags outright (the button icon of a prompt), unlike <see cref="StripTags"/> which keeps their name.</summary>
+        private static readonly Regex _spriteTagRemover = new Regex("<sprite[^>]*>", RegexOptions.Compiled);
+
+        /// <summary>
         /// Parses a charaNameID key into a readable enemy name.
         /// e.g. "CHARA_LIZARDAXE" → "Lizardaxe", "MON_VOPALBUNNY" → "Vopalbunny".
         /// Strips the "CHARA_" or "MON_" prefix and converts to title case.

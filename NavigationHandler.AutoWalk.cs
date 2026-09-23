@@ -923,10 +923,19 @@ namespace SO2RAccess
             bool fromTraversal = false;
             _lastPathBlockedByExit = false;
             _lastPathWasPartial = false;
+            _lastPathFromTraversal = false;
 
+            // 0. After a stuck on a NavMesh path: the recorded route first, when
+            //    there is one (see _preferTraversalRoute).
+            if (_preferTraversalRoute && !isCounter && UseTraversal() &&
+                _traversal.FindPath(playerPos, targetPos, out var tcPreferred) && tcPreferred != null)
+            {
+                corners = tcPreferred;
+                fromTraversal = true;
+            }
             // 1. A COMPLETE NavMesh path (towns / connected areas) — smooth and
             //    reliable. Probe around the player to beat NavMesh fragmentation.
-            if (TryFindCompletePath(playerPos, targetPos, _navPath))
+            else if (TryFindCompletePath(playerPos, targetPos, _navPath))
             {
                 corners = CopyCorners(_navPath);
             }
@@ -971,6 +980,7 @@ namespace SO2RAccess
             _pathCornerIndex = corners.Length > 1 ? 1 : 0;
             _pathRecalcTimer = 0f;
             _pathTargetAtCalc = targetPos;
+            _lastPathFromTraversal = fromTraversal;
 
             TrackPathStability(corners);
             LogPath(corners);
@@ -990,6 +1000,7 @@ namespace SO2RAccess
             _walkBestApproach        = float.MaxValue;
             _carveSuppressedForBlock = false;
             _blockCommitDeadline     = 0f;
+            _preferTraversalRoute    = false;
             _carverPool.Suppress(false);
         }
 
@@ -1037,6 +1048,37 @@ namespace SO2RAccess
                 people ? "nav_autowalk_blocked_people" : "nav_autowalk_stuck",
                 _autoWalkLabel));
             DebugLogger.LogState($"NAV give-up: blockedByPeople={people} label='{_autoWalkLabel}'.");
+            LogBlockerProbe(playerPos);
+        }
+
+        /// <summary>
+        /// Debug only: names the colliders around the player at a give-up, with
+        /// "front" = the direction the walk was heading. Answers "what is this
+        /// invisible wall" from the log alone, e.g. an event-only block or furniture
+        /// the NavMesh does not know about.
+        /// </summary>
+        private void LogBlockerProbe(Vector3 playerPos)
+        {
+            if (!Main.DebugMode) return;
+            Vector3 heading = _pathCorners != null && _pathCornerIndex < _pathCorners.Length
+                ? _pathCorners[_pathCornerIndex] - playerPos
+                : _autoWalkTarget - playerPos;
+            heading.y = 0f;
+            if (heading.sqrMagnitude < 0.001f) heading = Vector3.forward;
+            try
+            {
+                var r = WallProbe.ProbeAround(playerPos, heading.normalized, 3f,
+                    describe: true, WallProbe.Field);
+                DebugLogger.LogState(
+                    $"NAV give-up probe at ({playerPos.x:F1},{playerPos.y:F1},{playerPos.z:F1}) " +
+                    $"heading ({heading.normalized.x:F2},{heading.normalized.z:F2}): " +
+                    $"front {r[WallProbe.Front]} | right {r[WallProbe.Right]} | " +
+                    $"behind {r[WallProbe.Behind]} | left {r[WallProbe.Left]}");
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV give-up probe error: {ex.Message}");
+            }
         }
 
         /// <summary>

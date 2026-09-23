@@ -91,6 +91,8 @@ namespace SO2RAccess
 
                 AuditTargets(st, playerPos, playerNode);
                 AuditCandidates(st, playerPos, playerNode);
+                AuditNavItems(st, playerPos, playerNode);
+                LogFloorMap(playerPos);
 
                 bool pass = _traversal.HasData && st.NodesMissed == 0
                             && st.EdgesMissed == 0 && st.DropViolations == 0;
@@ -336,6 +338,44 @@ namespace SO2RAccess
                 MelonLogger.Msg(
                     $"[SO2RAccess] [GRIDAUDIT] TARGET {label} ({pos.x:F1},{pos.y:F1},{pos.z:F1}) grid: {gridSide}; traversal={trav}");
             }
+        }
+
+        /// <summary>
+        /// Check 7: every item of the last built navigation list: does the floor
+        /// grid see a route from the player, and through which corners? Tells a
+        /// "Cannot reach" apart from a real wall when the NavMesh is wrong (event
+        /// variants of a map are the known case). Open the list first.
+        /// </summary>
+        private void AuditNavItems(AuditState st, Vector3 playerPos, int playerNode)
+        {
+            var grid = st.Grid;
+            int listed = 0;
+            for (int cat = 0; cat < _categories.Length; cat++)
+            {
+                var items = _categories[cat];
+                if (items == null) continue;
+                for (int i = 0; i < items.Count; i++)
+                {
+                    var item = items[i];
+                    listed++;
+                    var pos = item.Position;
+                    string verdict;
+                    if (playerNode < 0) verdict = "no grid floor under player";
+                    else if (grid.FindNode(pos, AuditMatchXz * 2f, 3f) < 0) verdict = "no grid floor under target";
+                    else if (grid.TryRoute(playerPos, pos, out Vector3[] corners, out float len))
+                    {
+                        var parts = new List<string>(corners.Length);
+                        foreach (var c in corners) parts.Add($"({c.x:F1},{c.y:F1},{c.z:F1})");
+                        verdict = $"route {len:F0} m: {string.Join(" > ", parts)}";
+                    }
+                    else verdict = "no grid route (different component)";
+                    MelonLogger.Msg(
+                        $"[SO2RAccess] [GRIDAUDIT] NAVITEM '{item.Label}' ({pos.x:F1},{pos.y:F1},{pos.z:F1}) " +
+                        $"listedUnreachable={item.Unreachable} grid: {verdict}");
+                }
+            }
+            if (listed == 0)
+                MelonLogger.Msg("[SO2RAccess] [GRIDAUDIT] NAVITEM: navigation list is empty. Open it once, then press F11 again.");
         }
 
         /// <summary>Check 6: list ramp candidates, flagged WALKED when a breadcrumb lies on the run.</summary>

@@ -30,6 +30,18 @@ namespace SO2RAccess
         private const float MergeMaxDy = 1.2f;
         /// <summary>Max distance for a trail edge — larger jumps are teleports/cutscenes.</summary>
         private const float TrailMaxStep = 3.0f;
+        /// <summary>
+        /// Longest horizontal edge the recording rules can produce: a proximity
+        /// merge reaches <see cref="MergeRadius"/>, a trail step about
+        /// <see cref="MinSpacing"/>. Anything longer in a saved file was made by
+        /// the pre-2026-09-23 merge bug (see <see cref="RecordPosition"/>) and
+        /// can cut straight through a wall. On load such an edge is dropped
+        /// when its two ends are still connected without it (the wall-crossing
+        /// shortcut case) and kept when it is the only link between two parts
+        /// of the map, so nothing that was reachable becomes unreachable
+        /// (17 of 129 recorded maps have such links, e.g. Lacuer MF_0013_01A).
+        /// </summary>
+        private const float MaxEdgeXz = MergeRadius + 0.1f;
         /// <summary>Max distance to snap a query point (player/chest) to a breadcrumb (m).</summary>
         private const float SnapRadius = 6.0f;
         /// <summary>Y weight when snapping (prefer the correct floor).</summary>
@@ -148,10 +160,17 @@ namespace SO2RAccess
                 // Link to nearby existing breadcrumbs (merge overlapping passes).
                 // Proximity links have no direction of travel, so a steep one is
                 // treated as downhill-only.
+                // NodesWithin only narrows to the surrounding hash cells (up to
+                // ~4.5 m away); the radius itself must be checked here. Without
+                // it (bug until 2026-09-23) every new breadcrumb was linked to
+                // everything in the 3x3 cell block, straight through walls: in
+                // Bowman's house (MF_0019_30C) the nook beside the counter got a
+                // link to the room behind it and auto-walk ran into the wall.
                 foreach (int n in NodesWithin(pos, MergeRadius))
                 {
                     if (n == current) continue;
                     if (Mathf.Abs(_nodes[n].y - pos.y) > MergeMaxDy) continue;
+                    if (HorizontalDistance(_nodes[n], pos) > MergeRadius) continue;
                     Connect(current, n, observedFrom: -1);
                 }
                 _dirty = true;
@@ -366,6 +385,21 @@ namespace SO2RAccess
             (Mathf.FloorToInt(p.x / HashCell), Mathf.FloorToInt(p.z / HashCell));
 
         /// <summary>Nearest node within radius (XZ), or -1. yLimit caps the Y difference.</summary>
+        /// <summary>Distance in the XZ plane, ignoring height.</summary>
+        private static float HorizontalDistance(Vector3 a, Vector3 b)
+        {
+            float dx = a.x - b.x, dz = a.z - b.z;
+            return Mathf.Sqrt(dx * dx + dz * dz);
+        }
+
+        /// <summary>Number of undirected edges (each stored twice in the adjacency lists).</summary>
+        private int EdgeCount()
+        {
+            int n = 0;
+            foreach (var list in _adj) n += list.Count;
+            return n / 2;
+        }
+
         private int FindNearest(Vector3 pos, float radius, float yLimit)
         {
             int best = -1; float bestD = radius;
@@ -452,12 +486,60 @@ namespace SO2RAccess
                     foreach (var e in data.ClimbEdges)
                         _climbEdges.Add(NormalizePair(e[0], e[1]));
                 if (data.Edges != null)
-                    foreach (var e in data.Edges) Connect(e[0], e[1], observedFrom: -1);
+                    LoadEdges(data.Edges, mapId);
             }
             catch (Exception ex)
             {
                 MelonLoader.MelonLogger.Msg($"[SO2RAccess] TRAVERSAL load error: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Restores saved edges. Edges within <see cref="MaxEdgeXz"/> (horizontal,
+        /// so jump-down ledges survive) are taken as they are. Longer ones, which
+        /// only the old merge bug could make, are added shortest first and only
+        /// when their ends are not yet connected: a shortcut through a wall is
+        /// dropped, the sole link between two walked areas is kept.
+        /// </summary>
+        private void LoadEdges(List<int[]> edges, string mapId)
+        {
+            var longOnes = new List<(float len, int a, int b)>();
+            foreach (var e in edges)
+            {
+                if (e == null || e.Length < 2) continue;
+                int a = e[0], b = e[1];
+                if (a < 0 || a >= _nodes.Count || b < 0 || b >= _nodes.Count) continue;
+                float len = HorizontalDistance(_nodes[a], _nodes[b]);
+                if (len <= MaxEdgeXz) Connect(a, b, observedFrom: -1);
+                else longOnes.Add((len, a, b));
+            }
+            if (longOnes.Count == 0) return;
+
+            // Union-find over the short edges, then admit long edges as bridges only.
+            var parent = new int[_nodes.Count];
+            for (int i = 0; i < parent.Length; i++) parent[i] = i;
+            int Find(int x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+            for (int a = 0; a < _adj.Count; a++)
+                foreach (int b in _adj[a])
+                {
+                    int ra = Find(a), rb = Find(b);
+                    if (ra != rb) parent[ra] = rb;
+                }
+
+            longOnes.Sort((x, y) => x.len.CompareTo(y.len));
+            int kept = 0, dropped = 0;
+            foreach (var (len, a, b) in longOnes)
+            {
+                int ra = Find(a), rb = Find(b);
+                if (ra == rb) { dropped++; continue; }
+                parent[ra] = rb;
+                Connect(a, b, observedFrom: -1);
+                kept++;
+            }
+            if (dropped > 0) _dirty = true; // save the cleaned graph
+            MelonLoader.MelonLogger.Msg(
+                $"[SO2RAccess] TRAVERSAL: {mapId} over-long edges (> {MaxEdgeXz:F1} m, old merge bug): " +
+                $"dropped {dropped} shortcut(s), kept {kept} as the only link between walked areas; {EdgeCount()} edges total.");
         }
 
         /// <summary>Reads pre-recorded map data embedded in the mod DLL, or null.</summary>

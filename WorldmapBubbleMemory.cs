@@ -102,6 +102,9 @@ namespace SO2RAccess
             Save(wmID, user);
         }
 
+        /// <summary>Every remembered point of a map (embedded seed plus the user's own) — the bake's ground truth.</summary>
+        public static IReadOnlyList<BubblePoint> All(WorldmapID wmID) => Points(wmID);
+
         /// <summary>Nearest remembered point of a water place to a position, or null.</summary>
         public static BubblePoint NearestForPlace(WorldmapID wmID, int waterPlaceId, Vector3 pos) =>
             Nearest(Points(wmID), pos, float.MaxValue, p => p.WaterPlaceId == waterPlaceId);

@@ -36,7 +36,8 @@ namespace SO2RAccess
     /// Party members (distance less than 2 units) are filtered from the NPC list.
     /// NPC names are parsed from the ConstNpcParameter code name
     ///   (e.g. NPC_0003_01a_18_GIRL1 → "Girl 1").
-    /// Chests are numbered by distance: Unopened chest 1, Unopened chest 2, etc.
+    /// Chests share one stable number per map (first seen nearest = 1, kept through
+    /// battles and state changes): Unopened chest 1 becomes Opened chest 1.
     /// Exits show the game's map name: "Building entrance to Arlia Village".
     ///   Names are resolved from ConstFieldParameter via TextManager at runtime.
     /// </summary>
@@ -189,10 +190,11 @@ namespace SO2RAccess
 
         private readonly List<NavItem>[] _categories;
         /// <summary>
-        /// Per-category dictionaries mapping object instance ID to stable assigned number.
-        /// Clears when entering a new map; numbers stay fixed throughout the session on that map.
+        /// Numbering group → item identity (see <see cref="NavItem.Identity"/>) → stable
+        /// number. Cleared when entering a new map; numbers stay fixed for as long as
+        /// that map is loaded, battles included.
         /// </summary>
-        private readonly Dictionary<int, int>[] _stableObjectIds;
+        private readonly Dictionary<string, Dictionary<string, int>> _stableNumbers = new();
         private bool _isOpen;
         private int  _currentCategoryIndex;
         private int  _currentItemIndex;
@@ -325,6 +327,18 @@ namespace SO2RAccess
         /// floor-grid route over a route that stops at the foot of a cliff.
         /// </summary>
         private bool _lastPathWasPartial;
+        /// <summary>True when the stored path is a recorded breadcrumb route, not a NavMesh path.</summary>
+        private bool _lastPathFromTraversal;
+        /// <summary>
+        /// Set when a walk got stuck on a NavMesh path: from then on this walk
+        /// computes its route from the recorded breadcrumbs first and falls back
+        /// to the NavMesh only when the breadcrumbs have no route. Event copies
+        /// of a map (MF_0019_30C, Bowman's house) ship a NavMesh that does not
+        /// match their walls, so "path found" walks into a counter there while
+        /// the player's own recorded walk goes round it. Cleared on walk start,
+        /// resume and cancel.
+        /// </summary>
+        private bool _preferTraversalRoute;
         /// <summary>
         /// Where the target stood when the stored path was computed. A moving
         /// target (NPC) is re-routed only when it has moved away from THIS, not
@@ -424,11 +438,9 @@ namespace SO2RAccess
         public NavigationHandler()
         {
             _categories = new List<NavItem>[CAT_COUNT];
-            _stableObjectIds = new Dictionary<int, int>[CAT_COUNT];
             for (int i = 0; i < CAT_COUNT; i++)
             {
                 _categories[i] = new List<NavItem>();
-                _stableObjectIds[i] = new Dictionary<int, int>();
             }
 
             _navPath = new NavMeshPath();
@@ -974,12 +986,24 @@ namespace SO2RAccess
                                 $"NAV field stuck: moved {Mathf.Sqrt(movedSq):F2} in " +
                                 $"{FieldStuckCheckInterval}s. Attempting recalc.");
 
+                            // A NavMesh path that walks into a wall is a NavMesh that
+                            // lies about this map. The breadcrumbs were really walked,
+                            // so the rest of this walk trusts them first.
+                            if (!_lastPathFromTraversal && !_preferTraversalRoute
+                                && !_autoWalkIsCounter && UseTraversal())
+                            {
+                                _preferTraversalRoute = true;
+                                DebugLogger.LogState(
+                                    "NAV field stuck on a NavMesh path: retrying on the recorded breadcrumb route.");
+                            }
+
                             bool allowPartial = _autoWalkIsCounter || _autoWalkDifferentFloor;
                             if (CalculateAndStorePath(playerPos, _autoWalkTarget, allowPartial,
                                     isCounter: _autoWalkIsCounter))
                             {
                                 DebugLogger.LogState(
-                                    $"NAV field stuck recalc OK: {_pathCorners.Length} waypoints.");
+                                    $"NAV field stuck recalc OK: {_pathCorners.Length} waypoints" +
+                                    (_lastPathFromTraversal ? " (breadcrumb route)." : " (NavMesh)."));
                             }
                             else
                             {

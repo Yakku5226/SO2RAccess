@@ -37,6 +37,135 @@
 
 **Phase:** Phase 3 — Feature Implementation
 
+> 🚪 **SESSION 41b (2026-09-23, parallel session starocean-99): BOWMAN'S HOUSE EVENT MAP (MF_0019_30C). BUILT, 0 warnings, DLL in Mods 17:06, ⏳ UNTESTED, uncommitted.**
+> The event copy of the house has a NavMesh that does not match its walls: "complete path" to Precis walks into the shop counter (Col_Obstacle x[-2,2.2] z[2.5,4.3]) and the pillar nook at (-2.4,2.8). The story trigger (-0.8,1.0,10.8) sits half a metre behind a closed door (Mesh_Door_L0 x[-1.5,0.2] z[9.8,10.3]) at the end of a corridor (x -2.1..0.7, z 6.5..9.8) entered from the big west room through a 2 m gap at z≈6.7. Doors open on approach (the user walked the west door at (-5.5,3.1)).
+> Built: (1) breadcrumb-first retry: a walk stuck on a NavMesh path sets `_preferTraversalRoute` and recomputes from the recorded route (`NavigationHandler.cs` stuck handler, `CalculateAndStorePathCore` step 0); (2) debug: give-up probe names the colliders around the player (`LogBlockerProbe`), NAV:EVENT / filtered lines print pos; (3) F11 on field maps now logs a wall-aware text floor map (`NavigationHandler.FloorMapDump.cs`, 0.75 m per char, `WallProbe.AnyFaceAround`) plus every solid collider's bounds, and a grid-route check per nav item (`AuditNavItems`).
+> ✅ RESOLVED 19:18 (session 41b): the user auto-walked to the story event once the corridor had a breadcrumb; the party left the house (MF_0019_01A loaded). ROOT CAUSE FOUND: `TraversalGraph.RecordPosition` merged a new breadcrumb with every node in the surrounding hash cells (up to ~4.5 m) WITHOUT a distance check (since 2026-06) → links through walls. Fixed (distance check) + load-time cleanup (`LoadEdges`): edges > 1.7 m XZ (`MaxEdgeXz`) are dropped only when their ends are still connected without them (wall shortcuts) and kept when they are the only link between walked areas (a plain length cut would have split 17 of 129 maps, e.g. Lacuer MF_0013_01A into 665+526). Offline simulation: 0 maps change components; the house keeps no edge across the counter/pillar wall line. Linga town dropped 1996 of 2739 edges, still one piece. F11 also lists FieldDoor settings, event trigger boxes and stairs (`LogDoorsTriggersStairs`). Still ⏳ UNTESTED elsewhere: dungeon walks after the cleanup.
+> (old) TEST: load autosave 1, F12, walk: left door → big room → past Rena toward the middle → corridor → door → event fires? Then "Walk to Precis"/"Walk to Rena" must take the breadcrumb route after one stuck ("retrying on the recorded breadcrumb route" in the log). Known: the floor grid cannot see thin obstacle boxes (1.5 m downward rays), so its route check is optimistic on this map.
+
+> 🧩 **SESSION 41 (2026-09-23): ONE INTERACTABLE REGISTRY — nav rows, bubble speech, beacons. BUILT, 0 warnings, DLL in Mods 16:21, ⏳ UNTESTED, uncommitted.**
+> Plan (approved): `C:\Users\Jaco\.claude\plans\rosy-frolicking-emerson.md`. User decisions: bubble speech = the game's own
+> words only; every button-press gimmick gets a generic nav row; gather beacon = synthesised placeholder; ONE speech
+> toggle for all prompts. WHAT CHANGED:
+> - NEW `Interactables.cs`: `InteractableKind` (Fishing, Gather, Ledge, Climb, WarpPanel, MagicCircle, Switch, Statue,
+>   Door, Rock, FloorPanel, Mechanism) + `InteractableRegistry` (classify by IL2CPP type name; placement, label keys,
+>   number group, beacon; unknown Conversation-startup class → "Mechanism N"; `CurrentContact()` = PlayerContactGimmick).
+> - `NavigationHandler.Build.Gimmicks.cs` REWRITTEN: `CollectGimmickHits` (ONE scan, log `NAV:GIMMICK` per object) +
+>   `BuildGimmicks` (Interactables / Stairs / Warp Points / Doors). DELETED `BuildPickupPoints`, `BuildContactPoints`,
+>   `BuildWarpPoints` (Build.cs), `CollectClimbPointsFromScene` (Climb.cs now takes the hits). `NavItem.Kind` added,
+>   `IsFishing` is computed from it. List order: …Stairs, Doors, then hits → climb → gimmicks.
+> - Beacons: `NavCueKind.Gather = 15` (`NavGather.wav`, placeholder chime in `soundcues/`), Interactables mapped by
+>   `InteractableRegistry.BeaconFor(item.Kind)`; `AddFishingSpots` deleted. Menu row "Gathering point beacon" + volume.
+> - `FieldPromptHandler` split: `.cs` (generic state machine per presenter: speak on text change, or on re-show after
+>   moving ≥ 2 m; jump sound when contact = FieldGimmick01 or the action equals the resolved SYS_3700 text — no English
+>   word list any more), `.Enter.cs` (label prompt, unchanged logic), `.Fishing.cs` (icon poll, unchanged). Speech =
+>   `prompt_generic` "Press {0} to {1}." per entry, joined. New `OnSceneChanged()` wired in Main.
+> - Settings: `PromptSpeechEnabled` replaces JumpPromptSpeechEnabled + EnterPromptSpeechEnabled (old file: OR of both).
+>   Menu: one row "Interaction prompt speech" in Sound and announcements. Sound rows for jump/fishing unchanged.
+> - Lang ×6: + prompt_generic(_no_button) (renamed from enter_prompt*), nav_switch/statue/gimmick_door/rock/floor_panel/
+>   mechanism (+_n), mod_menu_label_prompt_speech, mod_menu_label_beacon_gather(+_volume); − jump_prompt*,
+>   mod_menu_label_jump_speech, mod_menu_label_enter_speech. game-api.md has the full gimmick inventory.
+> - Known consequence: Talk/Open/Examine bubbles over NPCs, chests and save points now SPEAK (once per approach).
+> TESTS (F12 on, log = `<game dir>\MelonLoader\Latest.log`):
+> 1. Sanctuary of Linga: list shows "Gathering point 1..N" (Interactables) and "Jump 1..17" (Stairs), no item names;
+>    numbers unchanged after a battle. Log: one `NAV:GIMMICK` line per object.
+> 2. Walk to a herb: hear "Press Cross to Examine." once; stand still 10 s → silent; step 2 m away and back → again.
+>    Log `FieldPrompt changed: kind=Gather contact=FieldGimmick05`.
+> 3. Ledge chain: each ledge speaks "Press Cross to Jump." once + jump sound once. Log `kind=Ledge`.
+> 4. Within beacon range of a gathering point the placeholder chime plays; F4 → Object beacons → "Gathering point
+>    beacon" row with Space preview.
+> 5. Town: NPC/chest/save bubbles speak once per approach; F4 → Sound and announcements → "Interaction prompt speech"
+>    Off silences them all (enter prompt too).
+> 6. Regressions: warp map rows, ladder map rows, world map fishing arrival on the bubble, Salva arrival on the enter
+>    prompt, no `FieldOperationPresenter_Set_Postfix:` warnings.
+> AFTER THE TESTS: commit (this + sessions 39/40), pick a real gather sound (Freesound, CC0), then switch colour /
+> statue facing labels if the log shows those classes.
+> FIRST TEST (16:45, Sanctuary): the list REFUSED to open — `NavigationHandler.BuildList: Value cannot be null (Parameter
+> 'key')` after the gimmick scan: gathering points have no plain label key (always numbered) and `PlainLabel` asked
+> Loc for null. FIXED (null key → "", numbered label follows) + `WaitsForButton` now also accepts `IsConversation()`
+> because FieldGimmick05 reports startup=Invalid. Rebuilt 16:47, 0 warnings. Same log PROVES the generic speech:
+> "Press Cross to Talk. Press L1 to Pickpocket." (target=FieldNpcCharacter) and "Press Cross to Save." Retest 1–6.
+> ✅ SECOND TEST (16:53–16:54) PASSES: list opens (interactables=8, stairs=17 "Jump N"), "Gathering point 1..7" with
+> (above)/(below) and ", no path"; auto-walk arrived at Gathering point 2 → bubble spoke "Press Cross to Investigate."
+> (kind=None contact=- target=FieldGimmick05 — the contact slot is empty for 05, ConversationTarget carries it);
+> gathered point 2 dropped off, the rest kept their numbers; Gather beacon started (NavGather.wav, 14.9 m); ledge:
+> "Press Cross to Jump." + jump sound (kind=Ledge contact=FieldGimmick01), hidden, re-shown at the next ledge 2 s
+> later and spoken again. Zero warnings/errors. NOTE (by design, not a bug): on auto-walk arrival the bubble speaks
+> first, then `AnnounceArrival` interrupts it and replays it after the arrival line ("Arrived at Gathering point 2.
+> Press Cross to Investigate.") — the half-second recent-message combine in `NavigationHandler.AutoWalk.cs`.
+> STATUS 2026-09-23 (end of session 41): tests 1–4 PASS. Test 6 (warp panel / magic circle / ladder rows) CANNOT run
+> yet — the party has not reached a map with any of those; check them when one turns up. Test 5 (town prompts + the
+> "Interaction prompt speech" toggle) still open. Town Talk/Save prompts already spoke correctly at 16:44.
+> COMMIT: the user will commit sessions 39–41 together once the navigation issue in the OTHER Claude session
+> (starocean-99, log-only AutoWalk/Build.cs diagnostics) is solved — do not commit from here. Then: real gather sound.
+>
+> 🔢 **SESSION 40 (2026-09-23): STABLE CHEST NUMBERS FIXED — 0 warnings, DLL in Mods, ⏳ UNTESTED, uncommitted.**
+> Log 11:20–11:23 (Salva-area field MF_0020_01A): chests were renumbered after every battle and two chests shared
+> "Opened chest 1". Causes: numbering keyed on the Unity instance ID (a battle reloads the field, every chest is a new
+> object, same map ID so no reset → fresh numbers by distance); separate opened/unopened sequences with one stored
+> number per chest (opening "Unopened chest 1" made a second "Opened chest 1"); next number was a loop counter, not
+> the next free one. FIX (same design as Eiyuden's `NavigationHandler.Names.cs`): `NavItem.Identity` string replaces
+> `SourceObject` — chests `"chest:" + FieldTreasureBox.Flag` (0 → position rounded to 0.5 m), world map fishing
+> `"water:" + WaterPlaceID`, field fishing = position; `GetStableNumber(cat, item)` = `count + 1` on first sight,
+> ONE sequence for all chests (Unopened chest 3 → Opened chest 3), map change still resets. New log lines
+> `NAV numbering: …`. Files: `NavigationHandler.cs`, `.Build.cs`, `.Build.Worldmap.cs`, `.List.cs`.
+> TEST: on a field with several chests, F12 on, open the nav list, note the chest numbers, fight a battle, open the
+> list again — same numbers; open a chest — it keeps its number as "Opened chest N" with no duplicate.
+>
+> 🌿 **SESSION 40 (2026-09-23, later): SANCTUARY OF LINGA — DILLWHIP INVISIBLE. BUILT, 0 warnings, ⏳ UNTESTED, uncommitted.**
+> Log 15:07 on `MF_0020_01A` (flags `FLAG_LNGSAC_HERBA1…6`): the list had 9 opened chests, one unopened chest
+> FILTERED as unreachable at 28.6 m, and 28 gimmicks dumped by type only: 11 × `FieldGimmick05` (item pickup
+> points: ItemID, EventFunction, progress window, disable flags — the herbs; one is the Dillwhip) and 17 ×
+> `FieldGimmick01` (contact points in chains stepping y 0 → −12: the way between floors). Neither type was listed.
+> The one event trigger (`ev_sub_111000`, 184 m, boss party 209) is inactive per the game itself — correct drop.
+> BUILT: new `NavigationHandler.Build.Gimmicks.cs` — `BuildPickupPoints` (Interactables, label = item name via
+> `TextUtil.ResolveItemName`, repeats numbered "Lavender 1/2", inactive skipped, log `NAV:PICKUP` with pos/window/
+> flags) and `BuildContactPoints` (Stairs, label = resolved `GetOperationMessageID` System text else "Ledge",
+> log `NAV:CONTACT`); `SortAndFilterUnreachable(items, playerPos, keepUnreachable)` — chests, pickups and contact
+> points stay listed as "…, no path" (`nav_label_nopath`), `Unreachable=true`, position logged. Chests are numbered
+> BEFORE the filter now. 4 new keys in all six lang files (en 856, others 816): `nav_label_nopath`, `nav_pickup`,
+> `nav_pickup_n`, `nav_ledge`. game-api.md documents Gimmick05/01.
+> FIRST TEST RESULT (same day): the herb rows showed NUMBERS instead of names (the item-name lookup fell back to
+> something numeric). User decision: do NOT name the item at all — a sighted player only sees a sparkle, so naming
+> gives away the key-item spot. Rows are now "Gathering point N" (`nav_gather_n`; `nav_pickup*` keys removed,
+> `nav_name_n` = "{0} {1}" numbers repeated ledge names). Item ID stays in the debug log only. Stable numbers are
+> now per GROUP string ("chests", "fishing", "gather") — `_stableNumbers` is a dictionary of dictionaries.
+> DEFERRED BY USER (plan in a later session, memory `gimmick-handler-plan`): one generic gimmick handler for nav
+> rows + the speech bubble over the player's head (gather bubble is silent today; fishing/jump/NPC bubbles exist)
+> + beacon sounds (gathering points have no beacon: Interactables only sound for fishing spots).
+> ✅ LOG 15:43–15:46 CONFIRMS: chest numbers 1–10 identical across every rebuild (ids chest:230…239), stable
+> through the 15:44 battle; "Gathering point N" rows with no item info, "(below)" floor suffix works, two walks
+> arrived (points 2 and 1), gathered points drop off the list and the rest KEEP their numbers. 7 herb spots were
+> live (event 'GetHerbNormal' ×6, 'GetHerbRareB' ×1, progress window 2100000..2200000). The formerly unreachable
+> chest:230 read as opened this time. ONE FLAW FIXED AFTER: ledges spoke as "CrossJump 1" — `SYS_3700` is
+> "<sprite name=Cross>Jump"; `ResolveSystemText` now strips sprite tags → "Jump 1…17", and ledges use stable
+> per-map numbers (group "contact") instead of distance order. Rebuilt, 0 warnings, ⏳ that last bit untested.
+> NEXT SESSION: the gimmick handler plan (memory `gimmick-handler-plan`): bubble speech + beacons for gathering
+> points, then commit this session's work (chest numbering, gimmick rows, no-path marking, 4 lang keys ×6).
+>
+> 🧪 **Still owed: the Insert bake result (session 39 below).**
+> **SESSION 39 (2026-09-20): OPTION 2 BAKE BUILT — 0 warnings, DLL in Mods, ⏳ UNTESTED, uncommitted** (9 files:
+> new `WorldmapFishingStandBaker.Anchors.cs` + `.Verdict.cs`; changed `.cs`, `.Proof.cs`, `.Proof.Sweep.cs`,
+> `WorldmapFishingStands.cs`, `WorldmapBubbleMemory.cs`, `docs/game-api.md`, this file). Commit after the log is read.
+> ONE TEST, no walking: F12 on, stand on the Expel world map (best: just outside Arlia or Hilton so the town walls
+> are live — the wall census line tells), press Insert, wait for the speech, then hand over the log.
+> WHAT THE BAKE NOW DOES: (1) `WorldmapFishingStandBaker.Anchors.cs` — anchors = `MapjumpLayoutData.ToPosition` of
+> every record whose `ToFieldmapID` is the world map (enumerated over the `MapjumpID` enum via
+> `ParameterManager.GetMapjumpLayoutParameter`; game-api.md has the record). One log line per anchor: distance from
+> the old symbol centre, ring distance, grid cell walkable, body overlap. (2) ANCHOR CHECK before the slow phases:
+> Hilton (750.8,−170.7) and Arlia (−46.8,−404.5) must each have an anchor within 3 m, else the bake stops at once,
+> saves nothing and dumps every layout record touching the world map (`Anchor dump:` lines) so the right field can
+> be found from that one log. (3) `ProofStartExemption = false` (Proof.cs): start-zone segments are swept and
+> overlap-tested like the rest, gate pinches still forgiven, goal exemption 2 m; refusals that the old rule would
+> have hidden say so in the log. Set it to true for a comparison bake; delete the losing branch (and `IsEnclosed`
+> if unused) once decided. (4) `WorldmapFishingStandBaker.Verdict.cs` — VERDICT table: every remembered bubble
+> (3 embedded + the user's 3: places 33, 33, 25, 19, 34, 2) must keep a proven stand; known-bad stands place 4
+> (737,−172.5), (737,−167.5) and place 1 (−37,−395) must NOT be proven; plus which places lost/gained a proof
+> against the previous file. FAIL → file goes to `worldmap_expel.rejected.json`, the stands in use are untouched.
+> POSSIBLE OUTCOMES: "bake stopped" = toPosition hypothesis wrong, read the dump; "bake rejected" = read the
+> FAIL lines (most likely the strict start zone refusing a real spot → look at the blocker, maybe gate pinch
+> radius); "saved" = copy the user file to `stands\worldmap_expel.json`, then nav list wording + Arlia spot 1.
+>
 > 📦 **SESSION 38 (2026-09-20): v0.5.3 RELEASED, THEN REPAIRED. Logs 07:33–07:46, 08:00–08:13, 08:40–08:42 (F12 on).**
 > The first half of this session ran on a smaller model (Haiku) and made mistakes; the second half (Fable) reviewed and
 > repaired them. What stands:
@@ -59,7 +188,7 @@
 > (5) REVERTED (48b11c9): a beacon filter that skipped `Unreachable` fishing spots. It did not touch the menu, and
 > "unreachable" includes "no stand PROVEN", so it silenced spots that may be walkable by hand.
 >
-> 🧭 **NEXT SESSION STARTS HERE — OPTION 2 DESIGN (user rejected the log-only audit 2026-09-20: it would need every
+> 🧭 **(DONE in session 39 — built, see the block above; kept as the design record.) OPTION 2 DESIGN (user rejected the log-only audit 2026-09-20: it would need every
 > fishing spot tested by hand).** FOUND IN THE DECOMPILED DATA: `MapjumpLayoutData` has `fieldmapID`, `position`,
 > `toFieldmapID`, **`toPosition`**, `toDirection` (+ psynard variants). For a town gate whose `toFieldmapID` is the
 > world map, `toPosition` = where the player really appears outside the town (expected ≈ Hilton (750.8,−170.7),

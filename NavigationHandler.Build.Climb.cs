@@ -37,8 +37,8 @@ namespace SO2RAccess
         /// position. Walking into its collision puts the player into the Ladder
         /// character state (FieldCharacterLadderBaseTask holds a fieldGimmick03
         /// reference), which carries them to the other end. Two sources are read:
-        ///  - FieldGimmickManager.FieldGimmickList — the live objects (authoritative
-        ///    start/end positions).
+        ///  - the live objects from the list build's one gimmick scan
+        ///    (<see cref="CollectGimmickHits"/>; authoritative start/end positions).
         ///  - ParameterManager.GetGimmick03ParameterList(map) — the static placement
         ///    table, so a climb point is listed even before its object is spawned.
         /// Entries within <see cref="ClimbDedupeRadius"/> of each other count once.
@@ -46,11 +46,11 @@ namespace SO2RAccess
         /// the player's floor, "Climb point" when the ends are unknown.
         /// Must run AFTER BuildStairs, which clears the category.
         /// </summary>
-        private void BuildClimbPoints(FieldManager fm, FieldmapID mapID, Vector3 playerPos)
+        private void BuildClimbPoints(List<GimmickHit> hits, FieldmapID mapID, Vector3 playerPos)
         {
             var candidates = new List<ClimbCandidate>();
 
-            CollectClimbPointsFromScene(fm, candidates);
+            CollectClimbPointsFromHits(hits, candidates);
             CollectClimbPointsFromTable(mapID, candidates);
 
             if (candidates.Count == 0)
@@ -108,56 +108,34 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Live FieldGimmick03 objects from the gimmick manager. Also logs every
-        /// gimmick's type name so a map that climbs through some other gimmick
-        /// shows up in the log instead of silently listing nothing.
+        /// Live FieldGimmick03 objects, taken from the list build's one gimmick
+        /// scan: their start and end positions are authoritative.
         /// </summary>
-        private void CollectClimbPointsFromScene(FieldManager fm, List<ClimbCandidate> candidates)
+        private static void CollectClimbPointsFromHits(List<GimmickHit> hits, List<ClimbCandidate> candidates)
         {
-            try
+            foreach (var hit in hits)
             {
-                var gimmickMgr = fm.FieldGimmickManager;
-                var list = gimmickMgr?.FieldGimmickList;
-                if (list == null)
+                if (hit.Kind != InteractableKind.Climb) continue;
+                try
                 {
-                    DebugLogger.LogState("NAV:CLIMB gimmick list is null.");
-                    return;
-                }
-
-                DebugLogger.LogState($"NAV:CLIMB gimmick list has {list.Count} entries.");
-                for (int i = 0; i < list.Count; i++)
-                {
-                    var gimmick = list[i];
-                    if (gimmick == null) continue;
-
-                    string typeName = gimmick.GetIl2CppType()?.Name ?? "unknown";
-                    Vector3 pos = gimmick.transform.position;
-                    DebugLogger.LogState(
-                        $"NAV:CLIMB gimmick[{i}] {typeName} at ({pos.x:F1},{pos.y:F1},{pos.z:F1})");
-
-                    var ladder = gimmick.TryCast<FieldGimmick03>();
+                    var ladder = hit.Obj.TryCast<FieldGimmick03>();
                     if (ladder == null) continue;
 
                     Vector3 start = ladder.StartPosition;
                     Vector3 end   = ladder.EndPosition;
-                    string startup = "?";
-                    try { startup = ladder.GetGimmickStartupType().ToString(); }
-                    catch (Exception ex) { startup = "error: " + ex.Message; }
-                    DebugLogger.LogState($"NAV:CLIMB ladder startup={startup}");
-
                     AddClimbCandidate(candidates, new ClimbCandidate
                     {
-                        Contact   = pos,
+                        Contact   = hit.Pos,
                         Low       = start.y <= end.y ? start : end,
                         High      = start.y <= end.y ? end : start,
                         EndsKnown = true,
                         Source    = "scene",
                     });
                 }
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"NAV:CLIMB scene scan failed: {ex.Message}");
+                catch (Exception ex)
+                {
+                    DebugLogger.LogState($"NAV:CLIMB ladder read failed: {ex.Message}");
+                }
             }
         }
 

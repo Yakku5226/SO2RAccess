@@ -109,10 +109,13 @@ namespace SO2RAccess
         public static float JumpPromptSoundVolume { get; set; } = 0.8f;
 
         /// <summary>
-        /// Whether the jump prompt is spoken once via the screen reader when it
-        /// appears. Independent of the audio cue — either, both, or neither.
+        /// Whether the game's interaction prompts — the button guide above the
+        /// player at an NPC, chest, gathering point, ledge, save point, switch or
+        /// world-map entrance — are spoken once when they appear. One switch for
+        /// all of them (user decision 2026-09-23). Independent of the jump and
+        /// fishing sounds.
         /// </summary>
-        public static bool JumpPromptSpeechEnabled { get; set; } = true;
+        public static bool PromptSpeechEnabled { get; set; } = true;
 
         /// <summary>
         /// Seconds of silence after which spoken directions repeat the current
@@ -124,12 +127,6 @@ namespace SO2RAccess
 
         /// <summary>The choices the mod menu cycles through for <see cref="GuideReminderSeconds"/>.</summary>
         public static readonly int[] GuideReminderChoices = { 0, 3, 5, 8, 12, 20 };
-
-        /// <summary>
-        /// Whether the world-map "Press X to enter" location prompt is spoken once via the
-        /// screen reader when it appears above the player near a town or dungeon entrance.
-        /// </summary>
-        public static bool EnterPromptSpeechEnabled { get; set; } = true;
 
         /// <summary>
         /// Whether the fishing-prompt bubble sound plays when the "you can fish"
@@ -275,8 +272,10 @@ namespace SO2RAccess
                     BonusGaugePercentAnnounceEnabled = data.BonusGaugePercentAnnounceEnabled;
                     JumpPromptSoundEnabled = data.JumpPromptSoundEnabled;
                     JumpPromptSoundVolume = Math.Clamp(data.JumpPromptSoundVolume, 0f, 1f);
-                    JumpPromptSpeechEnabled = data.JumpPromptSpeechEnabled;
-                    EnterPromptSpeechEnabled = data.EnterPromptSpeechEnabled;
+                    // One prompt-speech switch since 2026-09-23; a file from before
+                    // carries the two old switches instead.
+                    PromptSpeechEnabled = data.PromptSpeechEnabled
+                        ?? (data.JumpPromptSpeechEnabled || data.EnterPromptSpeechEnabled);
                     GuideReminderSeconds = Math.Clamp(data.GuideReminderSeconds, 0, 60);
                     FishPromptSoundEnabled = data.FishPromptSoundEnabled;
                     FishPromptSoundVolume = Math.Clamp(data.FishPromptSoundVolume, 0f, 1f);
@@ -346,8 +345,7 @@ namespace SO2RAccess
                     BonusGaugePercentAnnounceEnabled = BonusGaugePercentAnnounceEnabled,
                     JumpPromptSoundEnabled = JumpPromptSoundEnabled,
                     JumpPromptSoundVolume = JumpPromptSoundVolume,
-                    JumpPromptSpeechEnabled = JumpPromptSpeechEnabled,
-                    EnterPromptSpeechEnabled = EnterPromptSpeechEnabled,
+                    PromptSpeechEnabled = PromptSpeechEnabled,
                     GuideReminderSeconds = GuideReminderSeconds,
                     FishPromptSoundEnabled = FishPromptSoundEnabled,
                     FishPromptSoundVolume = FishPromptSoundVolume,
@@ -460,7 +458,11 @@ namespace SO2RAccess
             public bool BonusGaugePercentAnnounceEnabled { get; set; } = false;
             public bool JumpPromptSoundEnabled { get; set; } = true;
             public float JumpPromptSoundVolume { get; set; } = 0.8f;
+            /// <summary>Null in a settings file written before 2026-09-23; then the two legacy switches below decide.</summary>
+            public bool? PromptSpeechEnabled { get; set; }
+            /// <summary>Legacy (read only, never written): replaced by <see cref="PromptSpeechEnabled"/>.</summary>
             public bool JumpPromptSpeechEnabled { get; set; } = true;
+            /// <summary>Legacy (read only, never written): replaced by <see cref="PromptSpeechEnabled"/>.</summary>
             public bool EnterPromptSpeechEnabled { get; set; } = true;
             public int GuideReminderSeconds { get; set; } = 0;
             public bool FishPromptSoundEnabled { get; set; } = true;

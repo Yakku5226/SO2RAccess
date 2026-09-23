@@ -550,9 +550,12 @@ bool       isAcquired    // true = already opened
 RewardType rewardType
 int        treasureValue
 int        count
-int        flag
+int        flag          // save flag recording "opened"; property Flag. Unique per chest → the mod's
+                         // stable-number identity ("chest:" + Flag). 0 = no flag, use the position.
 ```
-Position via `chest.transform.position`.
+Position via `chest.transform.position`. A battle unloads and reloads the field scene
+(mf_ → mb_ → mf_): every chest comes back as a NEW object with a new instance ID while
+`currentFieldmapID` stays the same — never key anything on the object or its ID.
 
 ### Map Exits / Transitions — FieldMapjumpCollision
 **File:** `FieldMapjumpCollision.cs`
@@ -569,6 +572,27 @@ string      controlObjectName
 ```
 Position via `exit.transform.position` (wrap in try-catch — inherits from EventCollision,
 not FieldObject, so transform may behave differently).
+
+### Map jump layout data — MapjumpLayoutData (where a jump puts the player)
+**Files:** `MapjumpLayoutData.cs`, `MapjumpParameterCollection.cs`, `ParameterManager.cs`
+The parameter-side record of every map jump, available without the jump's scene being loaded.
+```csharp
+MapjumpID  MapjumpID
+FieldmapID FieldmapID      // map the jump trigger sits in
+Vector3    Position        // trigger position in that map
+FieldmapID ToFieldmapID    // destination map (FieldmapID.EXPEL / NEDE = the world maps)
+Vector3    ToPosition      // where the player appears in the destination map
+float      ToDirection, CameraDirection
+Vector3    PsynardPosition // plus PsynardCollisionPosition / Size / Direction
+```
+Lookup: `ParameterManager.Instance.GetMapjumpLayoutParameter(MapjumpID)` (11 game callers, returns null
+for IDs without a record). Enumerate with `Enum.GetValues(typeof(MapjumpID))` (575 IDs) — avoids iterating the
+IL2CPP dictionary from `MapjumpParamCollection.GetMapjumpDataDictionary()`. The overload taking a `FieldmapID`
+has no game callers; not used. Use the PascalCase properties.
+**Use (2026-09-20):** the fishing stand bake anchors its route proofs at `ToPosition` of every record whose
+`ToFieldmapID` is the current world map (`WorldmapFishingStandBaker.Anchors.cs`). ⏳ Hypothesis until the first
+bake log confirms it: those points equal the logged town exits Hilton (750.8,−170.7) and Arlia (−46.8,−404.5);
+the bake checks this itself (3 m tolerance) and dumps the records when it fails.
 
 ### Quest / Location Markers — FieldLocationPoint
 **File:** `FieldLocationPoint.cs`
@@ -608,9 +632,54 @@ table[i].ColSize;      // List<Vector3>
 table[i].Position;     // List<Vector3> — climb end points (pairing with ColPosition NOT yet verified — read the NAV:CLIMB log)
 ```
 The mod lists these in the **Stairs** category as "Climb up / Climb down / Climb point"
-(`NavigationHandler.Build.Climb.cs`). Other gimmick numbers seen so far:
-09 = warp panel, 17 = magic circle, 16 = breakable rock (NavMeshObstacle).
+(`NavigationHandler.Build.Climb.cs`, fed by the one gimmick scan of `Build.Gimmicks.cs`). Every other
+gimmick class is in the inventory below.
 Dialogue hint that a climb point is nearby: "We could probably climb up here if we tried."
+
+### Field gimmick inventory (all FieldGimmickNN classes) — registry `Interactables.cs`
+**Files:** `FieldGimmickBase.cs`, `FieldContactGimmick.cs`, `FieldGimmickManager.cs`, `FieldGimmick01..17*.cs`
+Every field gimmick is `FieldGimmickBase : FieldBillboardObject : FieldObject`. Live objects:
+`FieldManager.Instance.FieldGimmickManager.FieldGimmickList` (IL2CPP list, index loop). Base virtuals:
+`GetGimmickStartupType()` {Auto = walk in, Conversation = press confirm}, `GetOperationMessageID()`
+(System text key of the prompt; only 01 overrides it — `SYS_3700` = "&lt;sprite name=Cross&gt;Jump"),
+`GetMapIconType()`, `IsControlPlayerOnly()`; `FieldObject.IsConversation()` is overridden on 05, 09, 11,
+11Switch, 11Door, 12StoneStatue, 14Door, 16Switch (and FieldTreasureBox, FieldNpcCharacter, FieldSavePoint).
+The contact the player is in right now: `FieldGimmickManager.PlayerContactGimmick` (FieldGimmickBase) and
+`FieldManager.ConversationTarget` (FieldObject: NPC, chest, save point, conversation gimmicks).
+Enums: `GimmickStartupType {Invalid, Auto, Conversation}`, `GimmickType {Invalid, Contact}`; there is NO
+numeric gimmick-kind ID — classes are told apart by name (`GetIl2CppType().Name`).
+
+The mod classifies each object ONCE per list build (`InteractableRegistry.Classify`, by type name) into an
+`InteractableKind`; the same kind drives the nav row, the beacon and the prompt log. Placement as of 2026-09-23:
+- **01** contact point / ledge — Stairs, label = resolved prompt text ("Jump") else "Ledge", numbered per map
+- **02** scenario contact trigger (`targetObjectName`, progress window) — not listed
+- **03** ladder / climb (`StartPosition`, `EndPosition`) — Stairs via `Build.Climb.cs` (see above)
+- **04** trapped chest (spawns `symbolIDList` on open) — not listed (the chest itself is a FieldTreasureBox row)
+- **05** gathering point (`ItemID`, `EventFunction`, `ScenarioProgressStart/End`, `DisableFlagList`) —
+  Interactables "Gathering point N" (always numbered), beacon `NavCueKind.Gather`. Item ID in the log ONLY.
+- **06** ambush (`CheckCleared`) — not listed
+- **07Main / 07Sub** water-level bridge puzzle (contact) — Mechanism when startup = Conversation, else not listed;
+  **07Door** — Doors "Door N"
+- **08** depth-damage hazard (controller only, no object) — n/a
+- **09** warp panel (`destination`, `panelColor`) — Warp Points "Warp panel N"
+- **10** contact trap (spawns enemies) — not listed
+- **11** colour panel (`colorTypeList`) — Mechanism; **11Switch** — Interactables "Switch N"; **11Door** — Doors
+- **12StoneStatue** (`direction`, `answerDirection`) — Interactables "Statue N"
+- **13** floor panels stepped in order — Interactables "Floor panel N"
+- **14** room maze (`roomType`) — not listed; **14Panel** — "Floor panel N"; **14Door** — Doors
+- **15** sleeping guard "Berk" (stealth) — not listed
+- **16** breakable rock (`rockObject`, `navMeshObstacle`, `BreakRock()`) — Doors "Boulder N";
+  **16Switch** (`switchObject`, `fuseObject`) — "Switch N" (never speak `SwitchName`/`FuseName`: asset names)
+- **17** magic circle warp (`destination`, `IsEnable()`, `isDisableWarp`) — Warp Points "Magic circle N"
+- **18** avalanche (controller only) — n/a
+- **unknown class**: startup Conversation → Interactables "Mechanism N"; Auto → not listed. Every object is
+  logged as `NAV:GIMMICK [i] <class> kind=… startup=… listed=… pos=…` so a map that lists nothing explains why.
+Listability: `gameObject.activeInHierarchy`; magic circles also `IsEnable() && !isDisableWarp`.
+Fairness (user rule 2026-09-23): a sighted player sees a sparkle, a switch, a statue — never what a spot holds,
+so labels are generic; IDs, event functions and asset names go to the debug log only. Switch colour and statue
+facing ARE visible to sighted players and may be spoken later.
+Sanctuary of Linga (`MF_0020_01A`, flags `FLAG_LNGSAC_HERBA1…6`): 11 × 05 on two floors, 17 × 01 in chains
+stepping y 0 → −12 (the way between floors); confirmed 2026-09-23 in the log.
 
 ### Map Name Issue (known limitation)
 - `FieldmapID` enum values are technical codes (`MF_0001_01A`, `MF_0002_01A`, etc.)
@@ -727,10 +796,18 @@ class `UIFieldOperationPresenter : UIAnimationPresenterBase`):
 - The selector wrapper is `UIFieldIconSelector`'s sibling — the presenter lives under
   `UIFieldController.operationPresenter` (field, type `UIFieldOperationPresenter`).
 
-CAVEAT (verify in-game): confirm the jump prompt actually flows through `Set` by logging
-`operationList` contents + `isPlayer` in a temporary postfix. The shared presenter is also used
-for non-jump button guides (e.g. talk/interact prompts), so the cue must filter on the prompt
-content (jump action) and/or `isPlayer = true`, not just "any operation shown".
+CONFIRMED: the jump prompt arrives as `operationList[0] = "<sprite name=Cross>Jump"` with
+`isPlayer = false`. The presenter is shared by every button guide (Talk, Open, Examine, Jump,
+Talk|Pickpocket …). Since 2026-09-23 `FieldPromptHandler` speaks ALL of them with the game's own
+words (`prompt_generic` "Press {0} to {1}." per entry): state is kept PER PRESENTER INSTANCE
+(`Dictionary<int, PromptState>`), a prompt is spoken when its raw text changes or when it is
+re-shown after the player moved ≥ 2 m from where it was last spoken (the game blinks bubbles
+while standing still — a re-show without movement stays silent; a ledge chain speaks per ledge).
+Hidden = presenter inactive or every `operationTextList` text empty (polled). The jump SOUND
+needs the kind: `FieldGimmickManager.PlayerContactGimmick` classified by `InteractableRegistry`
+(FieldGimmick01 = ledge), else the parsed action equals the resolved `SYS_3700` text — never an
+English literal. Every announce logs `FieldPrompt <why>: kind=… contact=<class> target=<class>`
+(evidence for whether the contact routing holds; the speech never depends on it).
 
 ### World-space icons — UIFieldIconSelector (only 2 types)
 `UIFieldController.ShowIcon(string fieldObjectName, UIDefine.FieldIconType type,

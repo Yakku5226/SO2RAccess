@@ -307,7 +307,7 @@ namespace SO2RAccess
                             : (Vector3?)null,
                         FishingGridOnlyProof    = stand.GridOnlyProof,
                         FishingFallbackGridOnly = fallback != null && fallback.GridOnlyProof,
-                        SourceObject        = spot,  // ConstFishingWaterPlaceParameter as stable source
+                        Identity            = "water:" + spot.WaterPlaceID,
                     });
                 }
                 catch (Exception ex)

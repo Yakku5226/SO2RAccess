@@ -243,6 +243,7 @@ namespace SO2RAccess
             _fishCollectorHandler?.OnSceneChanged();
             _listSelectionHandler?.OnSceneChanged();
             _subtitleHandler?.OnSceneChanged();
+            _fieldPromptHandler?.OnSceneChanged();
             ConfigMenuHandler.OnSceneChanged();
 
             // Apply patches once — safe to call on every scene load, handlers guard against duplicates.

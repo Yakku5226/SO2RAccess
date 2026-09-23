@@ -443,12 +443,13 @@ namespace SO2RAccess
                 _isWorldmap = fm.IsWorldmap();
                 var sw = System.Diagnostics.Stopwatch.StartNew();
 
-                // Clear stable object IDs when entering a new map — numbers will
-                // restart from 1 based on distance order on the new map.
+                // Forget the stable numbers when entering a new map — numbers
+                // restart from 1 in distance order there. A battle keeps the
+                // map ID, so numbers survive fights.
                 if (_listBuiltMapID != mapID)
                 {
-                    for (int i = 0; i < CAT_COUNT; i++)
-                        _stableObjectIds[i].Clear();
+                    _stableNumbers.Clear();
+                    DebugLogger.LogState($"NAV numbering: reset for new map {mapID}.");
                 }
 
                 // Start from nothing. The builders each clear their own category
@@ -489,9 +490,14 @@ namespace SO2RAccess
                     BuildFishingSpots(playerPos);
                     BuildEnemies(playerPos);
                     BuildStairs(fm.FieldStairsList, playerPos);
-                    BuildClimbPoints(fm, mapID, playerPos); // appends to Stairs
                     BuildDoors(fm.FieldDoorList, playerPos);
-                    BuildWarpPoints(fm, playerPos);
+                    // One scan of the game's gimmick list feeds the climb points
+                    // and every other interactable kind (Interactables, Stairs,
+                    // Warp Points, Doors) — after the builders that clear those
+                    // categories.
+                    var gimmickHits = CollectGimmickHits(fm);
+                    BuildClimbPoints(gimmickHits, mapID, playerPos);
+                    BuildGimmicks(gimmickHits, playerPos);
                 }
 
                 int totalItems = 0;

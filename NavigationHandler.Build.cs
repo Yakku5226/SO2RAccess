@@ -55,10 +55,13 @@ namespace SO2RAccess
             /// </summary>
             public bool      Consumed;
             /// <summary>
-            /// True for fishing spots (the Interactables category also holds other
-            /// things on field maps). Set by the builder so beacon code never parses labels.
+            /// What the target is when it is an interactable (fishing spot, gathering
+            /// point, switch…); None for everything else. Set by the builder so the
+            /// beacon code and the arrival logic never parse labels.
             /// </summary>
-            public bool      IsFishing;
+            public InteractableKind Kind;
+            /// <summary>True for fishing spots on any map.</summary>
+            public bool      IsFishing => Kind == InteractableKind.Fishing;
             /// <summary>True for world map dungeon symbols; cities are the other Location kind.</summary>
             public bool      IsDungeon;
             /// <summary>
@@ -81,11 +84,14 @@ namespace SO2RAccess
             /// <summary>World map fishing only: the same for <see cref="FishingFallback"/>.</summary>
             public bool      FishingFallbackGridOnly;
             /// <summary>
-            /// Source object for stable numbering (e.g. the chest/NPC gameObject, or fishing water parameter).
-            /// Used to maintain consistent item numbers across rebuilds on the same map.
-            /// Can be any object type that can be hashed for identity.
+            /// Identity for stable numbering: something that names the same
+            /// thing after the field is rebuilt (chests use their save flag,
+            /// fishing spots their water place ID). Null = the resting position
+            /// rounded to half a metre is used. Never a Unity object or instance
+            /// ID: a battle reloads the field and every object comes back with a
+            /// new ID, which used to renumber every chest after every fight.
             /// </summary>
-            public object SourceObject;
+            public string Identity;
         }
 
         #endregion
@@ -93,8 +99,12 @@ namespace SO2RAccess
         #region Private — Build
 
         /// <summary>
-        /// Scans for treasure chests and labels each by opened/unopened status,
-        /// numbered separately by type in distance order.
+        /// Scans for treasure chests and labels each by opened/unopened status.
+        /// All chests on a map share ONE number sequence, handed out in distance
+        /// order the first time each chest is seen: opening "Unopened chest 3"
+        /// turns it into "Opened chest 3" and no other chest is ever called 3.
+        /// (Separate opened/unopened sequences used to collide the moment a
+        /// chest changed state — two "Opened chest 1" in the same list.)
         /// </summary>
         private void BuildChests(Vector3 playerPos)
         {
@@ -118,40 +128,45 @@ namespace SO2RAccess
                 // IL2CPP backing fields can return stale/wrong values for distant objects.
                 bool isOpened = chest.IsAcquired;
 
-                string label = isOpened
-                    ? Loc.Get("nav_chest_opened")
-                    : Loc.Get("nav_chest_unopened");
+                // The save flag that records "opened" is unique per chest and
+                // survives the field being rebuilt after a battle. 0 = no flag
+                // (some scripted chests): fall back to the resting position.
+                int flag = chest.Flag;
 
                 items.Add(new NavItem
                 {
-                    Label         = label,
+                    Label         = isOpened
+                        ? Loc.Get("nav_chest_opened")
+                        : Loc.Get("nav_chest_unopened"),
                     Distance      = dist,
                     Position      = pos,
                     LiveTransform = chest.transform,
                     Consumed      = isOpened,
-                    SourceObject  = chest.gameObject,
+                    Identity      = flag > 0 ? "chest:" + flag : null,
                 });
             }
 
-            SortAndFilterUnreachable(items, playerPos);
-
-            int unopenedNum = 1;
-            int openedNum   = 1;
+            // Number first, then mark the ones without a path: the "no path" and
+            // floor suffixes wrap the numbered name.
+            items.Sort((a, b) => a.Distance.CompareTo(b.Distance));
             for (int i = 0; i < items.Count; i++)
             {
-                var  item     = items[i];
-                bool isOpened = item.Label.StartsWith(Loc.Get("nav_chest_opened"));
+                var item      = items[i];
+                int stableNum = GetStableNumber("chests", item);
 
-                // Get or assign a stable number for this chest object
-                int stableNum = isOpened
-                    ? GetStableNumber(CAT_CHEST, item.SourceObject, openedNum++)
-                    : GetStableNumber(CAT_CHEST, item.SourceObject, unopenedNum++);
-
-                item.Label = isOpened
+                item.Label = item.Consumed
                     ? Loc.Get("nav_chest_opened_n",   stableNum)
                     : Loc.Get("nav_chest_unopened_n", stableNum);
                 items[i] = item;
-                DebugLogger.LogGameValue("NAV:CHEST", $"[{item.Label}] dist={item.Distance:F1}");
+            }
+
+            SortAndFilterUnreachable(items, playerPos, keepUnreachable: true);
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                var item = items[i];
+                DebugLogger.LogGameValue("NAV:CHEST",
+                    $"[{item.Label}] dist={item.Distance:F1} id={item.Identity ?? PositionKey(item.Position)}");
             }
 
             _categories[CAT_CHEST].AddRange(items);
@@ -536,7 +551,9 @@ namespace SO2RAccess
                     item.Label = $"{item.Label} {counts[item.Label]}";
                 }
                 items[i] = item;
-                DebugLogger.LogGameValue("NAV:EVENT", $"[{item.Label}] dist={item.Distance:F1}");
+                DebugLogger.LogGameValue("NAV:EVENT",
+                    $"[{item.Label}] dist={item.Distance:F1} " +
+                    $"pos=({item.Position.x:F1},{item.Position.y:F1},{item.Position.z:F1})");
             }
 
             _categories[CAT_EVENT].AddRange(items);
@@ -638,16 +655,13 @@ namespace SO2RAccess
             // Mark them for the beacon system, number them if there are several,
             // then annotate the proven-unreachable ones (world map only).
             bool bunny = _isWorldmap && WorldmapTravel.CurrentMode() == WorldmapTravelMode.Bunny;
-            int fishingNum = 1;
             for (int i = 0; i < items.Count; i++)
             {
                 var item = items[i];
-                item.IsFishing = true;
+                item.Kind = InteractableKind.Fishing;
                 if (items.Count > 1)
                 {
-                    // Use stable numbering based on source object
-                    int stableNum = GetStableNumber(CAT_INTERACTABLE, item.SourceObject, fishingNum++);
-                    item.Label = Loc.Get("nav_fishing_n", stableNum);
+                    item.Label = Loc.Get("nav_fishing_n", GetStableNumber("fishing", item));
                 }
                 if (item.Unreachable)
                     item.Label = Loc.Get(bunny ? "nav_wm_unreachable_bunny" : "nav_wm_unreachable_foot", item.Label);
@@ -708,7 +722,7 @@ namespace SO2RAccess
                     // LiveTransform — the collider center is off NavMesh
                     // and would cause arrival distance to be too large.
                     FacePosition  = center,
-                    SourceObject  = spot.gameObject,
+                    // No identity: the water place's resting position names it.
                 });
             }
 
@@ -873,123 +887,20 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Scans for warp-related gimmicks: warp panels (Gimmick09) and magic circles
-        /// (Gimmick17). Iterates FieldGimmickManager.FieldGimmickList and uses TryCast
-        /// to identify types. Gimmick03 is the game's climb point (ladder), handled by
-        /// BuildClimbPoints in the Stairs category.
-        /// </summary>
-        private void BuildWarpPoints(FieldManager fm, Vector3 playerPos)
-        {
-            _categories[CAT_WARP].Clear();
-
-            try
-            {
-                var gimmickMgr = fm.FieldGimmickManager;
-                if (gimmickMgr == null) return;
-
-                var gimmickList = gimmickMgr.FieldGimmickList;
-                if (gimmickList == null) return;
-
-                var items = new List<NavItem>();
-                int panelCount = 0, circleCount = 0;
-
-                for (int i = 0; i < gimmickList.Count; i++)
-                {
-                    var gimmick = gimmickList[i];
-                    if (gimmick == null) continue;
-
-                    var panel = gimmick.TryCast<FieldGimmick09>();
-                    if (panel != null)
-                    {
-                        Vector3 pos  = panel.transform.position;
-                        float   dist = Vector3.Distance(playerPos, pos);
-                        panelCount++;
-
-                        items.Add(new NavItem
-                        {
-                            Label         = Loc.Get("nav_warp_panel"),
-                            Distance      = dist,
-                            Position      = pos,
-                            LiveTransform = null,
-                        });
-
-                        DebugLogger.LogGameValue("NAV:WARP",
-                            $"panel dist={dist:F1}");
-                        continue;
-                    }
-
-                    var circle = gimmick.TryCast<FieldGimmick17>();
-                    if (circle != null)
-                    {
-                        try
-                        {
-                            if (!circle.IsEnable()) continue;
-                            if (circle.isDisableWarp) continue;
-                        }
-                        catch (Exception ex)
-                        {
-                            DebugLogger.LogState(
-                                $"NAV BuildWarpPoints: circle filter error: {ex.Message}");
-                            continue;
-                        }
-
-                        Vector3 pos  = circle.transform.position;
-                        float   dist = Vector3.Distance(playerPos, pos);
-                        circleCount++;
-
-                        items.Add(new NavItem
-                        {
-                            Label         = Loc.Get("nav_warp_circle"),
-                            Distance      = dist,
-                            Position      = pos,
-                            LiveTransform = null,
-                        });
-
-                        DebugLogger.LogGameValue("NAV:WARP",
-                            $"circle dist={dist:F1}");
-                        continue;
-                    }
-                }
-
-                SortAndFilterUnreachable(items, playerPos);
-
-                if (panelCount > 1 || circleCount > 1)
-                {
-                    int pNum = 1, cNum = 1;
-                    for (int i = 0; i < items.Count; i++)
-                    {
-                        var item = items[i];
-                        if (item.Label == Loc.Get("nav_warp_panel"))
-                        {
-                            if (panelCount > 1)
-                                item.Label = Loc.Get("nav_warp_panel_n", pNum++);
-                        }
-                        else if (item.Label == Loc.Get("nav_warp_circle"))
-                        {
-                            if (circleCount > 1)
-                                item.Label = Loc.Get("nav_warp_circle_n", cNum++);
-                        }
-                        items[i] = item;
-                    }
-                }
-
-                _categories[CAT_WARP].AddRange(items);
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"NAV BuildWarpPoints error: {ex.Message}");
-            }
-        }
-
-        /// <summary>
         /// Sorts items by distance and removes those unreachable via NavMesh.
         /// Items with IsCounterNpc=true skip the reachability check (they are
         /// behind counters but the game still allows interaction).
         /// If ALL items would be filtered out, the NavMesh is likely broken at the
         /// player's position (disconnected island / gap). In that case, keep
         /// everything — showing extra items is better than showing nothing.
+        /// With <paramref name="keepUnreachable"/> the unreachable items stay
+        /// listed, marked <see cref="NavItem.Unreachable"/> and labelled
+        /// "…, no path" (chests, pickup points, contact points: a first visit to a
+        /// dungeon floor the NavMesh does not connect is walked by hand, and the
+        /// beacon and spoken directions need the target to exist for that).
         /// </summary>
-        private void SortAndFilterUnreachable(List<NavItem> items, Vector3 playerPos)
+        private void SortAndFilterUnreachable(List<NavItem> items, Vector3 playerPos,
+            bool keepUnreachable = false)
         {
             items.Sort((a, b) => a.Distance.CompareTo(b.Distance));
 
@@ -1010,7 +921,20 @@ namespace SO2RAccess
             for (int i = 0; i < items.Count; i++)
                 if (!items[i].IsCounterNpc) nonCounterCount++;
 
-            if (unreachableIndices.Count > 0 && unreachableIndices.Count >= nonCounterCount)
+            if (keepUnreachable)
+            {
+                foreach (int i in unreachableIndices)
+                {
+                    var item = items[i];
+                    DebugLogger.LogState(
+                        $"NAV: no path to '{item.Label}' at dist={item.Distance:F1} " +
+                        $"pos=({item.Position.x:F1},{item.Position.y:F1},{item.Position.z:F1}) — kept, marked.");
+                    item.Unreachable = true;
+                    item.Label       = Loc.Get("nav_label_nopath", item.Label);
+                    items[i] = item;
+                }
+            }
+            else if (unreachableIndices.Count > 0 && unreachableIndices.Count >= nonCounterCount)
             {
                 DebugLogger.LogState(
                     $"NAV: all {unreachableIndices.Count} non-counter items unreachable — " +
@@ -1022,7 +946,8 @@ namespace SO2RAccess
                 foreach (int i in unreachableIndices)
                 {
                     DebugLogger.LogState(
-                        $"NAV: filtered unreachable '{items[i].Label}' at dist={items[i].Distance:F1}");
+                        $"NAV: filtered unreachable '{items[i].Label}' at dist={items[i].Distance:F1} " +
+                        $"pos=({items[i].Position.x:F1},{items[i].Position.y:F1},{items[i].Position.z:F1})");
                     items.RemoveAt(i);
                 }
             }
@@ -1054,30 +979,41 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Gets or assigns a stable number for an object within a category.
-        /// First time: returns the next available number for this category.
-        /// Subsequent times: returns the same number (keyed by object identity).
+        /// Gets or assigns the stable number of an item within a numbering group
+        /// ("chests", "fishing", "gather" — one sequence each, so a category that
+        /// holds two kinds of things does not interleave their numbers).
+        /// First time an identity is seen on this map: the next FREE number
+        /// (one more than the numbers already handed out, never a loop counter
+        /// that could repeat a number already in use). Afterwards: the same
+        /// number, for as long as the map stays loaded — through battles, from
+        /// every side of the map, whatever the item's state. The map change
+        /// reset lives in the list builder. Same design as the Eiyuden mod.
         /// </summary>
-        private int GetStableNumber(int categoryIndex, object obj, int nextAvailableNumber)
+        private int GetStableNumber(string group, NavItem item)
         {
-            if (obj == null || categoryIndex < 0 || categoryIndex >= CAT_COUNT)
-                return nextAvailableNumber;
+            string identity = item.Identity ?? PositionKey(item.Position);
+            if (!_stableNumbers.TryGetValue(group, out var numbers))
+            {
+                numbers = new Dictionary<string, int>();
+                _stableNumbers[group] = numbers;
+            }
 
-            // Use GetInstanceID for UnityEngine.Object, otherwise use RuntimeHelpers.GetHashCode
-            int id;
-            if (obj is UnityEngine.Object uObj)
-                id = uObj.GetInstanceID();
-            else
-                id = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
-
-            var dict = _stableObjectIds[categoryIndex];
-
-            if (dict.ContainsKey(id))
-                return dict[id];
-
-            dict[id] = nextAvailableNumber;
-            return nextAvailableNumber;
+            if (!numbers.TryGetValue(identity, out int number))
+            {
+                number = numbers.Count + 1;
+                numbers[identity] = number;
+                DebugLogger.LogState(
+                    $"NAV numbering: {group} '{identity}' = {number} ({numbers.Count} known on this map)");
+            }
+            return number;
         }
+
+        /// <summary>
+        /// Position rounded to half a metre: the identity of anything that does
+        /// not move, stable across the field being rebuilt after a battle.
+        /// </summary>
+        private static string PositionKey(Vector3 p) =>
+            $"{Mathf.RoundToInt(p.x * 2f)},{Mathf.RoundToInt(p.y * 2f)},{Mathf.RoundToInt(p.z * 2f)}";
 
         #endregion
     }

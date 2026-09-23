@@ -69,6 +69,9 @@ Manual navigation beacons (looping, panned toward nearby objects):
     https://freesound.org/s/523399/
     License: Creative Commons 0
 
+  Gathering point beacon (NavGather.wav): a synthesized three-note chime
+  generated for this mod (placeholder, no third-party material).
+
 Wall proximity tones (Wall_front.wav, Wall_right.wav, Wall_behind.wav,
 Wall_left.wav) were generated for this mod: band-passed noise "breath" loops
 at 587, 494, 294 and 392 Hz.

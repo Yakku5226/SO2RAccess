@@ -2,135 +2,94 @@ using HarmonyLib;
 using Il2CppGame;
 using MelonLoader;
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
+using UnityEngine;
 
 namespace SO2RAccess
 {
     /// <summary>
-    /// Handles the field "operation" prompts — the world-space button guide the game shows
-    /// above the player at a one-way jump-down ledge ("X Jump") and over interactables
-    /// (save points, etc.). The jump prompt is conveyed to the player via an optional audio
-    /// cue and/or a one-time screen-reader announcement (both toggle independently in the
-    /// F4 mod menu).
+    /// Speaks the field "operation" prompts — the button guide the game shows
+    /// above the player whenever something can be done where they stand: talk
+    /// to an NPC, open a chest, examine a gathering point, jump a ledge, use a
+    /// save point, operate a switch. Every prompt is spoken with the game's own
+    /// words ("Press Cross to Examine."), so the mod keeps no word list and the
+    /// speech follows the game's text language. One F4 toggle silences them all.
     ///
     /// Hook: UIFieldOperationPresenter.Set(List&lt;string&gt; operationList, Transform followTransform,
     ///       Canvas canvas, ref Vector3 worldOffset, bool isCancelLocalPosition,
     ///       bool isPlayer, List&lt;Color&gt; textColorList) — [CallerCount(7)], confirmed hookable.
+    /// Entries look like "&lt;sprite name=Cross&gt;Jump". Hide() is native-only and
+    /// fires no managed hook, so "gone" is detected by polling the presenter.
     ///
-    /// The prompt's action word is the discriminator (e.g. "Jump"): the in-game test showed the
-    /// jump prompt arrives as operationList[0] = "&lt;sprite name=Cross&gt;Jump" with isPlayer=false,
-    /// so we filter on the action word, NOT the isPlayer flag. The presenter is shared with other
-    /// prompts, so "jump no longer showing" is detected either by a different prompt being Set or
-    /// by polling the presenter going inactive / losing the jump text (Hide is native-only and
-    /// fires no managed hook).
+    /// Announce-once rules, kept per presenter instance because the presenter is
+    /// shared between prompts: a prompt speaks when its text changes, or when it
+    /// re-appears after being hidden AND the player has moved at least
+    /// <see cref="ReannounceDistance"/> from where it was last spoken. The game
+    /// blinks bubbles while the player stands still — a re-show without movement,
+    /// silent. A chain of ledges is a series of re-shows with movement — spoken.
     ///
-    /// In debug mode (F12) every operation prompt is also logged under [GAME] FieldPrompt to
-    /// catalogue prompts we have not handled yet (Talk, Open, Examine, ...).
+    /// Only the jump sound needs to know that a prompt belongs to a ledge. That
+    /// comes from the gimmick the player is in contact with
+    /// (<see cref="InteractableRegistry.CurrentContact"/>), with the resolved text
+    /// of the game's own jump prompt (SYS_3700) as the language-safe fallback.
+    /// Sibling files: <c>.Fishing.cs</c> (the icon bubble that has no text),
+    /// <c>.Enter.cs</c> (the labelled world-map "enter" prompt).
     /// </summary>
-    public class FieldPromptHandler
+    public partial class FieldPromptHandler
     {
         #region Fields
 
         private bool _patchesApplied = false;
 
-        /// <summary>The action word that identifies the jump-down prompt (English build).</summary>
-        private const string JumpAction = "Jump";
+        /// <summary>Metres the player must move before a re-shown prompt is spoken again.</summary>
+        private const float ReannounceDistance = 2f;
 
-        /// <summary>True while the fishing bubble is showing (announce-once edge state).</summary>
-        private static bool _fishShowing = false;
+        /// <summary>System text key of the game's jump prompt (FieldGimmick01.GetOperationMessageID, confirmed 2026-09-23).</summary>
+        private const string JumpMessageID = "SYS_3700";
 
-        /// <summary>
-        /// True while the game shows its fishing bubble — the world-space icon above the
-        /// player's head that means "press the action button to fish". World-map auto-walk
-        /// to a fishing spot treats this as an authoritative arrival signal. Detected by
-        /// POLLING the UIFieldIconSelector's presenters for a visible FieldIconType.Fishing
-        /// sprite each frame: the bubble is shown via ShowFieldIcon(..., ref Vector3, ...),
-        /// which cannot be hooked (ref IL2CPP value-type param = native crash). The earlier
-        /// FieldManager.GetContactFishingWaterPlaceID poll was proven WRONG 2026-08-29: it
-        /// is contact with the water-place VOLUME (some span 200m+ over land — one overlaps
-        /// the Krosse City exit), not "can fish now", causing false prompts and false
-        /// auto-walk arrivals.
-        /// </summary>
-        public static bool FishPromptShowing => _fishShowing;
+        /// <summary>Seconds between attempts to resolve the jump text while it is unresolved.</summary>
+        private const float JumpTextRetrySeconds = 5f;
 
-        // --- Fishing bubble poll state ---
-
-        /// <summary>Cached world-space icon selector that draws the fishing bubble.</summary>
-        private static UIFieldIconSelector _iconSelector = null;
-
-        /// <summary>Next allowed FindObjectOfType time for the icon selector (throttle).</summary>
-        private static float _iconSelectorNextFindTime = 0f;
-
-        /// <summary>Seconds between icon-selector find attempts while it is unresolved.</summary>
-        private const float IconSelectorFindInterval = 2f;
-
-        /// <summary>Instance ID of the fishing icon sprite, 0 while unresolved.</summary>
-        private static int _fishingSpriteId = 0;
-
-        /// <summary>
-        /// True after "You can fish here" was spoken for the current approach. The game
-        /// BLINKS the bubble (hides/re-shows it in cycles while the player stands still —
-        /// observed 2026-08-29), so each re-show must not re-announce. Cleared only once
-        /// the player moves away from the announcement position (see
-        /// <see cref="FishReannounceDistance"/>), so a genuine re-approach announces again.
-        /// </summary>
-        private static bool _fishAnnounceLatched = false;
-
-        /// <summary>Player position at the last fishing announcement.</summary>
-        private static UnityEngine.Vector3 _fishAnnouncePos;
-
-        /// <summary>Meters the player must move from the announcement position before
-        /// the bubble may announce again (blink-proofing, not a rate limit).</summary>
-        private const float FishReannounceDistance = 3f;
-
-        /// <summary>Debug-only: last logged fishing diagnostic state (log-on-change).</summary>
-        private static string _lastFishDiagSignature = "";
+        /// <summary>Debug-log dedup window for per-frame repeats of the same prompt.</summary>
+        private const float DedupWindow = 2f;
 
         /// <summary>Parses a "&lt;sprite name=BUTTON&gt;ACTION" operation entry into button + action.</summary>
         private static readonly Regex _operationParser = new Regex(
             @"<sprite\s+name\s*=\s*([^>]+?)>\s*(.*)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-        /// <summary>True while a jump prompt is currently showing (drives announce-once + hide poll).</summary>
-        private static bool _jumpShowing = false;
+        /// <summary>What one presenter instance is showing and what was last spoken for it.</summary>
+        private sealed class PromptState
+        {
+            public UIFieldOperationPresenter Presenter;
+            /// <summary>Raw joined entries of the current show ("" = nothing yet).</summary>
+            public string  Text = "";
+            public bool    Showing;
+            /// <summary>True once something was spoken; <see cref="AnnouncedAt"/> is then valid.</summary>
+            public bool    Announced;
+            public Vector3 AnnouncedAt;
+        }
 
-        /// <summary>The presenter currently showing the jump prompt, cached for hide polling.</summary>
-        private static UIFieldOperationPresenter _jumpPresenter = null;
+        /// <summary>Prompt state per presenter instance ID. Cleared on scene change.</summary>
+        private static readonly Dictionary<int, PromptState> _prompts = new Dictionary<int, PromptState>();
 
-        // --- Label-operation prompt (e.g. world-map "Press X to enter <town>") ---
+        /// <summary>The game's jump prompt text in its current language, null while unresolved.</summary>
+        private static string _jumpText;
+        private static float _jumpTextRetryTime;
 
-        /// <summary>True while a label-operation prompt is currently showing.</summary>
-        private static bool _enterShowing = false;
-
-        /// <summary>The label presenter currently showing the prompt, cached for hide polling.</summary>
-        private static UIFieldLabelOperationPresenter _enterPresenter = null;
-
-        /// <summary>
-        /// True while a label-operation prompt (world-map "enter" guide) is on screen.
-        /// Navigation reads this as an authoritative "arrived at the location" signal during
-        /// world-map auto-walk, since the prompt only appears once the player is close enough
-        /// to enter — even when the location's collision ring blocks getting nearer.
-        /// </summary>
-        public static bool EnterPromptShowing => _enterShowing;
-
-        /// <summary>The cleaned label text of the current enter prompt (location name), or "".</summary>
-        public static string EnterPromptLabel { get; private set; } = "";
-
-        // --- Debug-log dedup (suppresses per-frame repeats of the same prompt) ---
+        // Debug-log dedup (suppresses per-frame repeats of the same prompt).
         private static string _lastSignature = "";
         private static float _lastLogTime = -100f;
-        private static string _lastLabelSignature = "";
-        private static float _lastLabelLogTime = -100f;
-        private const float DedupWindow = 2f;
 
         #endregion
 
         #region Patch Application
 
         /// <summary>
-        /// Applies the operation-prompt Harmony patch. Safe to call repeatedly — applied once.
+        /// Applies the two prompt Harmony patches. Safe to call repeatedly — applied once.
         /// </summary>
         /// <param name="harmony">The mod's Harmony instance from Main.</param>
         public void ApplyPatches(HarmonyLib.Harmony harmony)
@@ -173,10 +132,9 @@ namespace SO2RAccess
         #region Harmony Patch
 
         /// <summary>
-        /// Postfix for UIFieldOperationPresenter.Set(...). Fires when a field button prompt is
-        /// shown. Detects the jump prompt, drives the audio cue + one-time speech, and (in debug
-        /// mode) logs every prompt for cataloguing. Deduped so a prompt held over many frames
-        /// logs once.
+        /// Postfix for UIFieldOperationPresenter.Set(...). Fires whenever a field
+        /// button prompt is shown or refreshed. Tracks the presenter's state and
+        /// announces the prompt when it is new (see the class summary for the rules).
         /// </summary>
         private static void FieldOperationPresenter_Set_Postfix(
             UIFieldOperationPresenter __instance,
@@ -186,25 +144,24 @@ namespace SO2RAccess
         {
             try
             {
-                // Find a jump entry and remember the button glyph used (controller-dependent).
-                bool isJump = TryFindAction(operationList, JumpAction, out string jumpButton);
+                string raw = JoinIl2CppStrings(operationList);
+                var state = StateFor(__instance);
 
-                if (isJump)
+                if (string.IsNullOrEmpty(raw))
                 {
-                    // Announce/cue once on a new appearance, not every frame it is re-Set.
-                    if (!_jumpShowing)
-                    {
-                        _jumpShowing = true;
-                        AnnounceJump(jumpButton);
-                    }
-                    _jumpPresenter = __instance;   // always track the live presenter
+                    // An empty Set is the game clearing the prompt.
+                    state.Showing = false;
+                    state.Text    = "";
+                    return;
                 }
-                else if (_jumpShowing && (_jumpPresenter == null || _jumpPresenter.Equals(__instance)))
-                {
-                    // A different prompt replaced the jump prompt on the (shared) presenter.
-                    _jumpShowing = false;
-                    _jumpPresenter = null;
-                }
+
+                bool changed = state.Text != raw;
+                bool reshown = !state.Showing;
+                state.Text    = raw;
+                state.Showing = true;
+
+                if (changed || (reshown && MovedSinceAnnounce(state)))
+                    AnnouncePrompt(state, operationList, changed ? "changed" : "re-shown");
 
                 LogPromptDebug(__instance, operationList, followTransform, isPlayer);
             }
@@ -214,127 +171,28 @@ namespace SO2RAccess
             }
         }
 
-        /// <summary>
-        /// Postfix for UIFieldLabelOperationPresenter.Set(...). Fires when a labelled button
-        /// prompt is shown — most notably the world-map "Press X to enter &lt;town&gt;" guide.
-        /// Speaks the prompt once (honouring its F4 toggle) and raises <see cref="EnterPromptShowing"/>
-        /// so world-map auto-walk can treat it as arrival. In debug mode every label prompt is
-        /// logged so its exact label/operation text can be confirmed.
-        /// </summary>
-        private static void FieldLabelOperationPresenter_Set_Postfix(
-            UIFieldLabelOperationPresenter __instance,
-            string label,
-            string operation,
-            UnityEngine.Transform followTransform,
-            bool isPlayer)
+        /// <summary>The state record of a presenter instance, created on first sight.</summary>
+        private static PromptState StateFor(UIFieldOperationPresenter presenter)
         {
-            try
+            int id = presenter.GetInstanceID();
+            if (!_prompts.TryGetValue(id, out var state))
             {
-                // Announce once on a new appearance, not every frame it is re-Set.
-                if (!_enterShowing)
-                {
-                    _enterShowing = true;
-                    EnterPromptLabel = NotificationHandler.StripTagsPublic(label ?? "").Trim();
-                    AnnounceEnter(label, operation);
-                }
-                _enterPresenter = __instance;   // always track the live presenter
-
-                LogLabelPromptDebug(__instance, label, operation, followTransform, isPlayer);
+                // The dictionary only ever holds the few presenters the field UI
+                // owns; a runaway (pooled presenters churning) is capped, not leaked.
+                if (_prompts.Count >= 32) _prompts.Clear();
+                state = new PromptState();
+                _prompts[id] = state;
             }
-            catch (Exception ex)
-            {
-                MelonLogger.Warning($"FieldLabelOperationPresenter_Set_Postfix: {ex.Message}");
-            }
+            state.Presenter = presenter;
+            return state;
         }
 
-        #endregion
-
-        #region Update (hide detection)
-
-        /// <summary>
-        /// Called each frame from Main.UpdateHandlers(). Detects when the jump prompt has been
-        /// hidden — the game's Hide() is native-only and fires no managed hook, so the only
-        /// reliable signal is the presenter going inactive or losing its jump text. Clearing
-        /// the flag here lets a later re-appearance announce again.
-        /// </summary>
-        public void Update()
+        /// <summary>True when nothing was spoken for this presenter yet, or the player has since moved away.</summary>
+        private static bool MovedSinceAnnounce(PromptState state)
         {
-            if (_jumpShowing && !IsActionStillShowing(_jumpPresenter, JumpAction))
-            {
-                _jumpShowing = false;
-                _jumpPresenter = null;
-                DebugLogger.LogState("FieldPrompt: jump prompt cleared.");
-            }
-
-            UpdateFishingBubblePoll();
-
-            if (_enterShowing && !IsEnterStillShowing())
-            {
-                _enterShowing = false;
-                _enterPresenter = null;
-                EnterPromptLabel = "";
-                DebugLogger.LogState("FieldPrompt: enter prompt cleared.");
-            }
-        }
-
-        /// <summary>
-        /// Returns true if the cached presenter is still active and still displaying the
-        /// given action word. Any IL2CPP access failure (destroyed object) is treated as
-        /// "not showing". Shared by the jump and fishing hide polls.
-        /// </summary>
-        private static bool IsActionStillShowing(
-            UIFieldOperationPresenter presenter, string action)
-        {
-            try
-            {
-                if (presenter == null) return false;
-                if (!presenter.gameObject.activeInHierarchy) return false;
-
-                // Confirm the live on-screen text still contains the action — guards the
-                // case where the presenter stays active but its text was swapped/cleared.
-                // The action word survives tag-stripping unchanged, so the raw text can be
-                // substring-checked directly, avoiding a regex strip pass on this per-frame path.
-                var texts = presenter.operationTextList;
-                if (texts == null || texts.Count == 0) return false;
-
-                for (int i = 0; i < texts.Count; i++)
-                {
-                    var gt = texts[i];
-                    if (gt == null) continue;
-                    string raw = gt.text;
-                    if (!string.IsNullOrEmpty(raw) &&
-                        raw.IndexOf(action, StringComparison.OrdinalIgnoreCase) >= 0)
-                        return true;
-                }
-                return false;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Returns true if the cached label presenter is still active and still displaying
-        /// label or operation text. Any IL2CPP access failure is treated as "not showing".
-        /// </summary>
-        private static bool IsEnterStillShowing()
-        {
-            try
-            {
-                if (_enterPresenter == null) return false;
-                // The label presenter is dedicated to label prompts (not shared like the
-                // operation presenter), so its active state is a reliable hide signal.
-                if (!_enterPresenter.gameObject.activeInHierarchy) return false;
-
-                var op = _enterPresenter.operation;
-                string opText = op != null ? op.text : null;
-                return !string.IsNullOrEmpty(opText);
-            }
-            catch
-            {
-                return false;
-            }
+            if (!state.Announced) return true;
+            if (!TryGetPlayerPos(out Vector3 pos)) return true;
+            return (pos - state.AnnouncedAt).sqrMagnitude >= ReannounceDistance * ReannounceDistance;
         }
 
         #endregion
@@ -342,200 +200,144 @@ namespace SO2RAccess
         #region Announce
 
         /// <summary>
-        /// Plays the audio cue and/or speaks the jump prompt once, honouring the independent
-        /// F4-menu toggles. Speech names the button so the player knows which to press.
+        /// Plays the jump sound when the prompt belongs to a ledge, then speaks
+        /// the prompt with the game's own words, each honouring its F4 switch.
+        /// Remembers where it was spoken for the re-show rule.
         /// </summary>
-        private static void AnnounceJump(string button)
+        private static void AnnouncePrompt(PromptState state,
+            Il2CppSystem.Collections.Generic.List<string> operationList, string why)
         {
-            if (ModSettings.JumpPromptSoundEnabled)
+            var kind = InteractableRegistry.CurrentContact(out string contactType, out string targetType);
+            if (kind == InteractableKind.None && ContainsJumpText(operationList))
+                kind = InteractableKind.Ledge;
+
+            if (kind == InteractableKind.Ledge && ModSettings.JumpPromptSoundEnabled)
                 AudioCuePlayer.PlayJumpCue();
 
-            if (ModSettings.JumpPromptSpeechEnabled)
-            {
-                string speech = string.IsNullOrEmpty(button)
-                    ? Loc.Get("jump_prompt_no_button")
-                    : Loc.Get("jump_prompt", button);
+            string speech = BuildSpeech(operationList);
+            if (ModSettings.PromptSpeechEnabled && !string.IsNullOrEmpty(speech))
                 ScreenReader.Say(speech);
-            }
 
-            DebugLogger.LogGameValue("FieldPrompt", $"jump prompt shown (button='{button}')");
+            state.Announced = true;
+            if (!TryGetPlayerPos(out state.AnnouncedAt))
+                state.AnnouncedAt = Vector3.zero;
+
+            DebugLogger.LogGameValue("FieldPrompt",
+                $"{why}: kind={kind} contact={contactType} target={targetType} " +
+                $"said='{speech}' raw=[{state.Text}]");
         }
 
         /// <summary>
-        /// Per-frame poll of the game's fishing bubble — the world-space icon it shows
-        /// above the player's head exactly while fishing can be started. The bubble is
-        /// native-driven UI (ShowFieldIcon has a ref Vector3 param, unhookable), so the
-        /// icon presenters are polled instead. Edge-triggered: announces once when the
-        /// bubble appears, clears when it hides. Shares the enter-prompt F4 speech
-        /// toggle — both are "you can act here" guides. In debug mode, every change of
-        /// bubble/contact/visible-icon state is logged for evidence.
+        /// The spoken form of a whole prompt: one sentence per entry ("Press Cross
+        /// to Talk. Press Square to Pickpocket."). Entries without an action word
+        /// are skipped. The action is the game's text, already in its language.
         /// </summary>
-        private static void UpdateFishingBubblePoll()
+        private static string BuildSpeech(Il2CppSystem.Collections.Generic.List<string> operationList)
         {
-            bool bubble = IsFishingBubbleShowing(out string visibleIcons);
-
-            if (Main.DebugMode)
-                LogFishingDiag(bubble, visibleIcons);
-
-            // Re-arm the announcement once the player has left the spot: the game
-            // blinks the bubble while standing still, so hiding alone must NOT
-            // re-arm — only real movement away from where it was announced.
-            if (!bubble && _fishAnnounceLatched &&
-                TryGetPlayerPos(out var pos) &&
-                (pos - _fishAnnouncePos).sqrMagnitude >
-                    FishReannounceDistance * FishReannounceDistance)
+            if (operationList == null) return "";
+            var parts = new List<string>();
+            for (int i = 0; i < operationList.Count; i++)
             {
-                _fishAnnounceLatched = false;
-                DebugLogger.LogState(
-                    "FieldPrompt: fishing announce re-armed (moved away).");
+                string part = SpeechFor(operationList[i]);
+                if (!string.IsNullOrEmpty(part)) parts.Add(part);
             }
-
-            if (bubble == _fishShowing) return;
-            _fishShowing = bubble;
-
-            if (bubble)
-            {
-                if (_fishAnnounceLatched)
-                {
-                    // A blink re-show at the same spot — stay quiet.
-                    DebugLogger.LogState(
-                        "FieldPrompt: fishing bubble re-shown (blink), announce suppressed.");
-                    return;
-                }
-
-                // Bubble sound instead of speech (user decision 2026-08-30);
-                // speech only as fallback when the WAV is missing/unparseable so
-                // the prompt never goes silent by accident.
-                if (AudioCuePlayer.IsFishPromptSoundLoaded)
-                {
-                    if (ModSettings.FishPromptSoundEnabled)
-                        AudioCuePlayer.PlayFishPromptCue();
-                }
-                else if (ModSettings.EnterPromptSpeechEnabled)
-                {
-                    ScreenReader.Say(Loc.Get("fish_prompt"));
-                }
-                _fishAnnounceLatched = true;
-                if (!TryGetPlayerPos(out _fishAnnouncePos))
-                    _fishAnnouncePos = UnityEngine.Vector3.zero;
-                DebugLogger.LogGameValue("FieldPrompt", "fishing bubble shown");
-                RememberWorldmapBubble();
-            }
-            else
-            {
-                DebugLogger.LogState("FieldPrompt: fishing bubble hidden.");
-            }
+            return string.Join(" ", parts);
         }
 
-        /// <summary>
-        /// World map only: saves where the bubble just appeared so later walks to this
-        /// water go straight there (<see cref="WorldmapBubbleMemory"/>).
-        /// </summary>
-        private static void RememberWorldmapBubble()
+        /// <summary>The spoken form of one "&lt;sprite name=BUTTON&gt;ACTION" entry, or "" without an action.</summary>
+        private static string SpeechFor(string rawEntry)
         {
-            try
-            {
-                var fm = FieldManager.Instance;
-                var player = fm?.GetControlPlayer();
-                if (player == null || !fm.IsWorldmap()) return;
-                WorldmapBubbleMemory.Record(fm.WorldmapID, fm.GetContactFishingWaterPlaceID(),
-                    player.transform.position, player.transform.forward);
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"FieldPrompt: bubble memory failed: {ex.Message}");
-            }
+            ParseOperation(rawEntry ?? "", out string button, out string action);
+            if (string.IsNullOrEmpty(action)) return "";
+            return string.IsNullOrEmpty(button)
+                ? Loc.Get("prompt_generic_no_button", action)
+                : Loc.Get("prompt_generic", button, action);
         }
 
         /// <summary>
-        /// Reads the control player's world position. False during scene
-        /// transitions or when no player exists.
+        /// True when an entry's action word is the game's jump prompt text. The
+        /// text is resolved from the game's own System table, so this holds in
+        /// every text language.
         /// </summary>
-        private static bool TryGetPlayerPos(out UnityEngine.Vector3 pos)
+        private static bool ContainsJumpText(Il2CppSystem.Collections.Generic.List<string> operationList)
         {
-            pos = UnityEngine.Vector3.zero;
-            try
+            string jump = JumpText();
+            if (jump == null || operationList == null) return false;
+
+            for (int i = 0; i < operationList.Count; i++)
             {
-                var player = FieldManager.Instance?.GetControlPlayer();
-                if (player == null) return false;
-                pos = player.transform.position;
-                return true;
+                ParseOperation(operationList[i] ?? "", out _, out string action);
+                if (action.Equals(jump, StringComparison.OrdinalIgnoreCase)) return true;
             }
-            catch
-            {
-                return false;
-            }
+            return false;
         }
 
-        /// <summary>
-        /// True while any world-space icon presenter is visibly showing the fishing
-        /// sprite. Outputs the names of all visible icon sprites in debug mode (for
-        /// cataloguing — empty otherwise) so a wrong sprite-index assumption shows up
-        /// as log evidence instead of silence.
-        /// </summary>
-        private static bool IsFishingBubbleShowing(out string visibleIcons)
+        /// <summary>The resolved jump prompt text, cached; retried every few seconds while the text table is not ready.</summary>
+        private static string JumpText()
         {
-            visibleIcons = "";
-            var sel = GetIconSelector();
-            if (sel == null || _fishingSpriteId == 0) return false;
+            if (_jumpText != null) return _jumpText;
 
-            bool fishing = false;
-            StringBuilder catalog = Main.DebugMode ? new StringBuilder() : null;
+            float now = Time.realtimeSinceStartup;
+            if (now < _jumpTextRetryTime) return null;
+            _jumpTextRetryTime = now + JumpTextRetrySeconds;
 
-            try
+            _jumpText = TextUtil.ResolveSystemText(JumpMessageID);
+            DebugLogger.LogState(_jumpText == null
+                ? "FieldPrompt: jump prompt text not resolved yet."
+                : $"FieldPrompt: jump prompt text = '{_jumpText}'.");
+            return _jumpText;
+        }
+
+        #endregion
+
+        #region Update (hide detection)
+
+        /// <summary>
+        /// Called each frame from Main.UpdateHandlers(). The game's Hide() is
+        /// native-only and fires no managed hook, so a prompt counts as hidden
+        /// when its presenter is inactive or shows no text. Then the fishing
+        /// bubble and the enter prompt run their own polls.
+        /// </summary>
+        public void Update()
+        {
+            foreach (var pair in _prompts)
             {
-                var list = sel.iconPresenterList;
-                if (list == null) return false;
-
-                for (int i = 0; i < list.Count; i++)
-                {
-                    var presenter = list[i];
-                    if (!IsPresenterVisible(presenter)) continue;
-
-                    var img = presenter.icon;
-                    var sprite = img != null ? img.sprite : null;
-                    if (sprite == null) continue;
-
-                    if (sprite.GetInstanceID() == _fishingSpriteId)
-                        fishing = true;
-
-                    if (catalog != null)
-                    {
-                        if (catalog.Length > 0) catalog.Append(", ");
-                        catalog.Append(sprite.name);
-                    }
-                    else if (fishing)
-                    {
-                        break;  // no catalog wanted — first hit is enough
-                    }
-                }
-            }
-            catch
-            {
-                // Presenters destroyed mid-transition — treat as not showing this frame.
-                return false;
+                var state = pair.Value;
+                if (!state.Showing || IsStillShowing(state.Presenter)) continue;
+                state.Showing = false;
+                DebugLogger.LogState($"FieldPrompt: prompt hidden [{state.Text}]");
             }
 
-            if (catalog != null) visibleIcons = catalog.ToString();
-            return fishing;
+            UpdateFishingBubblePoll();
+            UpdateEnterPromptPoll();
+        }
+
+        /// <summary>Forgets every presenter: the scene that owned them is gone.</summary>
+        public void OnSceneChanged()
+        {
+            _prompts.Clear();
         }
 
         /// <summary>
-        /// True if the icon presenter is actually visible on screen: active in the
-        /// hierarchy and not faded out by its canvas group. Any IL2CPP access failure
-        /// (destroyed object) is treated as "not visible".
+        /// True while the presenter is active and displays any text. Any IL2CPP
+        /// access failure (destroyed object) is treated as "not showing".
         /// </summary>
-        private static bool IsPresenterVisible(UIFieldIconPresenter presenter)
+        private static bool IsStillShowing(UIFieldOperationPresenter presenter)
         {
             try
             {
                 if (presenter == null) return false;
                 if (!presenter.gameObject.activeInHierarchy) return false;
 
-                var canvasGroup = presenter.canvasGroup;
-                if (canvasGroup != null && canvasGroup.alpha < 0.5f) return false;
+                var texts = presenter.operationTextList;
+                if (texts == null || texts.Count == 0) return false;
 
-                return true;
+                for (int i = 0; i < texts.Count; i++)
+                {
+                    var gt = texts[i];
+                    if (gt != null && !string.IsNullOrEmpty(gt.text)) return true;
+                }
+                return false;
             }
             catch
             {
@@ -543,187 +345,9 @@ namespace SO2RAccess
             }
         }
 
-        /// <summary>
-        /// Returns the cached UIFieldIconSelector, re-finding it (throttled) after scene
-        /// changes destroy it. Caches the fishing sprite's instance ID alongside — the
-        /// sprite at index FieldIconType.Fishing of the selector's sprite list.
-        /// </summary>
-        private static UIFieldIconSelector GetIconSelector()
-        {
-            try
-            {
-                // Touching gameObject validates the cached instance; a destroyed
-                // selector throws and falls through to the re-find below.
-                if (_iconSelector != null && _iconSelector.gameObject != null)
-                    return _iconSelector;
-            }
-            catch
-            {
-                _iconSelector = null;
-            }
-
-            float now = UnityEngine.Time.realtimeSinceStartup;
-            if (now < _iconSelectorNextFindTime) return null;
-            _iconSelectorNextFindTime = now + IconSelectorFindInterval;
-
-            try
-            {
-                // includeInactive: the selector may be disabled while no icon shows.
-                _iconSelector =
-                    UnityEngine.Object.FindObjectOfType<UIFieldIconSelector>(true);
-                if (_iconSelector == null) return null;
-
-                _fishingSpriteId = 0;
-                var sprites = _iconSelector.spriteList;
-                int fishingIndex = (int)UIDefine.FieldIconType.Fishing;
-                if (sprites != null && sprites.Count > fishingIndex &&
-                    sprites[fishingIndex] != null)
-                {
-                    _fishingSpriteId = sprites[fishingIndex].GetInstanceID();
-                }
-
-                DebugLogger.LogState(
-                    $"FieldPrompt: UIFieldIconSelector cached " +
-                    $"(sprites={(sprites != null ? sprites.Count : -1)}, " +
-                    $"fishingSpriteId={_fishingSpriteId}).");
-                if (_fishingSpriteId == 0)
-                    DebugLogger.LogState(
-                        "FieldPrompt: fishing sprite NOT resolved — bubble " +
-                        "detection inactive (sprite list too short or null entry).");
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState(
-                    $"FieldPrompt: icon selector find failed: {ex.Message}");
-                _iconSelector = null;
-            }
-            return _iconSelector;
-        }
-
-        /// <summary>
-        /// Debug-only, log-on-change: correlates the bubble state with the old
-        /// water-place contact signal and the visible icon sprites, plus the player
-        /// position — the evidence trail for tuning the bubble detection.
-        /// </summary>
-        private static void LogFishingDiag(bool bubble, string visibleIcons)
-        {
-            int contactId = 0;
-            string gameCheck = "n/a";
-            try
-            {
-                var fm = FieldManager.Instance;
-                var player = fm?.GetControlPlayer();
-                if (player != null)
-                {
-                    contactId = fm.GetContactFishingWaterPlaceID();
-                    // The game's own per-frame world map test from the player's
-                    // feet and facing (2026-09-06: does it agree with the bubble?).
-                    if (fm.IsWorldmap())
-                    {
-                        UnityEngine.Vector3 feet = player.transform.position;
-                        UnityEngine.Vector3 forward = player.transform.forward;
-                        gameCheck = fm.CheckWorldmapFishingPoint(ref feet, ref forward).ToString();
-                        // The game's own player-based entry (2026-09-09): does it
-                        // agree with the feet+forward call, which flickered?
-                        try { gameCheck += "/p" + fm.CheckFishingPoint(player); }
-                        catch (Exception ex) { gameCheck += "/p-err:" + ex.Message; }
-                    }
-                    if (!_fishParamsLogged)
-                    {
-                        _fishParamsLogged = true;
-                        DebugLogger.LogGameValue("FieldPrompt",
-                            $"FISHPARAMS wmCharacterHeight={fm.WorldmapFishingCharacterHeight:F2} " +
-                            $"wmFrontDistance={fm.WorldmapFishingFrontDistance:F2} " +
-                            $"groundDistance={fm.FishingGroundDistance:F2} " +
-                            $"collisionDistanceRate={fm.FishingCollisionDistanceRate:F2}");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                gameCheck = "error:" + ex.Message;
-            }
-
-            string signature = $"{bubble}|{contactId}|{gameCheck}|{visibleIcons}";
-            if (signature == _lastFishDiagSignature) return;
-            _lastFishDiagSignature = signature;
-
-            string pos = TryGetPlayerPos(out var p)
-                ? $"({p.x:F1},{p.y:F1},{p.z:F1})" : "?";
-
-            DebugLogger.LogGameValue("FieldPrompt",
-                $"FISHDIAG bubble={bubble} contactID={contactId} gameCheck={gameCheck} " +
-                $"icons=[{visibleIcons}] pos={pos}");
-        }
-
-        private static bool _fishParamsLogged;
-
-        /// <summary>
-        /// Speaks a label-operation prompt once via the screen reader, honouring its F4 toggle.
-        /// The game text is already localized, so it is echoed through Loc unchanged (the Loc
-        /// template is a pass-through placeholder). Builds "Press {button} to {action}. {label}"
-        /// when the operation carries a sprite-tagged action word, else falls back to the raw
-        /// cleaned text so the player always hears whatever the game shows.
-        /// </summary>
-        private static void AnnounceEnter(string label, string operation)
-        {
-            if (!ModSettings.EnterPromptSpeechEnabled) return;
-
-            ParseOperation(operation ?? "", out string button, out string action);
-            string cleanLabel = NotificationHandler.StripTagsPublic(label ?? "").Trim();
-
-            string core;
-            if (!string.IsNullOrEmpty(button) && !string.IsNullOrEmpty(action))
-                core = Loc.Get("enter_prompt", button, action);
-            else if (!string.IsNullOrEmpty(action))
-                core = Loc.Get("enter_prompt_no_button", action);
-            else
-                core = "";
-
-            string spoken;
-            if (string.IsNullOrEmpty(core))
-                spoken = cleanLabel;
-            else if (string.IsNullOrEmpty(cleanLabel))
-                spoken = core;
-            else
-                spoken = core + " " + cleanLabel;
-
-            if (!string.IsNullOrEmpty(spoken))
-                ScreenReader.Say(Loc.Get("enter_prompt_echo", spoken));
-
-            DebugLogger.LogGameValue("FieldPrompt",
-                $"enter prompt shown (button='{button}' action='{action}' label='{cleanLabel}')");
-        }
-
         #endregion
 
         #region Helpers
-
-        /// <summary>
-        /// Scans an operation list for an entry whose action word matches <paramref name="action"/>.
-        /// Outputs the readable button name (e.g. "Cross") parsed from that entry's sprite tag.
-        /// </summary>
-        private static bool TryFindAction(
-            Il2CppSystem.Collections.Generic.List<string> operationList,
-            string action, out string button)
-        {
-            button = "";
-            if (operationList == null || operationList.Count == 0) return false;
-
-            for (int i = 0; i < operationList.Count; i++)
-            {
-                string raw = operationList[i];
-                if (string.IsNullOrEmpty(raw)) continue;
-
-                ParseOperation(raw, out string entryButton, out string entryAction);
-                if (entryAction.Equals(action, StringComparison.OrdinalIgnoreCase))
-                {
-                    button = entryButton;
-                    return true;
-                }
-            }
-            return false;
-        }
 
         /// <summary>
         /// Splits a "&lt;sprite name=BUTTON&gt;ACTION" entry into a readable button name and the
@@ -746,8 +370,8 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Logs every operation prompt under [GAME] FieldPrompt in debug mode, deduped. Used to
-        /// catalogue prompt types we have not yet handled (Talk, Open, Examine, ...).
+        /// Logs every operation prompt under [GAME] FieldPrompt in debug mode, deduped. The
+        /// catalogue of raw prompt texts, kept next to the announce lines.
         /// </summary>
         private static void LogPromptDebug(
             UIFieldOperationPresenter presenter,
@@ -765,7 +389,7 @@ namespace SO2RAccess
             catch { /* destroyed/native edge — ignore for a diagnostic */ }
 
             string signature = $"{isPlayer}|{rawJoined}|{displayText}";
-            float now = UnityEngine.Time.realtimeSinceStartup;
+            float now = Time.realtimeSinceStartup;
             if (signature == _lastSignature && (now - _lastLogTime) < DedupWindow)
                 return;
             _lastSignature = signature;
@@ -773,40 +397,6 @@ namespace SO2RAccess
 
             DebugLogger.LogGameValue("FieldPrompt",
                 $"isPlayer={isPlayer} anchor='{anchor}' raw=[{rawJoined}] display='{displayText}'");
-        }
-
-        /// <summary>
-        /// Logs every label-operation prompt under [GAME] FieldPrompt in debug mode, deduped.
-        /// Records the raw label/operation text and whether the current map is the world map, so
-        /// the exact world-map "enter" prompt content can be confirmed on the first test walk.
-        /// </summary>
-        private static void LogLabelPromptDebug(
-            UIFieldLabelOperationPresenter presenter,
-            string label,
-            string operation,
-            UnityEngine.Transform followTransform,
-            bool isPlayer)
-        {
-            if (!Main.DebugMode) return;
-
-            string anchor = "?";
-            try { if (followTransform != null) anchor = followTransform.gameObject.name; }
-            catch { /* destroyed/native edge — ignore for a diagnostic */ }
-
-            bool worldmap = false;
-            try { worldmap = FieldManager.Instance?.IsWorldmap() == true; }
-            catch { /* manager unavailable — diagnostic only */ }
-
-            string signature = $"{isPlayer}|{label}|{operation}";
-            float now = UnityEngine.Time.realtimeSinceStartup;
-            if (signature == _lastLabelSignature && (now - _lastLabelLogTime) < DedupWindow)
-                return;
-            _lastLabelSignature = signature;
-            _lastLabelLogTime = now;
-
-            DebugLogger.LogGameValue("FieldPrompt",
-                $"LABEL isPlayer={isPlayer} worldmap={worldmap} anchor='{anchor}' " +
-                $"label=[{label}] operation=[{operation}]");
         }
 
         /// <summary>

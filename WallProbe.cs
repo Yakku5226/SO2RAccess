@@ -429,6 +429,31 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// True when a wall face (the game's own foot wall layers) stands within
+        /// <paramref name="radius"/> of <paramref name="feetPos"/> in any of eight
+        /// horizontal directions at knee height. Names the nearest one. Used by the
+        /// F11 floor map raster, where a thin obstacle box must show as a wall even
+        /// though it falls between the floor grid's downward rays.
+        /// </summary>
+        public static bool AnyFaceAround(Vector3 feetPos, float radius, out Collider collider)
+        {
+            collider = null;
+            float best = float.MaxValue;
+            var origin = new Vector3(feetPos.x, feetPos.y + KneeHeight, feetPos.z);
+            for (int i = 0; i < 8; i++)
+            {
+                float a = i * Mathf.PI / 4f;
+                var dir = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a));
+                if (TryFace(origin, dir, radius, FaceMask, out float d, out Collider col) && d < best)
+                {
+                    best = d;
+                    collider = col;
+                }
+            }
+            return best < float.MaxValue;
+        }
+
+        /// <summary>
         /// Nearest near-vertical solid surface along a horizontal ray, within
         /// <paramref name="limit"/>. Floor-like and ceiling-like hits are skipped.
         /// </summary>

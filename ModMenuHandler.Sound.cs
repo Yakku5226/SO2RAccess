@@ -119,12 +119,9 @@ namespace SO2RAccess
                 Toggle("mod_menu_label_gauge_percent",
                     () => ModSettings.BonusGaugePercentAnnounceEnabled,
                     v => ModSettings.BonusGaugePercentAnnounceEnabled = v),
-                Toggle("mod_menu_label_jump_speech",
-                    () => ModSettings.JumpPromptSpeechEnabled,
-                    v => ModSettings.JumpPromptSpeechEnabled = v),
-                Toggle("mod_menu_label_enter_speech",
-                    () => ModSettings.EnterPromptSpeechEnabled,
-                    v => ModSettings.EnterPromptSpeechEnabled = v)
+                Toggle("mod_menu_label_prompt_speech",
+                    () => ModSettings.PromptSpeechEnabled,
+                    v => ModSettings.PromptSpeechEnabled = v)
             };
         }
 

@@ -34,7 +34,13 @@ namespace SO2RAccess
         /// <summary>World map dungeon entrances (a low stone hit).</summary>
         Dungeon = 13,
         /// <summary>Fishing spots, on every map: a continuous water loop coming from the water itself.</summary>
-        Fishing = 14
+        Fishing = 14,
+        /// <summary>
+        /// Gathering points (the sparkles that give an item when examined).
+        /// NavGather.wav is a synthesised placeholder until the user picks a sound
+        /// (2026-09-23). Append-only enum: the beacon identity hashes the value.
+        /// </summary>
+        Gather = 15
     }
 
     /// <summary>How beacons behind the player are told apart from those in front.</summary>
@@ -73,7 +79,8 @@ namespace SO2RAccess
             { NavCueKind.Bump,       "NavBump.wav" },
             { NavCueKind.City,       "NavCity.wav" },
             { NavCueKind.Dungeon,    "NavDungeon.wav" },
-            { NavCueKind.Fishing,    "NavFishing.wav" }
+            { NavCueKind.Fishing,    "NavFishing.wav" },
+            { NavCueKind.Gather,     "NavGather.wav" }
         };
 
         /// <summary>
@@ -88,7 +95,7 @@ namespace SO2RAccess
             NavCueKind.WallFront, NavCueKind.WallRight, NavCueKind.WallBehind, NavCueKind.WallLeft,
             NavCueKind.Npc, NavCueKind.Chest, NavCueKind.Door, NavCueKind.Location,
             NavCueKind.City, NavCueKind.Dungeon, NavCueKind.Save,
-            NavCueKind.Jump, NavCueKind.Stairs, NavCueKind.Fishing
+            NavCueKind.Jump, NavCueKind.Stairs, NavCueKind.Fishing, NavCueKind.Gather
         };
 
         /// <summary>Every kind that exists, including hidden ones (settings storage).</summary>
@@ -137,6 +144,7 @@ namespace SO2RAccess
                 case NavCueKind.Dungeon:    return "mod_menu_label_beacon_dungeon";
                 case NavCueKind.Fishing:    return "mod_menu_label_beacon_fishing";
                 case NavCueKind.Stairs:     return "mod_menu_label_beacon_stairs";
+                case NavCueKind.Gather:     return "mod_menu_label_beacon_gather";
                 default:
                     // A kind without a label is a programming error; make it audible in the log.
                     DebugLogger.LogState($"NavCues: no label key for {kind}");

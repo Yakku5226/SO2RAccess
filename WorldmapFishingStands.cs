@@ -248,9 +248,26 @@ namespace SO2RAccess
         /// </summary>
         public static string Save(WorldmapID wmID, FishingStandFile file)
         {
-            Directory.CreateDirectory(Dir);
             string path = UserPath(wmID);
             if (File.Exists(path)) File.Copy(path, PreviousPath(wmID), true);
+            return Write(path, file);
+        }
+
+        /// <summary>Path a bake that failed its own verdict is written to — evidence only, never loaded.</summary>
+        public static string RejectedPath(WorldmapID wmID) =>
+            Path.Combine(Dir, $"worldmap_{MapName(wmID)}.rejected.json");
+
+        /// <summary>
+        /// Writes a bake that disagreed with the ground truth to
+        /// <see cref="RejectedPath"/> and returns that path. The stands file in
+        /// use is left untouched.
+        /// </summary>
+        public static string SaveRejected(WorldmapID wmID, FishingStandFile file) =>
+            Write(RejectedPath(wmID), file);
+
+        private static string Write(string path, FishingStandFile file)
+        {
+            Directory.CreateDirectory(Dir);
             File.WriteAllText(path, JsonSerializer.Serialize(file,
                 new JsonSerializerOptions { WriteIndented = true }));
             return path;

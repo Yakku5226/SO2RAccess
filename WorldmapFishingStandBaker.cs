@@ -146,6 +146,18 @@ namespace SO2RAccess
 
                 var total = System.Diagnostics.Stopwatch.StartNew();
                 _ruleDrops.Clear();
+
+                // Anchors first: a bake whose proof starts from the wrong points is
+                // worthless, and this check costs a second, not minutes.
+                int sweepMask = NavigationHandler.ResolveBodySweepMask(player, out string sweepMaskNote);
+                var anchors = CollectAnchors(fm.FieldmapID, grid, sweepMask);
+                if (!AnchorsMatchKnownExits(wmID, fm.FieldmapID, anchors))
+                {
+                    Log("ABORT: the exit anchors do not match the logged exits — nothing baked, nothing saved.");
+                    ScreenReader.Say("Fishing stand bake stopped. The exit anchors do not match the logged town exits. " +
+                        "Nothing was saved. Check log.");
+                    return;
+                }
                 var previous = WorldmapFishingStands.ReadUserFile(wmID);
                 Log(previous == null
                     ? "No previous user-side stands file — the before/after comparison is skipped."
@@ -180,10 +192,20 @@ namespace SO2RAccess
                 // Phase 5 — route proof: a body-swept route from an entrance to
                 // each stand, with the streamed rock collision loaded.
                 sw.Restart();
-                ProveStands(player, grid, file);
+                ProveStands(grid, file, anchors, sweepMask, sweepMaskNote);
                 Log($"Phase 5 proof done in {sw.ElapsedMilliseconds} ms.");
 
                 if (previous != null) LogBakeDiff(previous, file);
+
+                if (!VerdictPasses(wmID, file, previous))
+                {
+                    string rejected = WorldmapFishingStands.SaveRejected(wmID, file);
+                    Log($"Bake REJECTED by its own verdict — written to {rejected}; the stands file in use is unchanged, " +
+                        $"total {total.ElapsedMilliseconds / 1000} s.");
+                    ScreenReader.Say("Fishing stand bake rejected. It disagrees with the known fishing spots. " +
+                        "The stands in use were not changed. Check log.");
+                    return;
+                }
 
                 string path = WorldmapFishingStands.Save(wmID, file);
                 WorldmapFishingStands.ClearCache();
