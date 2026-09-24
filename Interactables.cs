@@ -110,7 +110,7 @@ namespace SO2RAccess
                 { InteractableKind.Switch,      new InteractableInfo(NavPlacement.Interactables, "nav_switch",         "nav_switch_n",         "switch") },
                 { InteractableKind.Statue,      new InteractableInfo(NavPlacement.Interactables, "nav_statue",         "nav_statue_n",         "statue") },
                 { InteractableKind.Door,        new InteractableInfo(NavPlacement.Doors,         "nav_gimmick_door",   "nav_gimmick_door_n",   "gimmick_door") },
-                { InteractableKind.Rock,        new InteractableInfo(NavPlacement.Doors,         "nav_rock",           "nav_rock_n",           "rock") },
+                { InteractableKind.Rock,        new InteractableInfo(NavPlacement.Doors,         "nav_rock",           "nav_rock_n",           "rock", alwaysNumbered: true) },   // switches quote "boulder N"
                 { InteractableKind.FloorPanel,  new InteractableInfo(NavPlacement.Interactables, "nav_floor_panel",    "nav_floor_panel_n",    "floor_panel") },
                 { InteractableKind.Mechanism,   new InteractableInfo(NavPlacement.Interactables, "nav_mechanism",      "nav_mechanism_n",      "mechanism") },
             };

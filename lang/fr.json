@@ -178,6 +178,8 @@
   "nav_ledge": "Rebord",
   "nav_switch": "Interrupteur",
   "nav_switch_n": "Interrupteur {0}",
+  "nav_switch_pressed": "{0}, enfoncé",
+  "nav_switch_boulder": "{0}, rocher {1}",
   "nav_statue": "Statue",
   "nav_statue_n": "Statue {0}",
   "nav_gimmick_door": "Porte",

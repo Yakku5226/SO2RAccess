@@ -208,6 +208,8 @@
   "nav_ledge": "Ledge",
   "nav_switch": "Switch",
   "nav_switch_n": "Switch {0}",
+  "nav_switch_pressed": "{0}, pressed",
+  "nav_switch_boulder": "{0}, boulder {1}",
   "nav_statue": "Statue",
   "nav_statue_n": "Statue {0}",
   "nav_gimmick_door": "Door",

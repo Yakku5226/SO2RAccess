@@ -16,6 +16,12 @@ namespace SO2RAccess
             public FieldGimmickBase Obj;
             public Vector3          Pos;
             public string           TypeName;
+            /// <summary>Stable-number identity ("switch16:7"); null = position.</summary>
+            public string           Identity;
+            /// <summary>Loc key wrapped around the numbered label ("{0}, pressed"); null = none.</summary>
+            public string           NoteKey;
+            /// <summary>Identity of the boulder a switch feeds (numbered in the boulders' group); null = none.</summary>
+            public string           GroupIdentity;
         }
 
         /// <summary>
@@ -40,6 +46,7 @@ namespace SO2RAccess
             }
 
             DebugLogger.LogState($"NAV:GIMMICK list has {list.Count} entries.");
+            var puzzles = SwitchPuzzleModel.Read(list);
             for (int i = 0; i < list.Count; i++)
             {
                 var gimmick = list[i];
@@ -50,13 +57,24 @@ namespace SO2RAccess
                     var kind = InteractableRegistry.Classify(gimmick, out string typeName);
                     Vector3 pos = gimmick.transform.position;
                     bool listable = InteractableRegistry.IsListable(kind, gimmick);
+                    string puzzleNote = "";
+                    string identity   = null;
+                    string noteKey    = null;
+                    string group      = null;
+                    if (listable)
+                        listable = ApplyPuzzleState(puzzles, kind, gimmick,
+                            out identity, out noteKey, out group, out puzzleNote);
 
                     DebugLogger.LogGameValue("NAV:GIMMICK",
                         $"[{i}] {typeName} kind={kind} startup={InteractableRegistry.StartupText(gimmick)} " +
-                        $"listed={listable} pos=({pos.x:F1},{pos.y:F1},{pos.z:F1}){DescribeGimmick(kind, gimmick)}");
+                        $"listed={listable} pos=({pos.x:F1},{pos.y:F1},{pos.z:F1}){DescribeGimmick(kind, gimmick)}{puzzleNote}");
 
                     if (!listable) continue;
-                    hits.Add(new GimmickHit { Kind = kind, Obj = gimmick, Pos = pos, TypeName = typeName });
+                    hits.Add(new GimmickHit
+                    {
+                        Kind = kind, Obj = gimmick, Pos = pos, TypeName = typeName,
+                        Identity = identity, NoteKey = noteKey, GroupIdentity = group,
+                    });
                 }
                 catch (Exception ex)
                 {
@@ -64,6 +82,47 @@ namespace SO2RAccess
                 }
             }
             return hits;
+        }
+
+        /// <summary>
+        /// Switch-and-boulder puzzle state (see <see cref="SwitchPuzzleModel"/>):
+        /// a broken boulder is not listed; a dead switch (every boulder it feeds
+        /// is broken) is not listed; a live switch names the boulder it feeds
+        /// ("Switch 3, boulder 2": the fuse from the switch to the boulder's
+        /// magic circle is drawn on screen, so the link is fair to speak) and a
+        /// pressed one gets the "pressed" note. Other kinds pass through
+        /// untouched. Returns false to drop the object; <paramref name="note"/>
+        /// is the log evidence either way.
+        /// </summary>
+        private static bool ApplyPuzzleState(SwitchPuzzleModel puzzles, InteractableKind kind, FieldGimmickBase gimmick,
+            out string identity, out string noteKey, out string groupIdentity, out string note)
+        {
+            identity      = null;
+            noteKey       = null;
+            groupIdentity = null;
+            note          = "";
+            if (kind == InteractableKind.Rock)
+            {
+                var rock = gimmick.TryCast<FieldGimmick16>();
+                if (rock == null) return true;
+                bool broken = SwitchPuzzleModel.IsBoulderBroken(rock, out string detail);
+                note = $" puzzle: {detail}" + (broken ? " -> broken, dropped" : "");
+                try { identity = SwitchPuzzleModel.IdentityFor(rock.MainSwitchID); }
+                catch (Exception ex) { DebugLogger.LogState($"NAV:PUZZLE boulder main switch read failed: {ex.Message}"); }
+                return !broken;
+            }
+            if (kind == InteractableKind.Switch)
+            {
+                var sw = gimmick.TryCast<FieldGimmick16Switch>();
+                if (sw == null) return true;   // FieldGimmick11Switch: no boulder link
+                puzzles.SwitchState(sw, out bool dead, out bool pressed, out int switchID,
+                    out groupIdentity, out string detail);
+                note = $" puzzle: {detail}" + (dead ? " -> dead, dropped" : pressed ? " -> pressed" : "");
+                if (switchID >= 0) identity = "switch16:" + switchID;
+                if (pressed && !dead) noteKey = "nav_switch_pressed";
+                return !dead;
+            }
+            return true;
         }
 
         /// <summary>
@@ -83,6 +142,14 @@ namespace SO2RAccess
         private void BuildGimmicks(List<GimmickHit> hits, Vector3 playerPos)
         {
             if (hits.Count == 0) return;
+
+            // Boulders are numbered first, nearest = 1, so a switch's "boulder N"
+            // note can quote the number before the Doors category is built.
+            var boulders = hits.FindAll(h => h.Kind == InteractableKind.Rock && h.Identity != null);
+            boulders.Sort((a, b) => Vector3.Distance(playerPos, a.Pos).CompareTo(Vector3.Distance(playerPos, b.Pos)));
+            var rockGroup = InteractableRegistry.Info(InteractableKind.Rock).NumberGroup;
+            foreach (var boulder in boulders)
+                GetStableNumber(rockGroup, new NavItem { Identity = boulder.Identity, Position = boulder.Pos });
 
             var byPlacement = new Dictionary<NavPlacement, List<NavItem>>();
             var countByKind = new Dictionary<InteractableKind, int>();
@@ -104,6 +171,9 @@ namespace SO2RAccess
                     Distance      = Vector3.Distance(playerPos, hit.Pos),
                     Position      = hit.Pos,
                     LiveTransform = null,
+                    Identity      = hit.Identity,
+                    NoteKey       = hit.NoteKey,
+                    GroupIdentity = hit.GroupIdentity,
                 });
                 countByKind[hit.Kind] = countByKind.TryGetValue(hit.Kind, out int n) ? n + 1 : 1;
             }
@@ -121,6 +191,13 @@ namespace SO2RAccess
                     var info = InteractableRegistry.Info(item.Kind);
                     if (info.AlwaysNumbered || countByKind[item.Kind] > 1)
                         item.Label = NumberedLabel(item, info, GetStableNumber(info.NumberGroup, item));
+                    // Group and state notes after the number, before any "no path"
+                    // mark: "Switch 3, boulder 2, pressed, no path".
+                    if (item.GroupIdentity != null)
+                        item.Label = Loc.Get("nav_switch_boulder", item.Label,
+                            GetStableNumber(rockGroup, new NavItem { Identity = item.GroupIdentity, Position = item.Position }));
+                    if (item.NoteKey != null)
+                        item.Label = Loc.Get(item.NoteKey, item.Label);
                     items[i] = item;
                 }
 

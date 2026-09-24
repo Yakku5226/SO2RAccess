@@ -669,7 +669,19 @@ The mod classifies each object ONCE per list build (`InteractableRegistry.Classi
 - **14** room maze (`roomType`) — not listed; **14Panel** — "Floor panel N"; **14Door** — Doors
 - **15** sleeping guard "Berk" (stealth) — not listed
 - **16** breakable rock (`rockObject`, `navMeshObstacle`, `BreakRock()`) — Doors "Boulder N";
-  **16Switch** (`switchObject`, `fuseObject`) — "Switch N" (never speak `SwitchName`/`FuseName`: asset names)
+  **16Switch** (`switchObject`, `fuseObject`) — "Switch N" (never speak `SwitchName`/`FuseName`: asset names).
+  Puzzle links (`SwitchPuzzles.cs`, 2026-09-24): a boulder stores `MainSwitchID`, `SubSwitchIDList`,
+  `IsMultiSwitch`, `isDestroyed` (field) and a `ScenarioFlag` (`FLAG_HOFFMAN_DESTRUCTION_nn`); a switch stores
+  `SwitchID` and a `ScenarioFlag` (`FLAG_HOFFMAN_SWITCH_nn`). Flag values: `ParameterManager.Instance.UserParameter
+  .GetScenarioFlag(flag)`. The game NEVER deactivates a used switch or a broken boulder (Hoffman Ruins log, 25 switches
+  + 15 boulders always active) — the mod drops broken boulders (`isDestroyed || flag`), drops dead switches (every
+  linked boulder broken), labels a switch whose own flag is set "Switch N, pressed" (CONFIRMED 2026-09-24: on with a
+  correct press, off after the failure ambush) and names the boulder it feeds ("Switch 3, boulder 2"; identity
+  `boulder16:<MainSwitchID>`, numbered nearest-first in a `BuildGimmicks` pre-pass). Switch IDs encode the set:
+  boulder N's switches are N×100+1…; Hoffman boulder 15 = main 1506 + subs 1501–1505, boulders 1–12 single-switch.
+  Wrong press order:
+  `FieldGimmick16MultiSwitchFailureTask` spawns an enemy (`fieldEnemy`); `FieldGimmick16Controller
+  .GetFieldGimmick16Switch(switchID)` finds a switch by ID. Bodies unreadable — the flag timing is log-confirmed only.
 - **17** magic circle warp (`destination`, `IsEnable()`, `isDisableWarp`) — Warp Points "Magic circle N"
 - **18** avalanche (controller only) — n/a
 - **unknown class**: startup Conversation → Interactables "Mechanism N"; Auto → not listed. Every object is

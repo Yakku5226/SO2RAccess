@@ -178,6 +178,8 @@
   "nav_ledge": "Avsats",
   "nav_switch": "Brytare",
   "nav_switch_n": "Brytare {0}",
+  "nav_switch_pressed": "{0}, nedtryckt",
+  "nav_switch_boulder": "{0}, stenblock {1}",
   "nav_statue": "Staty",
   "nav_statue_n": "Staty {0}",
   "nav_gimmick_door": "Dörr",

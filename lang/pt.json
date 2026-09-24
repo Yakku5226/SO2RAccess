@@ -178,6 +178,8 @@
   "nav_ledge": "Saliência",
   "nav_switch": "Interruptor",
   "nav_switch_n": "Interruptor {0}",
+  "nav_switch_pressed": "{0}, pressionado",
+  "nav_switch_boulder": "{0}, pedregulho {1}",
   "nav_statue": "Estátua",
   "nav_statue_n": "Estátua {0}",
   "nav_gimmick_door": "Porta",

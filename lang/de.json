@@ -178,6 +178,8 @@
   "nav_ledge": "Vorsprung",
   "nav_switch": "Schalter",
   "nav_switch_n": "Schalter {0}",
+  "nav_switch_pressed": "{0}, gedrückt",
+  "nav_switch_boulder": "{0}, Felsbrocken {1}",
   "nav_statue": "Statue",
   "nav_statue_n": "Statue {0}",
   "nav_gimmick_door": "Tür",

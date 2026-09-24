@@ -92,6 +92,18 @@ namespace SO2RAccess
             /// new ID, which used to renumber every chest after every fight.
             /// </summary>
             public string Identity;
+            /// <summary>
+            /// Loc key wrapped around the numbered label for a state the player
+            /// can see ("{0}, pressed" for a switch); null for none. Applied by
+            /// the builder after numbering so the number stays stable.
+            /// </summary>
+            public string NoteKey;
+            /// <summary>
+            /// Identity of the group the item belongs to, numbered in that group's
+            /// sequence: a switch carries the boulder it feeds ("boulder16:1506"),
+            /// spoken as "Switch 3, boulder 2". Null for everything else.
+            /// </summary>
+            public string GroupIdentity;
         }
 
         #endregion

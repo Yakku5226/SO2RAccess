@@ -178,6 +178,8 @@
   "nav_ledge": "边缘",
   "nav_switch": "开关",
   "nav_switch_n": "开关{0}",
+  "nav_switch_pressed": "{0}，已按下",
+  "nav_switch_boulder": "{0}，巨石{1}",
   "nav_statue": "雕像",
   "nav_statue_n": "雕像{0}",
   "nav_gimmick_door": "门",
