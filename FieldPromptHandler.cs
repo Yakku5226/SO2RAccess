@@ -56,6 +56,19 @@ namespace SO2RAccess
         /// <summary>Debug-log dedup window for per-frame repeats of the same prompt.</summary>
         private const float DedupWindow = 2f;
 
+        /// <summary>Seconds between "kept quiet while mounted" log lines.</summary>
+        private const float MountedQuietLogInterval = 5f;
+        private static float _lastMountedQuietLog = -100f;
+
+        /// <summary>
+        /// Raw text of the prompt spoken last by ANY presenter (the enter prompt
+        /// included), and the travel mode seen last. While mounted, a re-shown
+        /// prompt is repeated only when something else was spoken since; a mount
+        /// or dismount clears it so the ride's own prompt speaks once again.
+        /// </summary>
+        private static string _lastSpokenRaw;
+        private static WorldmapTravelMode _lastTravelMode = WorldmapTravelMode.Foot;
+
         /// <summary>Parses a "&lt;sprite name=BUTTON&gt;ACTION" operation entry into button + action.</summary>
         private static readonly Regex _operationParser = new Regex(
             @"<sprite\s+name\s*=\s*([^>]+?)>\s*(.*)",
@@ -160,8 +173,36 @@ namespace SO2RAccess
                 state.Text    = raw;
                 state.Showing = true;
 
-                if (changed || (reshown && MovedSinceAnnounce(state)))
-                    AnnouncePrompt(state, operationList, changed ? "changed" : "re-shown");
+                var mode = TrackTravelMode();
+
+                if (changed)
+                {
+                    AnnouncePrompt(state, operationList, "changed");
+                }
+                else if (reshown && MovedSinceAnnounce(state))
+                {
+                    // While mounted the mount's own prompt ("Press Circle to
+                    // Dismount") blinks continuously and the rider is always
+                    // more than ReannounceDistance from where it last spoke —
+                    // 25 repeats in one minute (log 2026-09-26 12:19). A
+                    // re-shown prompt while riding is repeated only when
+                    // another prompt was spoken in between (after a town's
+                    // enter prompt, say); on foot the ledge-chain rule is
+                    // untouched.
+                    if (mode != WorldmapTravelMode.Foot && _lastSpokenRaw == raw)
+                    {
+                        if (Time.unscaledTime - _lastMountedQuietLog >= MountedQuietLogInterval)
+                        {
+                            _lastMountedQuietLog = Time.unscaledTime;
+                            DebugLogger.LogState(
+                                $"FieldPrompt: re-shown while mounted — kept quiet. raw=[{raw}]");
+                        }
+                    }
+                    else
+                    {
+                        AnnouncePrompt(state, operationList, "re-shown");
+                    }
+                }
 
                 LogPromptDebug(__instance, operationList, followTransform, isPlayer);
             }
@@ -185,6 +226,35 @@ namespace SO2RAccess
             }
             state.Presenter = presenter;
             return state;
+        }
+
+        /// <summary>The world map travel mode (bunny / psynard / foot); foot on any error and on field maps.</summary>
+        private static WorldmapTravelMode CurrentTravelMode()
+        {
+            try { return WorldmapTravel.CurrentMode(); }
+            catch { return WorldmapTravelMode.Foot; }
+        }
+
+        /// <summary>Records what was spoken last, for the mounted re-show rule (shared with the enter prompt).</summary>
+        private static void NoteSpokenPrompt(string raw) => _lastSpokenRaw = raw;
+
+        /// <summary>
+        /// Samples the travel mode and, on a change (mount or dismount), forgets the
+        /// last spoken prompt so the new ride's own prompt speaks once again. Runs
+        /// every frame: sampling only when a prompt fires missed the dismount at
+        /// the end of a ride, so the next ride still counted as the same one and its
+        /// first prompt stayed quiet (log 2026-09-26 12:55).
+        /// </summary>
+        private static WorldmapTravelMode TrackTravelMode()
+        {
+            var mode = CurrentTravelMode();
+            if (mode != _lastTravelMode)
+            {
+                DebugLogger.LogState($"FieldPrompt: travel mode {_lastTravelMode} -> {mode}; prompt memory cleared.");
+                _lastTravelMode = mode;
+                _lastSpokenRaw = null;
+            }
+            return mode;
         }
 
         /// <summary>True when nothing was spoken for this presenter yet, or the player has since moved away.</summary>
@@ -217,6 +287,7 @@ namespace SO2RAccess
             string speech = BuildSpeech(operationList);
             if (ModSettings.PromptSpeechEnabled && !string.IsNullOrEmpty(speech))
                 ScreenReader.Say(speech);
+            NoteSpokenPrompt(state.Text);
 
             state.Announced = true;
             if (!TryGetPlayerPos(out state.AnnouncedAt))
@@ -300,6 +371,8 @@ namespace SO2RAccess
         /// </summary>
         public void Update()
         {
+            TrackTravelMode();
+
             foreach (var pair in _prompts)
             {
                 var state = pair.Value;

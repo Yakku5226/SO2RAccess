@@ -223,6 +223,20 @@ namespace SO2RAccess
             EndFishArrivalWithoutBubble(player, "shore search ended");
         }
 
+        /// <summary>
+        /// The end of a fishing arrival made while riding: the stand is reached, but
+        /// the game only fishes on foot, so the player is told to dismount.
+        /// </summary>
+        private void EndFishArrivalMounted()
+        {
+            _wmFishCreepActive = false;
+            string label = _autoWalkLabel;
+            DebugLogger.LogState(
+                $"NAV WM fishing: stand reached while mounted ({WorldmapTravel.CurrentMode()}) — no bubble possible, asking to dismount.");
+            StopAutoWalk();
+            AnnounceArrival(Loc.Get("nav_autowalk_arrived_fish_mounted", label));
+        }
+
         /// <summary>The honest end of a fishing arrival that never got the bubble.</summary>
         private void EndFishArrivalWithoutBubble(FieldPlayer player, string diagContext)
         {

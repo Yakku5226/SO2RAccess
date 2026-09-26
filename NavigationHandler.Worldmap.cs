@@ -275,6 +275,15 @@ namespace SO2RAccess
                     // (NavigationHandler.Worldmap.Fishing.cs).
                     if (_autoWalkCategoryIndex == CAT_INTERACTABLE && _autoWalkIsFishing)
                     {
+                        // The game cannot fish from a mount: its player check
+                        // throws on the bunny (log 2026-09-26 15:35, 85 errors
+                        // in a second) and no bubble can ever show. Say so and
+                        // stop here instead of creeping and sweeping for it.
+                        if (WorldmapTravel.CurrentMode() != WorldmapTravelMode.Foot)
+                        {
+                            EndFishArrivalMounted();
+                            return;
+                        }
                         BeginFishCreep(player, playerPos, targetDist);
                         return;
                     }

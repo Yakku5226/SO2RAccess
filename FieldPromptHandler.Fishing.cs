@@ -335,8 +335,15 @@ namespace SO2RAccess
                         gameCheck = fm.CheckWorldmapFishingPoint(ref feet, ref forward).ToString();
                         // The game's own player-based entry (2026-09-09): does it
                         // agree with the feet+forward call, which flickered?
-                        try { gameCheck += "/p" + fm.CheckFishingPoint(player); }
-                        catch (Exception ex) { gameCheck += "/p-err:" + ex.Message; }
+                        // Not asked on a mount: the game's check throws there
+                        // every frame (bunny, log 2026-09-26 15:35).
+                        if (WorldmapTravel.CurrentMode() != WorldmapTravelMode.Foot)
+                            gameCheck += "/p-mounted";
+                        else
+                        {
+                            try { gameCheck += "/p" + fm.CheckFishingPoint(player); }
+                            catch (Exception ex) { gameCheck += "/p-err:" + ex.Message; }
+                        }
                     }
                     if (!_fishParamsLogged)
                     {

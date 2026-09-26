@@ -75,6 +75,7 @@ namespace SO2RAccess
         private QuickRecoveryHandler _quickRecoveryHandler;
         private FieldPromptHandler _fieldPromptHandler;
         private FishCollectorHandler _fishCollectorHandler;
+        private FishingBaitHandler _fishingBaitHandler;
         private ListSelectionHandler _listSelectionHandler;
         private LanguageHandler _languageHandler;
         private DebugHotkeys _debugHotkeys;
@@ -161,6 +162,7 @@ namespace SO2RAccess
             _quickRecoveryHandler = new QuickRecoveryHandler();
             _fieldPromptHandler = new FieldPromptHandler();
             _fishCollectorHandler = new FishCollectorHandler();
+            _fishingBaitHandler = new FishingBaitHandler();
             _listSelectionHandler = new ListSelectionHandler();
             _languageHandler = new LanguageHandler();
             _debugHotkeys = new DebugHotkeys(_navigationHandler);
@@ -244,6 +246,7 @@ namespace SO2RAccess
             _pickpocketHandler?.OnSceneChanged();
             _quickRecoveryHandler?.OnSceneChanged();
             _fishCollectorHandler?.OnSceneChanged();
+            _fishingBaitHandler?.OnSceneChanged();
             _listSelectionHandler?.OnSceneChanged();
             _subtitleHandler?.OnSceneChanged();
             _fieldPromptHandler?.OnSceneChanged();
@@ -281,6 +284,7 @@ namespace SO2RAccess
             _dialogueChoiceHandler.ApplyPatches(_harmony);
             _fieldPromptHandler.ApplyPatches(_harmony);
             _quickRecoveryHandler.ApplyPatches(_harmony);
+            _fishingBaitHandler.ApplyPatches(_harmony);
             _listSelectionHandler.ApplyPatches(_harmony);
             _languageHandler.ApplyPatches(_harmony);
 
@@ -726,6 +730,7 @@ namespace SO2RAccess
             _quickRecoveryHandler.Update();
             _fieldPromptHandler.Update();
             _fishCollectorHandler.Update();
+            _fishingBaitHandler.Update();
             _listSelectionHandler.Update();
             _subtitleHandler.Update();
             ReviewProbes.Update();

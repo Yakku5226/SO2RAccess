@@ -253,6 +253,9 @@ namespace SO2RAccess
         /// <summary>The game's own "can this player fish here" test; false when it cannot be read.</summary>
         private static bool PlayerFishCheck(FieldPlayer player)
         {
+            // The game's check throws on a mounted player (bunny) every frame;
+            // riding can never fish, so the answer is simply no.
+            if (WorldmapTravel.CurrentMode() != WorldmapTravelMode.Foot) return false;
             try
             {
                 var fm = FieldManager.Instance;
@@ -535,8 +538,13 @@ namespace SO2RAccess
                 // agree with the feet+forward call? (2026-09-09: the latter
                 // flickered true/false at a fixed position.)
                 string playerCheck;
-                try { playerCheck = fm.CheckFishingPoint(player).ToString(); }
-                catch (Exception ex) { playerCheck = "error:" + ex.Message; }
+                if (WorldmapTravel.CurrentMode() != WorldmapTravelMode.Foot)
+                    playerCheck = "mounted (not asked; the game's check throws on a mount)";
+                else
+                {
+                    try { playerCheck = fm.CheckFishingPoint(player).ToString(); }
+                    catch (Exception ex) { playerCheck = "error:" + ex.Message; }
+                }
                 bool flag = fm.IsFieldFlag(FieldBitFlag.FishingPoint);
                 int contact = fm.GetContactFishingWaterPlaceID();
                 LeaderHasFishingSkill(out string skill);

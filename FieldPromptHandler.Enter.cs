@@ -140,7 +140,10 @@ namespace SO2RAccess
                 spoken = core + " " + cleanLabel;
 
             if (!string.IsNullOrEmpty(spoken))
+            {
                 ScreenReader.Say(Loc.Get("enter_prompt_echo", spoken));
+                NoteSpokenPrompt("enter:" + cleanLabel);
+            }
 
             DebugLogger.LogGameValue("FieldPrompt",
                 $"enter prompt shown (operation='{operation}' label='{cleanLabel}')");
