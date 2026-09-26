@@ -26,29 +26,22 @@ namespace SO2RAccess
             if (PollItemListSkills()) return;
 
             // Every selector reports activeInHierarchy == true for the whole IC session,
-            // so we can't use that flag to know which skill is on screen. Instead, find
-            // the selector the user is actually navigating: the one whose action list
-            // just became populated (entry) or whose cursor just moved (navigation).
-            int focused = ResolveFocusedActionSelector();
+            // so we can't use that flag to know which skill is on screen. The camp
+            // window's selector stack is the authority: the skill selector on top is
+            // the one receiving input. The list heuristic (a list that just became
+            // populated, or a cursor that just moved) stays as the fallback and keeps
+            // its per-selector index memory current every frame.
+            int heuristic = ResolveFocusedActionSelector();
+            int focused = ResolveFocusFromStack();
+            string reason = "stack";
+            if (focused < 0)
+            {
+                focused = heuristic;
+                reason = "list";
+            }
 
             if (focused >= 0 && focused != _icFocusedIdx)
-            {
-                // Focus switched to a different skill's action list. Re-point all the
-                // cached state at it and force the current item to re-announce.
-                _icFocusedIdx = focused;
-                _icActiveSelector = _icAllSelectors[focused];
-                try { _icActionListBase = _icActiveSelector.actionSelector?.TryCast<UIListSelectorBase>(); }
-                catch { _icActionListBase = null; }
-                _icActionState.LastIndex = -1;
-                // Seed the character tab to the new selector's current value (not -1)
-                // so merely entering a skill does NOT blurt the character name —
-                // TrackCharacterTab then only speaks on a real L/R tab change.
-                try { _icLastCharTab = _icActiveSelector.currentTabIndex; }
-                catch { _icLastCharTab = -1; }
-                ResetCreateModeState();
-                _icActionPresenter = null;
-                DebugLogger.LogState($"CampIC_Action: focus -> #{focused}.");
-            }
+                SwitchActionFocus(focused, reason);
 
             if (_icFocusedIdx < 0 || _icActionListBase == null) return;
 
@@ -71,6 +64,67 @@ namespace SO2RAccess
             }
 
             PollActionListFallback();
+        }
+
+        /// <summary>
+        /// Focus from the camp window's selector stack: when the selector on top is one
+        /// of the skill selectors, that skill is on screen — whether or not its action
+        /// list was already populated by an earlier visit in the same camp session.
+        /// Returns the index into <see cref="_icAllSelectors"/>, or -1 when the top is
+        /// something else (the skill list, a material picker, a create-mode overlay) or
+        /// the stack cannot be read; the caller then keeps the current focus.
+        ///
+        /// Why: the list heuristic alone missed re-entries (2026-09-26). A skill's
+        /// action list stays populated after leaving it, so entering Crafting after
+        /// Customization registered neither "newly populated" nor "moved" — the
+        /// character tabs were polled on Customization's selector (no name spoken
+        /// until the cursor moved) and the creation hook read Customization's
+        /// highlighted row ("Needs X-clip" in the Crafting screen).
+        /// </summary>
+        private static int ResolveFocusFromStack()
+        {
+            try
+            {
+                var stack = _campWindow?.selectorStack;
+                if (stack == null || stack.Count == 0) return -1;
+
+                var top = stack.Peek();
+                if (top == null) return -1;
+
+                IntPtr pointer = top.Pointer;
+                for (int i = 0; i < _icAllSelectors.Count; i++)
+                {
+                    if (_icAllSelectors[i] != null && _icAllSelectors[i].Pointer == pointer)
+                        return i;
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"CampIC_Action: stack focus error: {ex.Message}");
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// Re-points all action-list state at the skill selector at <paramref name="focused"/>
+        /// and forces the current row to re-announce. Shared by the per-frame poll and
+        /// the creation-info hook, which can fire before the poll has seen the new screen.
+        /// </summary>
+        private static void SwitchActionFocus(int focused, string reason)
+        {
+            _icFocusedIdx = focused;
+            _icActiveSelector = _icAllSelectors[focused];
+            try { _icActionListBase = _icActiveSelector.actionSelector?.TryCast<UIListSelectorBase>(); }
+            catch { _icActionListBase = null; }
+            _icActionState.LastIndex = -1;
+            // Seed the character tab to the new selector's current value (not -1)
+            // so merely entering a skill does NOT blurt the character name —
+            // TrackCharacterTab then only speaks on a real L/R tab change.
+            try { _icLastCharTab = _icActiveSelector.currentTabIndex; }
+            catch { _icLastCharTab = -1; }
+            ResetCreateModeState();
+            _icActionPresenter = null;
+            DebugLogger.LogState($"CampIC_Action: focus -> #{focused} ({reason}).");
         }
 
         /// <summary>

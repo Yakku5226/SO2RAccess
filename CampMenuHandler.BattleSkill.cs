@@ -1017,14 +1017,36 @@ namespace SO2RAccess
         }
 
         /// <summary>
-        /// Reads the displayed skill point balance from a selector's skillPointValue GameText.
-        /// Works for UISelectBattleSkillSelector (BP) and UICampCombatSkillSelector (BP).
-        /// Returns the text as-is (e.g. "100" or "SP: 100"), or empty string on failure.
+        /// Returns the point balance of the character whose tab is selected: BP
+        /// (CharacterParameter.CombatSkillPoint) for UISelectBattleSkillSelector and
+        /// UICampCombatSkillSelector, SP (CharacterParameter.SkillPoint) for
+        /// UICampSkillSelector. Read from the game data, not from the selector's
+        /// skillPointValue text: on screen open the info hook fires before the game
+        /// has filled that text, so it still held the prefab placeholder "9999"
+        /// (log 2026-09-26 09:57:45, Guardbreak "BP: 9999 / 95"). The on-screen text
+        /// stays as the fallback when the character lookup fails. Empty string when
+        /// nothing is readable.
         /// </summary>
         private static string ReadSkillPointBalance(object selector)
         {
             try
             {
+                var tabBase = selector as UICharacterTabListSelectorBase;
+                bool isSpecialty = selector is UICampSkillSelector;
+
+                if (tabBase != null)
+                {
+                    var charaParam = ParameterManager.Instance?.UserParameter?
+                        .GetCharacterParameter(tabBase.CurrentPlayerID);
+                    if (charaParam != null)
+                    {
+                        int points = isSpecialty ? charaParam.SkillPoint : charaParam.CombatSkillPoint;
+                        return points.ToString();
+                    }
+                    DebugLogger.LogState(
+                        $"ReadSkillPointBalance: no CharacterParameter for {tabBase.CurrentPlayerID}, using on-screen text.");
+                }
+
                 GameText gt = null;
                 if (selector is UISelectBattleSkillSelector bs)
                     gt = bs.skillPointValue;

@@ -450,6 +450,19 @@ void SetupDescription(string message, string description, UIDefine.DialogType di
 
 **Important pattern:** Setup fires → sets `_skipNextSelectChoices = true` → SelectChoices fires once for init (suppressed) → subsequent SelectChoices calls on real navigation announce normally.
 
+### UISystemWindow — system popups outside the camp window
+**File:** `UISystemWindow.cs`
+**Class:** `UISystemWindow : UIStackSelectorWindowBase` (a `WindowComponent`: use `IsOpened`)
+
+Hosts four selectors, one per `UIDefine.SystemState`: `itemDiscardSelector` (ItemDiscard), `overflowItemSelector` (OverflowItem), `equipWizardSelector` (EquipWizard), `assistDialogSelector` (AssistDialog). `GetCurrentState()` returns the state of the selector on top of the stack. These screens open on top of the camp menu without touching the camp selector stack — the camp handlers never see them (log 2026-09-26: the item discard list appeared while `CampMenu` still reported `UICampSpecialSkillResultSelector`). Find the window with `FindObjectOfType<UISystemWindow>()` (throttled) and poll it, as `EquipWizardHandler` and `ItemDiscardHandler` do.
+
+### Item discard ("storage full, choose items to dump")
+Opened by `GameManager.OpenDiscardItemWindow(List<DiscardItemData>, Action<IncreaseItemResult>)` after the overflow toast (`UIOverflowItemPresenter.SetItem`) when an acquisition does not fit; `GameManager.IsOpenedItemDiscardWindow` (static bool) mirrors it. `UISystemWindow.InitializeItemDiscard(int discardItemID, List<FactorID> newItemFactorIDList)` fills the selector.
+
+- **Selector:** `UIItemDiscardSelector : UIListSelectorBase` — `currentIndex`, `currentDataList`, `DataCount` from the base; own fields `operation` (GameText, the instruction line), `allPossessionCountPresenter` (`UIMaxAndCurrentValuePresenter`: `LabelText`, current/max texts), `currentItemCount`, `allItemCount`, `discardItemID`, `canCancel`. Buttons: `OnDecision` (marks the row), `OnSquare`, `OnStart` (opens the "Dump selected item?" Yes/No via the normal `UIDialogPresenter`, already spoken), `OnCancel`. Cursor movement is native (poll `currentIndex`); `OnDecision`/`OnSquare` are hookable overrides.
+- **Row data:** `UIItemDiscardListItemData : UIItemListItemData` — `itemName`, `itemCount`, `isNew`, `itemID` from the base, plus `isDecisioned` (marked to dump) and `isPossession`.
+- **Row presenter:** the list instantiates `UICampItemListItemPresenter` rows (the universal OnSelected net reports that type, not `UIItemDiscardListItemPresenter`), so any per-type suppression must expect the camp item row type here.
+
 ---
 
 ## 16. Field Navigation Entity System
@@ -1469,6 +1482,7 @@ check when baked from Krosse and fails from Arlia (flicker test 0/297 within one
 
 ## Change History
 
+- **2026-09-26 (session 44):** §15 — `UISystemWindow` (four system selectors outside the camp stack) and the item discard screen: `UIItemDiscardSelector`, `UIItemDiscardListItemData.isDecisioned`, rows are `UICampItemListItemPresenter`.
 - **2026-09-13 (session 21):** §23 (9) — bubble-verified stand inside Arlia's town wall; bake body-fit test (`BodyWallClearance`), `WallClearance` file field, "stopped short" verdict.
 - **2026-09-09 (session 19):** §23 addendum — stands file v3 (dense shoreline), nearest-stand rule + silent proven fallback, gate pinch rule (5 m from an entrance ring; calibration numbers), mapjump colliders absent right after a map load, bubble band ~3 m beyond the bake-verified stand → water creep
 

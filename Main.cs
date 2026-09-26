@@ -66,6 +66,7 @@ namespace SO2RAccess
         private WorldMapHandler _worldMapHandler;
         private ModMenuHandler _modMenuHandler;
         private EquipWizardHandler _equipWizardHandler;
+        private ItemDiscardHandler _itemDiscardHandler;
         private PrivateActionHandler _privateActionHandler;
         private BonusGaugeHandler _bonusGaugeHandler;
         private SkillBookHandler _skillBookHandler;
@@ -151,6 +152,7 @@ namespace SO2RAccess
             _battleStatusHandler = new BattleStatusHandler();
             _modMenuHandler = new ModMenuHandler();
             _equipWizardHandler = new EquipWizardHandler();
+            _itemDiscardHandler = new ItemDiscardHandler();
             _privateActionHandler = new PrivateActionHandler();
             _bonusGaugeHandler = new BonusGaugeHandler();
             _skillBookHandler = new SkillBookHandler();
@@ -235,6 +237,7 @@ namespace SO2RAccess
             _battleMenuHandler?.OnSceneChanged();
             _battleStatusHandler?.OnSceneChanged();
             _equipWizardHandler?.OnSceneChanged();
+            _itemDiscardHandler?.OnSceneChanged();
             _worldMapHandler?.OnSceneChanged();
             _privateActionHandler?.OnSceneChanged();
             _bonusGaugeHandler?.OnSceneChanged();
@@ -272,6 +275,7 @@ namespace SO2RAccess
             _battleMenuHandler.ApplyPatches(_harmony);
             _battleStatusHandler.ApplyPatches(_harmony);
             _equipWizardHandler.ApplyPatches(_harmony);
+            _itemDiscardHandler.ApplyPatches(_harmony);
             _bonusGaugeHandler.ApplyPatches(_harmony);
             _skillBookHandler.ApplyPatches(_harmony);
             _dialogueChoiceHandler.ApplyPatches(_harmony);
@@ -713,6 +717,7 @@ namespace SO2RAccess
             _battlePauseHandler.Update();
             _battleMenuHandler.Update();
             _equipWizardHandler.Update();
+            _itemDiscardHandler.Update();
             _worldMapHandler.Update();
             _privateActionHandler.Update();
             _bonusGaugeHandler.Update();

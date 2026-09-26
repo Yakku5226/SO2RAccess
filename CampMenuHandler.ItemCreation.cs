@@ -605,6 +605,14 @@ namespace SO2RAccess
             if (data == null) return;
             if (!IsICActive()) return;
 
+            // This hook fires while the game opens the skill screen, before the
+            // per-frame poll has seen it. Sync the focus from the selector stack first
+            // so the row requirement and position below come from THIS skill's action
+            // list, not the previously visited skill's (stale "Needs X" 2026-09-26).
+            int stackFocus = ResolveFocusFromStack();
+            if (stackFocus >= 0 && stackFocus != _icFocusedIdx)
+                SwitchActionFocus(stackFocus, "stack, hook");
+
             CaptureOwnedCount(__instance, data);
 
             // Skills with no creation items expose a category/action list instead
