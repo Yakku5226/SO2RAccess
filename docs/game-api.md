@@ -1000,6 +1000,25 @@ announcing — the pattern to reuse for any other selector that wakes stale.
   `UIFieldWindow.OnEndQuickRecovery`. Show()/Hide()/ForceHide() on the selector are virtual
   overrides (hookable, the camp variant's pattern) — kept as the fallback if the window check fails.
 
+### Fishing bait selection screen (2026-09-26)
+
+- Opens at a fishing spot when no bait is set / the bait ran out. Hosted on `UIFieldWindow`: open =
+  `IsOpened && OpenFieldState == UIDefine.FieldState.FishingBait`; selector = `window.fishingBaitSelector`
+  (`UIFieldFishingBaitSelector : UIHelpListSelectorBase`). Closes through `UIFieldWindow.OnEndFishingBait`.
+- Rows: `currentDataList` of `UIFieldFishingBaitListItemData : UIItemListItemData` (`itemName`, `itemCount`,
+  `itemID`, `isNew`) + `sizeName` (the target fish size). Cursor is native → poll `currentIndex`.
+- Header: `fishingBaitPresenter.place` (GameText, water place name), `baitItemName.itemName` +
+  `baitItemCount` (the bait currently set). Tabs: `UIFieldFishingBaitTabPresenter : UIItemTabPresenter`
+  (bait vs sprinkle bait; `cacheData.fishingBaitItemID / fishingSprinkleBaitItemID`) — a tab switch changes
+  the list without moving the cursor (the mod watches DataCount + first row id).
+- Right side: `fishingTargetListPresenter` (UICommonListPresenter) shows what the focused bait catches here:
+  rows `UIFieldFishingTargetListItemPresenter` (`itemName.itemName`, `fishingRate` GameText = the game's
+  wording of `FishingRateRank { Easy, Normal, Difficult, CannotFishing }`, `rareLabelObj`). Data
+  `UIFieldFishingTargetListItemData` (`targetName`, `fishingRate`, `isNothing`, `isRare`) is not reachable
+  from the presenter → read the visible rows one frame after the cursor moved (`OnMoveCursor` rebuilds it).
+- Mod: `FishingBaitHandler.cs` (poll pattern of ItemDiscardHandler); `bait_*` Loc keys. The row type stays on
+  the universal list net's covered list.
+
 ### Camp menu story hint (speech balloon)
 - Trigger: postfix on `UICampWindow.SetSpeechBalloon(List<UIDotCharacterData>, bool)` — fires
   when the camp screen (re)builds the dot-character strip. Wait ~0.4s then read.
@@ -1480,8 +1499,54 @@ cannot leave; the July rebake confirmed 17 proven lakes, 0 proofs lost, 8 enclos
 (`FishingStandEntry.Enclosed`). Bake-position variance remains: the Arlia pocket cell passes the bubble
 check when baked from Krosse and fails from Arlia (flicker test 0/297 within one bake).
 
+## 24. Nede World Map, the Bake Survey and Psynard Facts (2026-09-26)
+
+**Planets.** `Il2CppGame.WorldmapID { INVALID, EXPEL, NEDE, MAX }`; the world map scene is `mw_1001_01a` (Expel)
+or `mw_1002_01a` (Nede). `FieldManager.Instance.WorldmapID` names the current one; `fm.IsWorldmap()` says whether
+we are on a world map at all. The mod's file stem is `WorldmapFishingStands.MapName(wmID)`: "expel", "nede", or
+null for INVALID (until 2026-09-26 INVALID silently meant "nede"). Nede location symbols seen on first arrival:
+x -385..204, z -337..50, y 1.4–4.5 (flat, low); 15 named locations.
+
+**Per-planet data the game exposes (all runtime, nothing in the decompiled bodies):**
+- `FieldManager.worldGridData` (`ScriptableWorldGridData : ScriptableGridUnitData<WorldGridData>`): quadtree of
+  the painted map. `RootData.Rect` = the map rectangle (Rect.x/y = world X/Z), `GetGridSize()` = cell size,
+  `GetWorldGridData(ref pos)` = the cell (`encountIDList, footstepType, continentID, survivalAreaID, alightFlag,
+  fishingWaterPlaceID, locationID`), `CanMove(x, y)` = the game's own walkability paint.
+- `CullingManager.Instance.cullingData.unitList` = every streamed detail-collision unit of the CURRENT map
+  (bounds, prefab, position); `poolInfoList` = the pool prefabs. Culling distances Near 100 / Middle 330 /
+  Far 535 / Farthest 775 m (Expel measurement). See §23 and the chunk loader.
+- Loop / horizon: `FieldManager.worldMapLoopTotalTranslate`, `experOutsidePoint`, `LoopFieldPlayerPosition()`,
+  `IsWorldMapOutsideArea(FieldObject, out Vector3)`; `ExperLoopObjectCreator` (copyNear/FarObjWidth,
+  copyNear/FarObjHeightOffset, copyObjBoundsYMin, manualLoopObjects) makes lowered far copies of terrain;
+  `WorldMapSilhouetteObjectCreator.EXPER_OUTSIDE_POINT` and `WorldMapSilhouetteObject*` draw distant land as
+  silhouettes. Whether Nede has copies with colliders is measured by the survey, not assumed.
+- Psynard: `FieldManager.psynardSettings` is a STRUCT (`PsynardSettings`: `minLimitY, maxExpelLimitY,
+  maxNedeLimitY, riseFromGround, moveSpeed…`); `RidePsynard/RisePsynard/StartPsynardControl/LandPsynard/
+  CanLandingPsynard/GetoffPsynard/IsContactPsynard`; `FieldPsynard : Field3DObject` (`SetControl(float move,
+  Vector2 control)`, `CanLand()`, static `CalcHeight`, `OnLoopPosition`); wall mask `GameRenderManager.
+  LayerMaskPsynardWall` = L17 only; per-town landing spot `MapjumpLayoutData.PsynardPosition / PsynardDirection /
+  PsynardCollisionPosition / Direction / Size`; landable paint = `WorldGridData.alightFlag`. Keys: FieldPsynardUp
+  R1 / Q, Down R2 / E, HighSpeedAdvance L1 / LeftShift, FallBack L2 / LeftCtrl. The psynard input task
+  (`FieldPsynardInputTask.OnInput`) is native — whether it reads `GetPlayerControlStick` is unmeasured.
+
+**Mod: bake survey (`WorldmapGridSurvey.cs`, F6 and the start of F9).** Logs `[GridSurvey]` rect, unit coverage
+(X/Z/Y from unit BOUNDS, shared helper with the F6 dump), pools, every entrance trigger (gate ≤ 20 m vs
+town-wide, CalcHeight), every location symbol (inRect / inUnits), loop members and copy creators (child
+colliders → ABORT), "(Clone)" colliders outside the coverage (warning), psynard limits, and the DERIVED bounds:
+rect ∪ coverage + 16 m, snapped outward to the 64 m tile lattice at the origin; cap 56 M cells. Red flags abort
+the bake (`gridgen_survey_abort`). Writes `UserData\SO2RAccess\worldmap_{map}.survey.txt` (kind TAB label TAB x
+TAB z) for `tools\GridAnalysis.cs`. EXPEL keeps its constant bounds and F9 is refused while
+`worldmap_expel.grid` exists (`gridgen_expel_locked`).
+
+**Mod: entrance roof repair** now takes the trigger ground from the median of the baked foot-passable cells in
+the trigger box (else all ground cells, else CalcHeight, else no repair) — `[GridGen] entrance … ground …`
+lines, "DISAGREES" when the grid and CalcHeight differ by > 5 m. **Grid slots:** `WorldmapPathfinder` keeps one
+slot per WorldmapID; a missing grid is latched (`[WMGrid] {map}: no grid available`), loading one planet releases
+the other (`[WMGrid] released …`).
+
 ## Change History
 
+- **2026-09-26 (session 45):** §24 added — Nede world map facts, world grid data rect, culling coverage, loop/silhouette copy creators, psynard settings/landing API, the bake survey and per-planet bounds rule.
 - **2026-09-26 (session 44):** §15 — `UISystemWindow` (four system selectors outside the camp stack) and the item discard screen: `UIItemDiscardSelector`, `UIItemDiscardListItemData.isDecisioned`, rows are `UICampItemListItemPresenter`.
 - **2026-09-13 (session 21):** §23 (9) — bubble-verified stand inside Arlia's town wall; bake body-fit test (`BodyWallClearance`), `WallClearance` file field, "stopped short" verdict.
 - **2026-09-09 (session 19):** §23 addendum — stands file v3 (dense shoreline), nearest-stand rule + silent proven fallback, gate pinch rule (5 m from an entrance ring; calibration numbers), mapjump colliders absent right after a map load, bubble band ~3 m beyond the bake-verified stand → water creep

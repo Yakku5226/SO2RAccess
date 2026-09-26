@@ -110,7 +110,8 @@ namespace SO2RAccess
                     : "NO start exemption (start-side wedges refuse the route; gate pinches stay forgiven)") +
                 $"; goal exemption {ProofGoalExemptMeters:F0} m.");
             file.ProofsBaked = true;
-            LogWallCensus();
+            var fmForCensus = Il2CppGame.FieldManager.Instance;
+            LogWallCensus(fmForCensus != null ? fmForCensus.WorldmapID : Il2CppGame.WorldmapID.INVALID);
 
             var budget = System.Diagnostics.Stopwatch.StartNew();
             int attemptedPlaces = 0, provenPlaces = 0, budgetSkipped = 0;

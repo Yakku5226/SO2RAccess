@@ -64,17 +64,6 @@ namespace SO2RAccess
               "Stairs", "Doors", "Warp Points", "Interactables", "Locations" };
 
         /// <summary>
-        /// Manual overrides for FieldmapID destination names.
-        /// Checked before the game's own map name data.
-        /// </summary>
-        private static readonly Dictionary<string, string> _mapNameOverrides =
-            new Dictionary<string, string>
-        {
-            { "EXPEL", "Overworld" },
-            { "NEDE",  "Nede"      },
-        };
-
-        /// <summary>
         /// Cache of resolved map names from the game's ConstFieldParameter data.
         /// Populated on first lookup per FieldmapID, persists for the session.
         /// </summary>

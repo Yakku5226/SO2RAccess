@@ -167,6 +167,15 @@ namespace SO2RAccess
                 Sweep(playerPos, logEvents: false); // baseline, no diff yet
                 LogBaselineGroups(playerPos);
                 DumpCullingData();
+                // The bake survey runs here too, so a planet can be surveyed
+                // without baking it (F9 = survey + bake).
+                var fm = FieldManager.Instance;
+                if (fm != null)
+                {
+                    var survey = WorldmapGridSurvey.Run(fm, fm.WorldmapID, playerPos,
+                        writeProbeFile: true);
+                    ScreenReader.Say(Loc.Get("gridsurvey_logged", survey.Abort.Count));
+                }
                 _tracking = true;
                 _nextSweepTime = Time.time + SweepInterval;
                 ScreenReader.Say(
@@ -479,30 +488,14 @@ namespace SO2RAccess
                 sb.AppendLine($"[WMStream] unitList: {unitCount} units");
                 if (unitCount > 0)
                 {
-                    var perLayer = new int[32];
-                    int nullLayout = 0;
-                    float minX = float.MaxValue, maxX = float.MinValue;
-                    float minZ = float.MaxValue, maxZ = float.MinValue;
-                    for (int i = 0; i < unitCount; i++)
-                    {
-                        var u = units[i];
-                        if (u == null) continue;
-                        int layer = u.layer;
-                        if (layer >= 0 && layer < 32) perLayer[layer]++;
-                        if (u.layoutItem == null) nullLayout++;
-                        var pos = u.position;
-                        if (pos.x < minX) minX = pos.x;
-                        if (pos.x > maxX) maxX = pos.x;
-                        if (pos.z < minZ) minZ = pos.z;
-                        if (pos.z > maxZ) maxZ = pos.z;
-                    }
-                    var parts = new List<string>();
-                    for (int l = 0; l < 32; l++)
-                        if (perLayer[l] > 0) parts.Add($"L{l}={perLayer[l]}");
-                    sb.AppendLine($"[WMStream]   per-layer: {string.Join(", ", parts)}");
+                    // Shared with the bake survey so F6 and F9 measure the
+                    // same coverage (unit BOUNDS, not unit positions).
+                    var cov = WorldmapGridSurvey.MeasureUnitCoverage(data);
+                    sb.AppendLine($"[WMStream]   per-layer: {WorldmapGridSurvey.DescribeLayers(cov)}");
                     sb.AppendLine(
-                        $"[WMStream]   XZ coverage: X=[{minX:F0},{maxX:F0}] " +
-                        $"Z=[{minZ:F0},{maxZ:F0}], layoutItem null for {nullLayout} units");
+                        $"[WMStream]   coverage (unit bounds): X=[{cov.MinX:F0},{cov.MaxX:F0}] " +
+                        $"Z=[{cov.MinZ:F0},{cov.MaxZ:F0}] Y=[{cov.MinY:F0},{cov.MaxY:F0}], " +
+                        $"layoutItem null for {cov.Count - cov.WithLayout} units");
 
                     int samples = Math.Min(5, unitCount);
                     for (int i = 0; i < samples; i++)

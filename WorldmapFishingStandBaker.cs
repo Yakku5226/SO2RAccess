@@ -117,6 +117,11 @@ namespace SO2RAccess
 
                 WorldmapID wmID = fm.WorldmapID;
                 string mapName = WorldmapFishingStands.MapName(wmID);
+                if (mapName == null)
+                {
+                    ScreenReader.Say(Loc.Get("gridgen_no_map"));
+                    return;
+                }
                 var grid = WorldmapPathfinder.GetCachedGrid(wmID);
                 if (grid == null)
                 {

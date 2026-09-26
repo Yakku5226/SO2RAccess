@@ -165,9 +165,18 @@ namespace SO2RAccess
             new Dictionary<WorldmapID, FishingStandFile>();
         private static readonly HashSet<WorldmapID> _missingLogged = new HashSet<WorldmapID>();
 
-        /// <summary>File name stem for a world map ("expel" / "nede"), matching the grid files.</summary>
-        public static string MapName(WorldmapID wmID) =>
-            wmID == WorldmapID.EXPEL ? "expel" : "nede";
+        /// <summary>
+        /// File name stem for a world map ("expel" / "nede"), matching the grid
+        /// files. Null for INVALID or an unknown id — callers treat that as "no
+        /// world map" (until 2026-09-26 INVALID silently meant "nede", which
+        /// produced stray Nede lookups during Expel fast travel).
+        /// </summary>
+        public static string MapName(WorldmapID wmID) => wmID switch
+        {
+            WorldmapID.EXPEL => "expel",
+            WorldmapID.NEDE => "nede",
+            _ => null,
+        };
 
         /// <summary>Full path of the user-side stands file for a world map.</summary>
         public static string UserPath(WorldmapID wmID) =>
@@ -180,6 +189,11 @@ namespace SO2RAccess
         public static FishingStandFile Load(WorldmapID wmID)
         {
             if (_cache.TryGetValue(wmID, out var cached)) return cached;
+            if (MapName(wmID) == null)
+            {
+                _cache[wmID] = null; // no planet, nothing to load or to report
+                return null;
+            }
 
             FishingStandFile file = null;
             try

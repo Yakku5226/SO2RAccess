@@ -165,6 +165,11 @@ namespace SO2RAccess
         public static CachedGrid LoadGrid(WorldmapID wmID)
         {
             string mapName = WorldmapFishingStands.MapName(wmID);
+            if (mapName == null)
+            {
+                DebugLogger.LogState($"[GridGen] LoadGrid: {wmID} is not a known planet — no grid.");
+                return null;
+            }
             string dir = UserDir;
             string filePath = UserGridPath(mapName);
 

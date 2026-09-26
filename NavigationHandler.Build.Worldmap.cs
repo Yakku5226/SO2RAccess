@@ -14,6 +14,36 @@ namespace SO2RAccess
     {
         #region Private — Build
         /// <summary>
+        /// Display name of a world map symbol: its locality's name through the
+        /// TextManager, else the symbol's own name, else "Location {index}".
+        /// Shared by the nav list and the bake survey so both name a town the
+        /// same way.
+        /// </summary>
+        internal static string ResolveWorldmapSymbolName(ParameterManager pm, TextManager tm,
+            ConstWorldmapSymbolParameter sym, int index)
+        {
+            string name = null;
+            try
+            {
+                var localityParam = pm.GetLocalityParameter(sym.localityID);
+                if (localityParam != null)
+                {
+                    string nameKey = localityParam.localityNameID;
+                    if (!string.IsNullOrEmpty(nameKey) && tm != null)
+                        name = tm.GetMessage(nameKey, TextManager.MessageType.System);
+                }
+            }
+            catch { }
+
+            if (string.IsNullOrEmpty(name))
+            {
+                name = sym.SymbolName;
+                if (string.IsNullOrEmpty(name)) name = $"Location {index}";
+            }
+            return name;
+        }
+
+        /// <summary>
         /// Builds the Locations category for world map navigation.
         /// Uses the game's ConstWorldmapSymbolParameter database, filtered by
         /// current scenario progress. Resolves display names from locality data.
@@ -87,27 +117,8 @@ namespace SO2RAccess
                         progress >= start && (end <= 0 || progress <= end);
 
                     // Resolve display name: localityID → locality parameter → name.
-                    string name = null;
                     var localityID = sym.localityID;
-                    try
-                    {
-                        var localityParam = pm.GetLocalityParameter(localityID);
-                        if (localityParam != null)
-                        {
-                            string nameKey = localityParam.localityNameID;
-                            if (!string.IsNullOrEmpty(nameKey) && tm != null)
-                                name = tm.GetMessage(nameKey, TextManager.MessageType.System);
-                        }
-                    }
-                    catch { }
-
-                    // Fallback: use symbolName if locality resolution failed.
-                    if (string.IsNullOrEmpty(name))
-                    {
-                        name = sym.SymbolName;
-                        if (string.IsNullOrEmpty(name))
-                            name = $"Location {i}";
-                    }
+                    string name = ResolveWorldmapSymbolName(pm, tm, sym, i);
 
                     // Only cities and dungeons become navigable list items.
                     // EVERY symbol goes to the debug log first — the survey

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 
@@ -14,6 +15,52 @@ using System.Text;
 // |height diff| <= 500cm.
 public static class GridAnalysis
 {
+    /// <summary>Expel reference points (Krosse/Salva/Arlia set + Lasgus), used for grids whose file name contains "expel".</summary>
+    private static readonly (string label, double x, double z)[] ExpelProbes =
+    {
+        ("Krosse ring", -94.0, -54.7),
+        ("Krosse plains", -93.8, -81.1),
+        ("Corridor mid", -140.0, -175.0),
+        ("Salva mapjump", -162.9, -307.1),
+        ("Salva ring", -155.6, -315.5),
+        ("SalvaArlia junc", -174.7, -305.4),
+        ("Arlia ring", -42.4, -400.5),
+        ("Lasgus entrance", -272.0, -88.0),
+    };
+
+    /// <summary>Radius (m) searched around a probe point for the nearest passable cell (the "ring cell" a walk would aim at).</summary>
+    private const double RingSearchMeters = 12.0;
+
+    /// <summary>Regions at least this big count as land, not noise, in the region summary.</summary>
+    private const long LandRegionMinCells = 1000;
+
+    /// <summary>
+    /// Probe points for a grid file: the Expel set for Expel grids, plus every
+    /// line of the mod's survey file next to it (worldmap_&lt;map&gt;.survey.txt,
+    /// written by F6/F9: kind TAB label TAB x TAB z).
+    /// </summary>
+    private static List<(string label, double x, double z)> LoadProbes(string gridPath, out string surveyPath)
+    {
+        var probes = new List<(string, double, double)>();
+        string file = Path.GetFileName(gridPath);
+        if (file.IndexOf("expel", StringComparison.OrdinalIgnoreCase) >= 0)
+            probes.AddRange(ExpelProbes);
+
+        // worldmap_nede.grid -> worldmap_nede.survey.txt (the map stem is the text before the first '.')
+        string stem = file.Split('.')[0];
+        surveyPath = Path.Combine(Path.GetDirectoryName(gridPath) ?? "", stem + ".survey.txt");
+        if (!File.Exists(surveyPath)) { surveyPath = null; return probes; }
+        foreach (string line in File.ReadAllLines(surveyPath))
+        {
+            if (line.StartsWith("#") || line.Trim().Length == 0) continue;
+            string[] p = line.Split('\t');
+            if (p.Length < 4) continue;
+            if (double.TryParse(p[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double x) &&
+                double.TryParse(p[3], NumberStyles.Float, CultureInfo.InvariantCulture, out double z))
+                probes.Add((p[0] + " " + p[1], x, z));
+        }
+        return probes;
+    }
     public class Grid
     {
         public string Magic;
@@ -83,12 +130,12 @@ public static class GridAnalysis
             + " (sealed " + sealedFoot + ") bunnyBlocked=" + bunnyBlk
             + " footWalkable=" + walkFoot + " bunnyWalkable=" + walkBunny);
 
-        AnalyzeMode(sb, g, 1, "FOOT");
-        if (g.IsV2) AnalyzeMode(sb, g, 2, "BUNNY");
+        AnalyzeMode(sb, g, path, 1, "FOOT");
+        if (g.IsV2) AnalyzeMode(sb, g, path, 2, "BUNNY");
         return sb.ToString();
     }
 
-    private static void AnalyzeMode(StringBuilder sb, Grid g, byte modeBit, string name)
+    private static void AnalyzeMode(StringBuilder sb, Grid g, string path, byte modeBit, string name)
     {
         sb.AppendLine("=== " + name + " ===");
         int[] dx8 = { 0, 1, 0, -1, 1, 1, -1, -1 };
@@ -127,24 +174,49 @@ public static class GridAnalysis
         }
         sb.AppendLine("total regions: " + next);
 
+        long landRegions = 0;
+        foreach (var kv in counts) if (kv.Value >= LandRegionMinCells) landRegions++;
+        sb.AppendLine("regions with >= " + LandRegionMinCells + " cells: " + landRegions);
+
         Func<double, double, string> probe = (wx, wz) =>
         {
             int ax = (int)((wx - g.MinX) / g.Cell), az = (int)((wz - g.MinZ) / g.Cell);
+            if (ax < 0 || ax >= g.W || az < 0 || az >= g.H)
+                return "(" + wx + "," + wz + ") OUTSIDE the grid";
             long i = (long)az * g.W + ax;
             int rg = regions[i];
             return "(" + wx + "," + wz + ") cell=(" + ax + "," + az + ") h=" + g.HV(ax, az)
                 + " flags=" + g.FV(ax, az)
                 + " region=" + rg + (rg > 0 ? " size=" + counts[rg] : "");
         };
-        // Known probe points (Krosse/Salva/Arlia set + Lasgus/Mountain Palace).
-        sb.AppendLine("Krosse ring    : " + probe(-94.0, -54.7));
-        sb.AppendLine("Krosse plains  : " + probe(-93.8, -81.1));
-        sb.AppendLine("Corridor mid   : " + probe(-140.0, -175.0));
-        sb.AppendLine("Salva mapjump  : " + probe(-162.9, -307.1));
-        sb.AppendLine("Salva ring     : " + probe(-155.6, -315.5));
-        sb.AppendLine("SalvaArlia junc: " + probe(-174.7, -305.4));
-        sb.AppendLine("Arlia ring     : " + probe(-42.4, -400.5));
-        sb.AppendLine("Lasgus entrance: " + probe(-272.0, -88.0));
+        // Nearest passable cell within RingSearchMeters: the cell a walk to this
+        // point would really aim at (town symbols sit inside sealed models).
+        Func<double, double, string> ring = (wx, wz) =>
+        {
+            int cx = (int)((wx - g.MinX) / g.Cell), cz = (int)((wz - g.MinZ) / g.Cell);
+            int r = (int)(RingSearchMeters / g.Cell);
+            long bestD2 = long.MaxValue; int bx = -1, bz = -1;
+            for (int az = cz - r; az <= cz + r; az++)
+            {
+                if (az < 0 || az >= g.H) continue;
+                for (int ax = cx - r; ax <= cx + r; ax++)
+                {
+                    if (ax < 0 || ax >= g.W) continue;
+                    if (!g.Passable(ax, az, modeBit)) continue;
+                    long d2 = (long)(ax - cx) * (ax - cx) + (long)(az - cz) * (az - cz);
+                    if (d2 < bestD2) { bestD2 = d2; bx = ax; bz = az; }
+                }
+            }
+            if (bx < 0) return " | NO walkable ring cell within " + RingSearchMeters + " m";
+            int rg = regions[(long)bz * g.W + bx];
+            return " | ring cell " + (Math.Sqrt(bestD2) * g.Cell).ToString("F1") + " m away, region=" + rg
+                + (rg > 0 ? " size=" + counts[rg] : "");
+        };
+
+        var probes = LoadProbes(path, out string surveyPath);
+        sb.AppendLine("probe points: " + probes.Count + (surveyPath != null ? " (incl. survey " + surveyPath + ")" : ""));
+        foreach (var (label, wx, wz) in probes)
+            sb.AppendLine(label.PadRight(32) + ": " + probe(wx, wz) + ring(wx, wz));
 
         var top = new List<KeyValuePair<int, long>>(counts);
         top.Sort((a, b) => b.Value.CompareTo(a.Value));

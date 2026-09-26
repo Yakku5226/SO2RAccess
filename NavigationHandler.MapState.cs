@@ -230,9 +230,10 @@ namespace SO2RAccess
         {
             string destCode = destId.ToString();
 
-            // 1. Manual overrides (EXPEL → "Overworld", etc.)
-            if (_mapNameOverrides.TryGetValue(destCode, out string overrideName))
-                return overrideName;
+            // 1. The two world maps have spoken names of their own (the game's
+            //    field name data does not cover them).
+            if (destId == FieldmapID.EXPEL) return Loc.Get("wm_name_expel");
+            if (destId == FieldmapID.NEDE) return Loc.Get("wm_name_nede");
 
             // 2. Check cache
             if (_mapNameCache.TryGetValue(destCode, out string cached))

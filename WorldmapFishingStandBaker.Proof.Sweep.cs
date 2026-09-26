@@ -1,3 +1,4 @@
+using Il2CppGame;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -14,6 +15,13 @@ namespace SO2RAccess
     /// </summary>
     public static partial class WorldmapFishingStandBaker
     {
+        /// <summary>Wall-group name fragments the census always lists, per planet.</summary>
+        private static readonly Dictionary<WorldmapID, string[]> KnownWallGroupsByMap =
+            new Dictionary<WorldmapID, string[]>
+            {
+                [WorldmapID.EXPEL] = new[] { "Arlia", "Krosse" },
+            };
+
         /// <summary>
         /// Log-only census of the town wall colliders (layers 22/23 under an
         /// ancestor named Wall*/CharaWall*), grouped by that ancestor, with how
@@ -21,10 +29,14 @@ namespace SO2RAccess
         /// from where the bake is run (2026-09-13: the Arlia pocket bakes
         /// differently from Krosse than from Arlia).
         /// </summary>
-        private static void LogWallCensus()
+        private static void LogWallCensus(WorldmapID wmID)
         {
             try
             {
+                // Wall groups always listed, per planet (Expel: the two towns of
+                // the 2026-09 stand saga). A planet without entries lists only
+                // groups with inactive colliders.
+                KnownWallGroupsByMap.TryGetValue(wmID, out string[] alwaysListed);
                 var groups = new Dictionary<string, (int total, int active)>();
                 var all = UnityEngine.Object.FindObjectsOfType<Collider>(true);
                 if (all == null) return;
@@ -51,7 +63,11 @@ namespace SO2RAccess
                 int lines = 0;
                 foreach (var kv in groups)
                 {
-                    if (kv.Value.active < kv.Value.total || kv.Key.Contains("Arlia") || kv.Key.Contains("Krosse"))
+                    bool listed = kv.Value.active < kv.Value.total;
+                    if (!listed && alwaysListed != null)
+                        foreach (string town in alwaysListed)
+                            if (kv.Key.Contains(town)) { listed = true; break; }
+                    if (listed)
                     {
                         if (lines++ < 24)
                             Log($"Phase 5 wall census: {kv.Key}: {kv.Value.active}/{kv.Value.total} colliders active.");

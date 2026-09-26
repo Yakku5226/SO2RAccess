@@ -1191,7 +1191,7 @@ namespace SO2RAccess
             destinations.Add(("WestFlank(50m,-15m)", westFlank));
 
             // And the target itself.
-            destinations.Add(("Target(Salva)", targetPos));
+            destinations.Add(("Target", targetPos));
 
             int layer22Mask = 1 << 22;
             int layer23Mask = 1 << 23;

@@ -136,6 +136,13 @@ namespace SO2RAccess
             if (_cache.TryGetValue(wmID, out var cached)) return cached;
 
             var all = new List<BubblePoint>();
+            if (WorldmapFishingStands.MapName(wmID) == null)
+            {
+                // No planet (INVALID): nothing to read and nothing to write back.
+                _userFiles[wmID] = new BubblePointFile();
+                _cache[wmID] = all;
+                return all;
+            }
             var seed = Parse(ReadEmbedded(wmID), "embedded");
             if (seed != null) all.AddRange(seed.Points);
 

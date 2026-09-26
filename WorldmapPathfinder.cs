@@ -125,15 +125,28 @@ namespace SO2RAccess
         /// </summary>
         public static bool LastPathUsedFloorTier { get; private set; }
 
-        private static WorldmapGridFormat.CachedGrid _cachedExpel;
-        private static WorldmapGridFormat.CachedGrid _cachedNede;
+        /// <summary>
+        /// One world map's grid slot. <see cref="Probed"/> latches the load
+        /// attempt — including a MISSING grid — so a planet without a file is
+        /// not re-probed (disk check + manifest scan) on every call: before
+        /// 2026-09-26 the Nede log repeated "No cached grid" twice a second.
+        /// </summary>
+        private sealed class GridSlot
+        {
+            public WorldmapGridFormat.CachedGrid Grid;
+            public bool Probed;
+        }
+
+        private static readonly Dictionary<WorldmapID, GridSlot> _slots =
+            new Dictionary<WorldmapID, GridSlot>();
 
         /// <summary>One-time log flag for the legacy-grid bunny fallback.</summary>
         private static bool _loggedLegacyBunnyFallback;
 
         // --- Persistent A* buffers, reused across searches -----------------
-        // Sized to gridW*gridH on first use (both world maps share the same
-        // fixed bounds, so one set serves both). Validity per search is
+        // Sized to the largest grid seen so far (BeginSearch grows them when a
+        // bigger grid appears — Expel and Nede have different bounds, and only
+        // one planet's grid is cached at a time). Validity per search is
         // tracked with a generation counter instead of re-initializing 37M
         // cells per call: a cell's _gCost/_parentDir are only meaningful when
         // _state[i] belongs to the current generation.
@@ -147,29 +160,54 @@ namespace SO2RAccess
         private static readonly List<(float f, int x, int z)> _heap
             = new List<(float f, int x, int z)>();
 
-        /// <summary>The cached grid for a world map (loading it and its foot regions on first use), or null.</summary>
+        /// <summary>
+        /// The cached grid for a world map (loading it and its foot regions on
+        /// first use), or null. A missing grid is latched until
+        /// <see cref="ClearCache"/> (F9) or a planet change. Loading one
+        /// planet's grid releases the other planet's grid and regions
+        /// (~150 MB) — only one world map is ever active.
+        /// </summary>
         internal static WorldmapGridFormat.CachedGrid GetCachedGrid(
             WorldmapID wmID)
         {
-            if (wmID == WorldmapID.EXPEL)
+            if (!_slots.TryGetValue(wmID, out var slot))
             {
-                if (_cachedExpel == null)
-                {
-                    _cachedExpel = WorldmapGridFormat.LoadGrid(
-                        WorldmapID.EXPEL);
-                    if (_cachedExpel != null) BuildFootRegions(_cachedExpel);
-                }
-                return _cachedExpel;
+                slot = new GridSlot();
+                _slots[wmID] = slot;
             }
+            if (slot.Probed) return slot.Grid;
+            slot.Probed = true;
+
+            string mapName = WorldmapFishingStands.MapName(wmID);
+            if (mapName == null) return null; // INVALID: no planet, no grid
+
+            ReleaseOtherSlots(wmID);
+            slot.Grid = WorldmapGridFormat.LoadGrid(wmID);
+            if (slot.Grid != null)
+                BuildFootRegions(slot.Grid);
             else
+                MelonLoader.MelonLogger.Msg(
+                    $"[WMGrid] {mapName}: no grid available (latched until F9 or a planet change).");
+            return slot.Grid;
+        }
+
+        /// <summary>
+        /// Drops every slot but <paramref name="keep"/>. Dropping a slot
+        /// entirely also un-latches its "missing" verdict, so switching
+        /// planets re-probes the files.
+        /// </summary>
+        private static void ReleaseOtherSlots(WorldmapID keep)
+        {
+            var drop = new List<WorldmapID>();
+            foreach (var kv in _slots)
+                if (kv.Key != keep) drop.Add(kv.Key);
+            foreach (var id in drop)
             {
-                if (_cachedNede == null)
-                {
-                    _cachedNede = WorldmapGridFormat.LoadGrid(
-                        WorldmapID.NEDE);
-                    if (_cachedNede != null) BuildFootRegions(_cachedNede);
-                }
-                return _cachedNede;
+                bool hadGrid = _slots[id].Grid != null;
+                _slots.Remove(id);
+                if (hadGrid)
+                    MelonLoader.MelonLogger.Msg(
+                        $"[WMGrid] released {WorldmapFishingStands.MapName(id) ?? id.ToString()} grid and regions.");
             }
         }
 
@@ -196,8 +234,7 @@ namespace SO2RAccess
         /// <summary>Clears cached grids (call if grid files are regenerated).</summary>
         public static void ClearCache()
         {
-            _cachedExpel = null;
-            _cachedNede = null;
+            _slots.Clear();
             _loggedLegacyBunnyFallback = false;
         }
 

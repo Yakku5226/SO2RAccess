@@ -298,12 +298,21 @@ namespace SO2RAccess
                 // --- Measure actual gap widths at known corridors ---
                 sb.AppendLine("\n--- Gap Width Measurements ---");
                 sb.AppendLine("Casting rays from known corridor midpoints to find actual wall distances.");
-                MeasureGapWidth(sb, "Salva-Arlia junction (narrow)",
-                    new Vector3(-174.7f, 22.9f, -305.4f));
-                MeasureGapWidth(sb, "Salva-Arlia junction (east corridor)",
-                    new Vector3(-158.0f, 23.0f, -310.0f));
-                MeasureGapWidth(sb, "Krosse-Salva corridor",
-                    new Vector3(-140.0f, 29.0f, -175.0f));
+                if (FieldManager.Instance != null && FieldManager.Instance.WorldmapID == WorldmapID.EXPEL)
+                {
+                    // Expel corridors measured in 2026-06; other planets have
+                    // no reference points yet.
+                    MeasureGapWidth(sb, "Salva-Arlia junction (narrow)",
+                        new Vector3(-174.7f, 22.9f, -305.4f));
+                    MeasureGapWidth(sb, "Salva-Arlia junction (east corridor)",
+                        new Vector3(-158.0f, 23.0f, -310.0f));
+                    MeasureGapWidth(sb, "Krosse-Salva corridor",
+                        new Vector3(-140.0f, 29.0f, -175.0f));
+                }
+                else
+                {
+                    sb.AppendLine("No per-planet corridor points for this world map (Expel only).");
+                }
                 MeasureGapWidth(sb, "Player current position", pos);
 
                 sb.AppendLine("\n=== END DIAGNOSTICS ===");

@@ -38,7 +38,18 @@ namespace SO2RAccess
         /// radius (the 2026-07-06 B7 audit failure). Must be an exact
         /// multiple of <see cref="CellSize"/>.
         /// </summary>
-        private const float TileSizeMeters = 64f;
+        internal const float TileSizeMeters = 64f;
+
+        /// <summary>
+        /// Expel bake bounds — FIXED, because the shipped Expel grid (bake of
+        /// 2026-07-10, validated in play) uses exactly this cell alignment and
+        /// the user declined whole-map rebakes. Determined from multiple scans
+        /// across the map: all terrain with 10 m padding. Any other world map
+        /// derives its bounds from the game's own data at bake time
+        /// (<see cref="WorldmapGridSurvey"/>).
+        /// </summary>
+        private const float ExpelMinX = -1920.0f, ExpelMinZ = -1600.0f;
+        private const float ExpelMaxX = 1870.0f, ExpelMaxZ = 870.0f;
 
         /// <summary>
         /// Generates the per-mode grid for the current world map and saves
@@ -51,20 +62,43 @@ namespace SO2RAccess
                 var fm = FieldManager.Instance;
                 if (fm == null || !fm.IsWorldmap())
                 {
-                    ScreenReader.Say("Grid generation only works on the world map.");
+                    ScreenReader.Say(Loc.Get("gridgen_only_worldmap"));
                     return;
                 }
 
                 if (!fm.IsExistWorldGridData())
                 {
-                    ScreenReader.Say("World grid data not available.");
+                    ScreenReader.Say(Loc.Get("gridgen_no_griddata"));
                     return;
                 }
 
                 var player = fm.GetControlPlayer();
                 if (player == null)
                 {
-                    ScreenReader.Say("No player found.");
+                    ScreenReader.Say(Loc.Get("gridgen_no_player"));
+                    return;
+                }
+
+                WorldmapID wmID = fm.WorldmapID;
+                string mapName = WorldmapFishingStands.MapName(wmID);
+                if (mapName == null)
+                {
+                    MelonLoader.MelonLogger.Error(
+                        $"[GridGen] World map id {wmID} is not a known planet — bake refused.");
+                    ScreenReader.Say(Loc.Get("gridgen_no_map"));
+                    return;
+                }
+
+                // The Expel grid is validated in play and its cell alignment
+                // is what every Expel test result refers to; a stray F9 must
+                // not replace it. Rename or delete the file to rebake on purpose.
+                if (wmID == WorldmapID.EXPEL &&
+                    File.Exists(WorldmapGridFormat.UserGridPath(mapName)))
+                {
+                    MelonLoader.MelonLogger.Msg(
+                        "[GridGen] Expel grid locked — rebake refused (rename or delete " +
+                        "worldmap_expel.grid to rebake it on purpose).");
+                    ScreenReader.Say(Loc.Get("gridgen_expel_locked"));
                     return;
                 }
 
@@ -84,9 +118,7 @@ namespace SO2RAccess
                 {
                     MelonLoader.MelonLogger.Error(
                         $"[GridGen] Cannot read wall masks: {ex.Message}");
-                    ScreenReader.Say(
-                        "Grid generation aborted. The game's wall layer " +
-                        "masks could not be read. Check log.");
+                    ScreenReader.Say(Loc.Get("gridgen_abort_masks"));
                     return;
                 }
                 if (footMask == 0 || bunnyMask == 0)
@@ -94,9 +126,7 @@ namespace SO2RAccess
                     MelonLoader.MelonLogger.Error(
                         $"[GridGen] Wall mask empty: foot=0x{footMask:X8} " +
                         $"bunny=0x{bunnyMask:X8} — refusing to bake.");
-                    ScreenReader.Say(
-                        "Grid generation aborted. A wall layer mask was " +
-                        "empty. Check log.");
+                    ScreenReader.Say(Loc.Get("gridgen_abort_mask_empty"));
                     return;
                 }
 
@@ -108,28 +138,36 @@ namespace SO2RAccess
                     $"foot=0x{footMask:X8} → {WorldmapGridDiagnostics.DescribeMask(footMask)} | " +
                     $"bunny=0x{bunnyMask:X8} → {WorldmapGridDiagnostics.DescribeMask(bunnyMask)}");
 
-                WorldmapID wmID = fm.WorldmapID;
-                string mapName = WorldmapFishingStands.MapName(wmID);
-                ScreenReader.Say(
-                    $"Generating {mapName} world map grid at 0.5 meter " +
-                    "resolution for foot and bunny travel, loading distant " +
-                    "terrain chunks while baking. This may take several " +
-                    "minutes and the game will freeze. Please wait.");
+                // --- Step 0b: survey the map data the bake depends on ---
+                // Same honesty rule as the masks: a red flag (no painted rect,
+                // no streamed unit list, lowered terrain copies with colliders,
+                // a grid too large to be right) refuses the bake.
+                var survey = WorldmapGridSurvey.Run(fm, wmID,
+                    player.transform.position, writeProbeFile: true);
+                if (!survey.CanBake)
+                {
+                    MelonLoader.MelonLogger.Error(
+                        $"[GridGen] ABORT: survey red flags — {survey.AbortSummary}");
+                    ScreenReader.Say(Loc.Get("gridgen_survey_abort", survey.AbortSummary));
+                    return;
+                }
+
+                ScreenReader.Say(Loc.Get("gridgen_start", mapName));
                 MelonLoader.MelonLogger.Msg(
                     $"[GridGen] Starting 0.5m per-mode grid for {mapName}...");
 
-                // --- Step 1: Fixed world bounds ---
-                // Use hardcoded bounds so the grid is identical regardless
-                // of where the player is when generating. This ensures
-                // consistent cell alignment — critical for CharaWall gap
-                // detection. The grid file ships with the mod.
-                // Bounds determined from multiple scans across the map.
-                // Same generous bounds for both world maps: Expel covers all
-                // terrain with 10m padding; Nede bounds will be refined when tested.
-                float worldMinX = -1920.0f;
-                float worldMinZ = -1600.0f;
-                float worldMaxX = 1870.0f;
-                float worldMaxZ = 870.0f;
+                // --- Step 1: World bounds ---
+                // Position-independent by construction, so the grid is
+                // identical regardless of where the player stands when
+                // generating (consistent cell alignment — critical for
+                // CharaWall gap detection). Expel: the fixed constants of the
+                // validated grid. Other maps: derived from the game's painted
+                // rect and streamed unit coverage (static assets), snapped to
+                // the tile lattice. The loader reads bounds from the file
+                // header, never from these values.
+                GetBakeBounds(wmID, survey, out float worldMinX, out float worldMinZ,
+                    out float worldMaxX, out float worldMaxZ, out string boundsSource);
+                MelonLoader.MelonLogger.Msg($"[GridGen] Bounds source: {boundsSource}");
 
                 int gridW = (int)((worldMaxX - worldMinX) / CellSize) + 1;
                 int gridH = (int)((worldMaxZ - worldMinZ) / CellSize) + 1;
@@ -159,9 +197,7 @@ namespace SO2RAccess
                         $"[GridGen] ABORT: culling chunk data unavailable " +
                         $"({chunkFail}). Refusing to bake a grid that would " +
                         "be wrong beyond ~100m of the player.");
-                    ScreenReader.Say(
-                        "Grid generation aborted. The game's terrain chunk " +
-                        "data could not be read. Check log.");
+                    ScreenReader.Say(Loc.Get("gridgen_abort_chunks"));
                     return;
                 }
 
@@ -237,6 +273,9 @@ namespace SO2RAccess
                 // never leave thousands of chunk clones in the scene.
                 int totalTiles = tilesX * tilesZ;
                 int tilesDone = 0;
+                // Spoken every quarter: the game is frozen for minutes and a
+                // blind user has no other sign that the bake is still alive.
+                int nextSpokenPct = 25;
                 var bakeWatch = System.Diagnostics.Stopwatch.StartNew();
                 try
                 {
@@ -265,6 +304,13 @@ namespace SO2RAccess
                             }
 
                             tilesDone++;
+                            int pct = tilesDone * 100 / totalTiles;
+                            if (pct >= nextSpokenPct && nextSpokenPct < 100)
+                            {
+                                ScreenReader.Say(Loc.Get("gridgen_progress",
+                                    nextSpokenPct, bakeWatch.ElapsedMilliseconds / 1000));
+                                nextSpokenPct += 25;
+                            }
                             if (tilesDone % 200 == 0)
                             {
                                 MelonLoader.MelonLogger.Msg(
@@ -330,18 +376,15 @@ namespace SO2RAccess
                 long fileSize = new FileInfo(filePath).Length;
                 MelonLoader.MelonLogger.Msg(
                     $"[GridGen] Saved to: {filePath} ({fileSize} bytes)");
-                ScreenReader.Say(
-                    $"Grid saved. {gridW} by {gridH} cells at 0.5 meter " +
-                    $"spacing. {terrainCount} terrain. {oceanCount} without " +
-                    $"ground. Foot obstacles {footBlockedCount} plus " +
-                    $"{footSealed} sealed interior. Bunny obstacles " +
-                    $"{bunnyBlockedCount} plus {bunnySealed} sealed interior. " +
-                    $"Height {minY:F1} to {maxY:F1} meters.");
+                ScreenReader.Say(Loc.Get("gridgen_saved", gridW, gridH,
+                    terrainCount, oceanCount, footBlockedCount, footSealed,
+                    bunnyBlockedCount, bunnySealed, minY.ToString("F1"),
+                    maxY.ToString("F1")));
             }
             catch (Exception ex)
             {
                 MelonLoader.MelonLogger.Error($"[GridGen] Error: {ex}");
-                ScreenReader.Say("Grid generation failed. Check log.");
+                ScreenReader.Say(Loc.Get("gridgen_failed"));
             }
         }
 
@@ -473,6 +516,7 @@ namespace SO2RAccess
             // an entrance cell would break connectivity to the road.
             const int MaxEntranceHeightStepCm = 500;
             const int MaxWallLogLines = 12;
+            const int MaxEntranceRefLogLines = 60;
 
             int cleared = 0, wallsKept = 0, triggers = 0, wallLines = 0;
             try
@@ -507,12 +551,19 @@ namespace SO2RAccess
                         int maxAz = Math.Min(gridH - 1,
                             (int)((b.max.z - worldMinZ) / CellSize));
 
-                        // Ground level at the trigger, for the height repair.
-                        float trigGroundY = GameUtility.CalcHeight(
-                            mj.transform.position, out bool trigOk, 50f);
-                        ushort trigH = trigOk
-                            ? (ushort)((trigGroundY + 100f) * 100f)
-                            : (ushort)12080; // ~20.8m fallback
+                        // Ground reference for the roof repair: the baked
+                        // road cells inside the box (chunk-loaded, honest on
+                        // every planet), else CalcHeight on the resident
+                        // geometry, else no repair. Never a constant — the old
+                        // 20.8 m Expel fallback would have fabricated steps at
+                        // Nede's gates (its towns sit at 1–5 m).
+                        bool haveRef = TriggerGroundReference(height, flags, gridH,
+                            minAx, maxAx, minAz, maxAz, mj, out ushort trigH,
+                            out string refSource);
+                        if (triggers <= MaxEntranceRefLogLines)
+                            MelonLoader.MelonLogger.Msg(
+                                $"[GridGen] entrance {mj.fieldmapID} at ({mj.transform.position.x:F0}," +
+                                $"{mj.transform.position.z:F0}): ground {refSource}");
 
                         int trigCleared = 0, trigWalls = 0;
                         for (int ex = minAx; ex <= maxAx; ex++)
@@ -533,7 +584,7 @@ namespace SO2RAccess
                                 if (lift == 0) continue;
 
                                 flags[idx] = (byte)(f & ~lift);
-                                if (Math.Abs(height[ex, ez] - trigH) >
+                                if (haveRef && Math.Abs(height[ex, ez] - trigH) >
                                     MaxEntranceHeightStepCm)
                                 {
                                     height[ex, ez] = trigH;
@@ -560,6 +611,89 @@ namespace SO2RAccess
                     $"[GridGen] Entrance clearing error: {ex.Message}");
             }
             return cleared;
+        }
+
+        /// <summary>
+        /// Bake bounds for a world map. Expel keeps the constants of the
+        /// validated shipped grid; every other map takes the survey's derived
+        /// bounds (painted rect ∪ streamed unit coverage, margin, snapped to
+        /// the tile lattice). <paramref name="source"/> names the choice for
+        /// the log. Falls back to the Expel constants only when the survey
+        /// could not derive bounds — which the survey already reports as a
+        /// red flag, so the bake never gets here in that state.
+        /// </summary>
+        private static void GetBakeBounds(WorldmapID wmID, WorldmapGridSurvey.Result survey,
+            out float minX, out float minZ, out float maxX, out float maxZ, out string source)
+        {
+            if (wmID != WorldmapID.EXPEL && survey != null && survey.HasDerivedBounds)
+            {
+                minX = survey.MinX; minZ = survey.MinZ;
+                maxX = survey.MaxX; maxZ = survey.MaxZ;
+                source = $"derived from the game data (rect ∪ units + {WorldmapGridSurvey.BoundsMarginMeters:F0} m, " +
+                         $"snapped to {TileSizeMeters:F0} m) for {wmID}";
+                return;
+            }
+            minX = ExpelMinX; minZ = ExpelMinZ;
+            maxX = ExpelMaxX; maxZ = ExpelMaxZ;
+            source = wmID == WorldmapID.EXPEL
+                ? "Expel constants (validated grid alignment)"
+                : $"Expel constants as FALLBACK for {wmID} — the survey derived no bounds";
+        }
+
+        /// <summary>
+        /// Ground reference for an entrance trigger's roof repair, in the
+        /// grid's height encoding. Preference: median of the baked FOOT-
+        /// passable cells inside the trigger box (the road the flood fill
+        /// reached — chunk-loaded, so honest on every planet), else the
+        /// median of all baked ground cells there, else CalcHeight on the
+        /// resident geometry, else none (returns false: no repair). The
+        /// chosen source, and any disagreement with CalcHeight above the
+        /// climb rule, go to <paramref name="source"/> for the log.
+        /// </summary>
+        private static bool TriggerGroundReference(ushort[,] height, byte[] flags, int gridH,
+            int minAx, int maxAx, int minAz, int maxAz, FieldMapjumpCollision mj,
+            out ushort trigH, out string source)
+        {
+            const byte footBit = WorldmapGridFormat.CachedGrid.FlagFootBlocked;
+            const int DisagreeCm = 500;
+            var road = new List<ushort>();
+            var ground = new List<ushort>();
+            for (int ex = minAx; ex <= maxAx; ex++)
+            {
+                for (int ez = minAz; ez <= maxAz; ez++)
+                {
+                    ushort h = height[ex, ez];
+                    if (h < 2) continue;
+                    ground.Add(h);
+                    if ((flags[(long)ex * gridH + ez] & footBit) == 0) road.Add(h);
+                }
+            }
+
+            float calcY = GameUtility.CalcHeight(mj.transform.position, out bool calcOk, 50f);
+            int calcEncoded = calcOk ? Math.Clamp((int)((calcY + 100f) * 100f), 2, 65535) : 0;
+
+            var pick = road.Count > 0 ? road : ground;
+            if (pick.Count > 0)
+            {
+                pick.Sort();
+                trigH = pick[pick.Count / 2];
+                source = $"grid median of {pick.Count} {(road.Count > 0 ? "road" : "ground")} cells = " +
+                         $"{trigH / 100f - 100f:F1} m";
+                if (calcOk && Math.Abs(trigH - calcEncoded) > DisagreeCm)
+                    source += $" — DISAGREES with CalcHeight {calcY:F1} m (gate on a roof, or resident geometry differs)";
+                else if (calcOk)
+                    source += $" (CalcHeight {calcY:F1} m agrees)";
+                return true;
+            }
+            if (calcOk)
+            {
+                trigH = (ushort)calcEncoded;
+                source = $"CalcHeight {calcY:F1} m (no baked ground inside the box)";
+                return true;
+            }
+            trigH = 0;
+            source = "no reference (no baked ground, CalcHeight failed) — height repair skipped";
+            return false;
         }
     }
 }

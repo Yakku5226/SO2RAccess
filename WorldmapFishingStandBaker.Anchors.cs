@@ -29,14 +29,20 @@ namespace SO2RAccess
         private const int AnchorDumpLines = 120;
 
         /// <summary>
-        /// Where the player appeared on the Expel world map after leaving a town,
-        /// read from the play logs of 2026-09-20. Ground truth for the anchor check.
+        /// Where the player appeared on a world map after leaving a town, per
+        /// planet, read from play logs. Ground truth for the anchor check.
+        /// Expel: logs of 2026-09-20. Nede: none yet — the first Nede exit seen
+        /// in a play log belongs here before its stands bake is trusted.
         /// </summary>
-        private static readonly (string name, float x, float z)[] KnownExitsExpel =
-        {
-            ("Hilton", 750.8f, -170.7f),
-            ("Arlia", -46.8f, -404.5f),
-        };
+        private static readonly Dictionary<WorldmapID, (string name, float x, float z)[]> KnownExitsByMap =
+            new Dictionary<WorldmapID, (string name, float x, float z)[]>
+            {
+                [WorldmapID.EXPEL] = new[]
+                {
+                    ("Hilton", 750.8f, -170.7f),
+                    ("Arlia", -46.8f, -404.5f),
+                },
+            };
 
         /// <summary>
         /// Every world position a map jump puts the player at on this world map,
@@ -126,13 +132,15 @@ namespace SO2RAccess
         /// </summary>
         private static bool AnchorsMatchKnownExits(WorldmapID wmID, FieldmapID worldFieldmap, List<Anchor> anchors)
         {
-            if (wmID != WorldmapID.EXPEL)
+            if (!KnownExitsByMap.TryGetValue(wmID, out var exits) || exits.Length == 0)
             {
-                Log("Anchor check: no logged exits for this world map — anchors accepted unchecked.");
+                Log($"Anchor check: WARNING — no logged exits for {WorldmapFishingStands.MapName(wmID) ?? wmID.ToString()}; " +
+                    "anchors accepted unchecked. Add the first town exit from a play log to KnownExitsByMap " +
+                    "before trusting this bake.");
                 return true;
             }
             bool all = true;
-            foreach (var (name, x, z) in KnownExitsExpel)
+            foreach (var (name, x, z) in exits)
             {
                 var known = new Vector3(x, 0f, z);
                 Anchor nearest = null;

@@ -19,15 +19,20 @@ namespace SO2RAccess
         private const float KnownBadStandMeters = 1.5f;
 
         /// <summary>
-        /// Stands of the Expel world map that were "proven" from the town symbol
-        /// centre and refused by the real walk from the gate (logs 2026-09-20).
+        /// Stands, per planet, that were "proven" from the town symbol centre
+        /// and refused by the real walk from the gate (Expel: logs 2026-09-20).
+        /// A planet without entries has no such ground truth yet.
         /// </summary>
-        private static readonly (int placeId, float x, float z, string why)[] KnownBadStandsExpel =
-        {
-            (4, 737f, -172.5f, "Hilton: behind the gate fences, walk wedged at (745.0,-173.8)"),
-            (4, 737f, -167.5f, "Hilton: behind the gate fences"),
-            (1, -37f, -395f, "Arlia: walk slid along Wall_Arlia for 28 s"),
-        };
+        private static readonly Dictionary<WorldmapID, (int placeId, float x, float z, string why)[]> KnownBadStandsByMap =
+            new Dictionary<WorldmapID, (int placeId, float x, float z, string why)[]>
+            {
+                [WorldmapID.EXPEL] = new[]
+                {
+                    (4, 737f, -172.5f, "Hilton: behind the gate fences, walk wedged at (745.0,-173.8)"),
+                    (4, 737f, -167.5f, "Hilton: behind the gate fences"),
+                    (1, -37f, -395f, "Arlia: walk slid along Wall_Arlia for 28 s"),
+                },
+            };
 
         /// <summary>
         /// Logs the verdict table and returns true when the bake agrees with every
@@ -57,9 +62,9 @@ namespace SO2RAccess
                     $"{detail} — {(ok ? "PASS" : "FAIL")}.");
             }
 
-            if (wmID == WorldmapID.EXPEL)
+            if (KnownBadStandsByMap.TryGetValue(wmID, out var knownBad))
             {
-                foreach (var (placeId, x, z, why) in KnownBadStandsExpel)
+                foreach (var (placeId, x, z, why) in knownBad)
                 {
                     checks++;
                     var place = WorldmapFishingStands.TryGetPlace(file, placeId);

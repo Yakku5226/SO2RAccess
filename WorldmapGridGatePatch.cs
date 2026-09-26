@@ -139,7 +139,14 @@ namespace SO2RAccess
                     return;
                 }
 
-                string path = WorldmapGridFormat.UserGridPath(WorldmapFishingStands.MapName(fm.WorldmapID));
+                string mapName = WorldmapFishingStands.MapName(fm.WorldmapID);
+                if (mapName == null)
+                {
+                    MelonLogger.Msg($"[GatePatch] world map id {fm.WorldmapID} is not a known planet — not saved.");
+                    ScreenReader.Say(Loc.Get("gridgen_no_map"));
+                    return;
+                }
+                string path = WorldmapGridFormat.UserGridPath(mapName);
                 WorldmapGridFormat.SaveGrid(path, grid.WorldMinX, grid.WorldMinZ, grid.CellSize,
                     grid.GridW, grid.GridH, grid.Height, flags, grid.ClearanceOffsets, grid.ClearanceValues,
                     grid.FootMask, grid.BunnyMask, grid.FootFloor, grid.BunnyFloor);
