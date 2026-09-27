@@ -119,6 +119,65 @@ namespace SO2RAccess
         }
 
         /// <summary>
+        /// Longest a bridge's NavMesh path may be, relative to the straight hop:
+        /// a path that wanders is going round something the player would walk
+        /// into on the straight line the bridge edge stands for.
+        /// </summary>
+        private const float BridgeDetourFactor = 1.3f;
+
+        /// <summary>
+        /// Decides whether a fresh breadcrumb may link to an older one a few
+        /// metres away (see <see cref="TraversalGraph.BridgeVerifier"/>). Both
+        /// ends must lie on the NavMesh at their own height, the NavMesh must
+        /// connect them with a COMPLETE path hardly longer than the straight hop,
+        /// and no wall face may stand across that path (the same probe that
+        /// catches NavMesh lies on event-copy maps). Rejections are logged with
+        /// their reason.
+        /// </summary>
+        private bool VerifyBreadcrumbBridge(Vector3 from, Vector3 to)
+        {
+            string hop = $"({from.x:F1},{from.y:F1},{from.z:F1})->({to.x:F1},{to.y:F1},{to.z:F1})";
+            if (!NavMesh.SamplePosition(from, out NavMeshHit a, 1.0f, NavMesh.AllAreas) ||
+                Mathf.Abs(a.position.y - from.y) > FloorChangeThreshold)
+            {
+                DebugLogger.LogState($"TRAVERSAL bridge {hop} rejected: start is off the NavMesh.");
+                return false;
+            }
+            if (!NavMesh.SamplePosition(to, out NavMeshHit b, 1.0f, NavMesh.AllAreas) ||
+                Mathf.Abs(b.position.y - to.y) > FloorChangeThreshold)
+            {
+                DebugLogger.LogState($"TRAVERSAL bridge {hop} rejected: end is off the NavMesh.");
+                return false;
+            }
+
+            NavMesh.CalculatePath(a.position, b.position, NavMesh.AllAreas, _bridgePath);
+            if (_bridgePath.status != NavMeshPathStatus.PathComplete)
+            {
+                DebugLogger.LogState($"TRAVERSAL bridge {hop} rejected: NavMesh path {_bridgePath.status}.");
+                return false;
+            }
+
+            Vector3[] corners = CopyCorners(_bridgePath);
+            float pathLength = 0f;
+            for (int i = 1; i < corners.Length; i++)
+                pathLength += Vector3.Distance(corners[i - 1], corners[i]);
+            float straight = Vector3.Distance(a.position, b.position);
+            if (pathLength > straight * BridgeDetourFactor + 0.5f)
+            {
+                DebugLogger.LogState(
+                    $"TRAVERSAL bridge {hop} rejected: NavMesh path {pathLength:F1} m for a {straight:F1} m hop.");
+                return false;
+            }
+
+            if (NavMeshPathCrossesWall(corners, out string blocker))
+            {
+                DebugLogger.LogState($"TRAVERSAL bridge {hop} rejected: crosses {blocker}.");
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
         /// World map counterpart of the breadcrumb recording: a session-only trail
         /// for the F11 wall audit, kept only in debug mode (nothing persistent is
         /// learned from the world map). Any loss of control breaks the trail.

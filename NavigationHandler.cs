@@ -404,6 +404,8 @@ namespace SO2RAccess
         private TraversalGraph _traversal = new TraversalGraph();
         /// <summary>Timer for periodic traversal autosave.</summary>
         private float _traversalSaveTimer;
+        /// <summary>Scratch path for <see cref="VerifyBreadcrumbBridge"/> (never shares _navPath).</summary>
+        private NavMeshPath _bridgePath;
         /// <summary>Debug-only world map walk record for the F11 wall audit (see <see cref="WorldmapTrail"/>).</summary>
         private readonly WorldmapTrail _wmTrail = new WorldmapTrail();
 
@@ -433,6 +435,8 @@ namespace SO2RAccess
             }
 
             _navPath = new NavMeshPath();
+            _bridgePath = new NavMeshPath();
+            _traversal.BridgeVerifier = VerifyBreadcrumbBridge;
         }
 
         #endregion

@@ -54,6 +54,16 @@ namespace SO2RAccess
         /// <summary>...AND it is steeper than this (vertical fall / horizontal run).
         /// Real ramps/stairs stay far below; observed jump-down ledges are ~4-6.</summary>
         private const float DropMinRatio = 1.2f;
+        /// <summary>
+        /// Farthest older breadcrumb (m, horizontal) a fresh, still unconnected
+        /// trail may bridge to. A map exit puts the player next to the door but
+        /// not on the recorded approach (North City, Psynard Breeding Facility,
+        /// 2026-09-27: 3.4 m beside it, so the new footsteps formed an island the
+        /// nav list could not route from until they happened to rejoin the trail).
+        /// </summary>
+        private const float BridgeRadius = 5.0f;
+        /// <summary>Nearest candidates a bridge attempt verifies per breadcrumb.</summary>
+        private const int BridgeCandidates = 4;
 
         private static readonly string Dir =
             Path.Combine(Directory.GetCurrentDirectory(), "UserData", "SO2RAccess", "traversals");
@@ -72,6 +82,21 @@ namespace SO2RAccess
         private int _lastNode = -1;
         private string _mapId;
         private bool _dirty;
+        // Breadcrumbs of the trail walked since the player last arrived off the
+        // recorded paths (map exit spawn, cutscene move) that have not linked to
+        // any older breadcrumb yet. Empty while the current trail is connected.
+        private readonly HashSet<int> _island = new HashSet<int>();
+        // Edges made by TryBridgeIsland (normalised): longer than any recording
+        // rule allows, verified walkable by the owner, saved in their own list.
+        private readonly HashSet<(int, int)> _bridges = new HashSet<(int, int)>();
+
+        /// <summary>
+        /// Verifies that the straight hop between two positions is walkable
+        /// (set by the owner: complete short NavMesh path, no wall face across
+        /// it). Null disables bridging. Called only for fresh breadcrumbs that
+        /// have no link to the recorded trails.
+        /// </summary>
+        public Func<Vector3, Vector3, bool> BridgeVerifier { get; set; }
 
         public bool HasData => _nodes.Count > 0;
         public int NodeCount => _nodes.Count;
@@ -136,6 +161,7 @@ namespace SO2RAccess
         private void Clear()
         {
             _nodes.Clear(); _adj.Clear(); _hash.Clear(); _climbEdges.Clear();
+            _island.Clear(); _bridges.Clear();
             _lastNode = -1; _dirty = false;
         }
 
@@ -150,7 +176,8 @@ namespace SO2RAccess
         {
             int near = FindNearest(pos, MinSpacing, MinSpacing); // tight: "still here?"
             int current;
-            if (near >= 0)
+            bool isNew = near < 0;
+            if (!isNew)
             {
                 current = near;
             }
@@ -189,6 +216,85 @@ namespace SO2RAccess
                 }
             }
             _lastNode = current;
+
+            TrackIsland(current, isNew);
+        }
+
+        /// <summary>
+        /// Keeps <see cref="_island"/> = the breadcrumbs of a trail that is not
+        /// yet linked to any older breadcrumb, and asks for a verified bridge
+        /// while it stays that way. Stepping onto an older breadcrumb, or linking
+        /// to one, ends the island.
+        /// </summary>
+        private void TrackIsland(int current, bool isNew)
+        {
+            if (!isNew)
+            {
+                if (!_island.Contains(current)) _island.Clear();
+                return;
+            }
+
+            bool linkedOutside = false, linkedInside = false;
+            foreach (int n in _adj[current])
+            {
+                if (_island.Contains(n)) linkedInside = true;
+                else linkedOutside = true;
+            }
+            if (linkedOutside) { _island.Clear(); return; }
+
+            if (!linkedInside) _island.Clear(); // a new arrival: start a fresh island
+            _island.Add(current);
+            TryBridgeIsland(current);
+        }
+
+        /// <summary>
+        /// Links an island breadcrumb to the nearest older breadcrumb whose hop
+        /// the <see cref="BridgeVerifier"/> confirms walkable. Nearest first, up
+        /// to <see cref="BridgeCandidates"/> tries; one bridge is enough.
+        /// </summary>
+        private void TryBridgeIsland(int node)
+        {
+            if (BridgeVerifier == null) return;
+            Vector3 pos = _nodes[node];
+
+            var candidates = new List<(float xz, int idx)>();
+            foreach (int n in NodesWithin(pos, BridgeRadius))
+            {
+                if (n == node || _island.Contains(n)) continue;
+                if (Mathf.Abs(_nodes[n].y - pos.y) > MergeMaxDy) continue;
+                float xz = HorizontalDistance(_nodes[n], pos);
+                if (xz > BridgeRadius) continue;
+                candidates.Add((xz, n));
+            }
+            if (candidates.Count == 0) return;
+            candidates.Sort((a, b) => a.xz.CompareTo(b.xz));
+
+            int tried = 0;
+            foreach (var (xz, n) in candidates)
+            {
+                if (tried++ >= BridgeCandidates) break;
+                Vector3 other = _nodes[n];
+                bool ok;
+                try { ok = BridgeVerifier(pos, other); }
+                catch (Exception ex)
+                {
+                    DebugLogger.LogState($"TRAVERSAL: bridge verifier error: {ex.Message}");
+                    return;
+                }
+                if (!ok) continue;
+
+                Connect(node, n, observedFrom: -1);
+                _bridges.Add(NormalizePair(node, n));
+                _island.Clear();
+                _dirty = true;
+                MelonLoader.MelonLogger.Msg(
+                    $"[SO2RAccess] TRAVERSAL: bridged the fresh trail at ({pos.x:F1},{pos.y:F1},{pos.z:F1}) " +
+                    $"to breadcrumb {n} ({other.x:F1},{other.y:F1},{other.z:F1}), {xz:F1} m.");
+                return;
+            }
+            DebugLogger.LogState(
+                $"TRAVERSAL: no bridge for the fresh trail at ({pos.x:F1},{pos.y:F1},{pos.z:F1}): " +
+                $"{tried} of {candidates.Count} nearby breadcrumb(s) rejected by the verifier.");
         }
 
         /// <summary>Call when control is lost (cutscene, battle, menu) so the trail doesn't jump.</summary>
@@ -438,18 +544,23 @@ namespace SO2RAccess
                     MapId = _mapId,
                     Nodes = new List<float[]>(_nodes.Count),
                     Edges = new List<int[]>(),
-                    ClimbEdges = new List<int[]>(_climbEdges.Count)
+                    ClimbEdges = new List<int[]>(_climbEdges.Count),
+                    Bridges = new List<int[]>(_bridges.Count)
                 };
                 foreach (var p in _nodes) data.Nodes.Add(new[] { p.x, p.y, p.z });
                 // Store connectivity as undirected pairs (each unordered pair once);
                 // direction is re-derived geometrically on load. ClimbEdges records
                 // the steep edges proven climbable so their uphill survives reload.
-                var seen = new HashSet<(int, int)>();
+                // Verified bridges are longer than any recording rule allows, so
+                // they go in their own list (LoadEdges would take them for the
+                // old merge bug).
+                var seen = new HashSet<(int, int)>(_bridges);
                 for (int a = 0; a < _adj.Count; a++)
                     foreach (int b in _adj[a])
                         if (seen.Add(NormalizePair(a, b)))
                             data.Edges.Add(a < b ? new[] { a, b } : new[] { b, a });
                 foreach (var (lo, hi) in _climbEdges) data.ClimbEdges.Add(new[] { lo, hi });
+                foreach (var (a, b) in _bridges) data.Bridges.Add(new[] { a, b });
 
                 File.WriteAllText(Path.Combine(Dir, _mapId + ".json"),
                     JsonSerializer.Serialize(data));
@@ -487,6 +598,14 @@ namespace SO2RAccess
                         _climbEdges.Add(NormalizePair(e[0], e[1]));
                 if (data.Edges != null)
                     LoadEdges(data.Edges, mapId);
+                if (data.Bridges != null)
+                    foreach (var e in data.Bridges)
+                    {
+                        if (e == null || e.Length < 2) continue;
+                        if (e[0] < 0 || e[0] >= _nodes.Count || e[1] < 0 || e[1] >= _nodes.Count) continue;
+                        Connect(e[0], e[1], observedFrom: -1);
+                        _bridges.Add(NormalizePair(e[0], e[1]));
+                    }
             }
             catch (Exception ex)
             {
@@ -572,6 +691,8 @@ namespace SO2RAccess
             public List<int[]> Edges { get; set; }
             /// <summary>Steep edges proven climbable (low,high). Optional/back-compat.</summary>
             public List<int[]> ClimbEdges { get; set; }
+            /// <summary>Verified bridges from a fresh trail to an older breadcrumb. Optional/back-compat.</summary>
+            public List<int[]> Bridges { get; set; }
         }
 
         // ── Minimal binary min-heap (shared with FloorProbeGrid) ─────────────
