@@ -243,6 +243,37 @@ namespace SO2RAccess
                         nameof(FieldInformationStack_ShowInformation_Postfix))
                 );
 
+                // Relationship change after a private action. The game queues the
+                // characters involved (CallerCount(4), PlayerID by value — safe) and
+                // later shows an icon-only toast: either a favorability entry on the
+                // stack above (no text, so it used to be dropped silently) or the
+                // dedicated face-icon presenter (CallerCount(2)). Log 2026-09-27:
+                // Celine fortune-teller PA — sound heard, nothing spoken.
+                RuntimeHelpers.RunClassConstructor(typeof(UIFieldFavorabilityInformationPresenter).TypeHandle);
+                harmony.Patch(
+                    AccessTools.Method(typeof(UIFieldController), "AddFavorabilityNotification",
+                        new Type[] { typeof(PlayerID) }),
+                    postfix: new HarmonyMethod(typeof(NotificationHandler),
+                        nameof(AddFavorabilityNotification_Postfix))
+                );
+                harmony.Patch(
+                    AccessTools.Method(typeof(UIFieldFavorabilityInformationPresenter), "Set",
+                        new Type[] { typeof(List<PlayerID>) }),
+                    postfix: new HarmonyMethod(typeof(NotificationHandler),
+                        nameof(FavorabilityPresenter_Set_Postfix))
+                );
+                // The direction: the toast itself is icon-only, so the change is
+                // taken from the game's own setter (CallerCount(18), enum + short
+                // by value — safe). The prefix reads the old value before it is
+                // overwritten; the status screen shows the same numbers as percent.
+                RuntimeHelpers.RunClassConstructor(typeof(EmotionParameter).TypeHandle);
+                harmony.Patch(
+                    AccessTools.Method(typeof(EmotionParameter), "SetFriendEmotion",
+                        new Type[] { typeof(PlayerID), typeof(PlayerID), typeof(short) }),
+                    prefix: new HarmonyMethod(typeof(NotificationHandler),
+                        nameof(SetFriendEmotion_Prefix))
+                );
+
                 // Fires when a character uses a specialty and a hidden talent is
                 // discovered. Returns the discovered TalentID (INVALID if none this
                 // time). CallerCount(11) — hookable. The talent-discovery popup itself
@@ -771,6 +802,19 @@ namespace SO2RAccess
 
                 string info = StripTags(data.information ?? "");
 
+                // Relationship-change toast: icons only (heart + two faces), no text.
+                var favorData = data.TryCast<UIFieldFavorabilityInfromationStackData>();
+                if (favorData != null)
+                {
+                    DebugLogger.LogGameValue("FieldInfoStack(favorability)",
+                        $"info='{info}' icon='{SafeSpriteName(favorData.favorabilityIcon)}' " +
+                        $"first='{SafeSpriteName(favorData.characterIconFirst)}' " +
+                        $"second='{SafeSpriteName(favorData.characterIconSecond)}' " +
+                        $"sound='{data.soundName}'");
+                    AnnounceFavorabilityChange(TakePendingFavorability());
+                    return;
+                }
+
                 // Check if this is an item-style notification with extra fields.
                 var itemData = data.TryCast<UIFieldItemInformationStackData>();
                 if (itemData != null)
@@ -878,6 +922,175 @@ namespace SO2RAccess
         }
 
         /// <summary>Icon sprite name of a field notification, for the debug log only.</summary>
+        /// <summary>Characters queued by AddFavorabilityNotification, consumed when the toast shows.</summary>
+        private static readonly System.Collections.Generic.List<PlayerID> _pendingFavorability =
+            new System.Collections.Generic.List<PlayerID>();
+
+        /// <summary>When the last relationship toast was spoken, to speak one event once.</summary>
+        private static float _lastFavorabilityTime = -999f;
+        private const float FavorabilityDedupeWindow = 2.0f;
+
+        /// <summary>Postfix for UIFieldController.AddFavorabilityNotification(PlayerID): remembers who changed.</summary>
+        private static void AddFavorabilityNotification_Postfix(PlayerID playerID)
+        {
+            try
+            {
+                if (!_pendingFavorability.Contains(playerID)) _pendingFavorability.Add(playerID);
+                DebugLogger.LogGameValue("Favorability.add", $"playerID={playerID}");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"AddFavorabilityNotification_Postfix: {ex.Message}");
+            }
+        }
+
+        /// <summary>Postfix for UIFieldFavorabilityInformationPresenter.Set(List&lt;PlayerID&gt;): the face-icon toast.</summary>
+        private static void FavorabilityPresenter_Set_Postfix(List<PlayerID> playerIDList)
+        {
+            try
+            {
+                var ids = new System.Collections.Generic.List<PlayerID>();
+                if (playerIDList != null)
+                    for (int i = 0; i < playerIDList.Count; i++)
+                        ids.Add(playerIDList[i]);
+                DebugLogger.LogGameValue("Favorability.presenter", string.Join(", ", ids));
+                if (ids.Count == 0) ids = TakePendingFavorability();
+                else _pendingFavorability.Clear();
+                AnnounceFavorabilityChange(ids);
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"FavorabilityPresenter_Set_Postfix: {ex.Message}");
+            }
+        }
+
+        /// <summary>Queued characters, clearing the queue.</summary>
+        private static System.Collections.Generic.List<PlayerID> TakePendingFavorability()
+        {
+            var ids = new System.Collections.Generic.List<PlayerID>(_pendingFavorability);
+            _pendingFavorability.Clear();
+            return ids;
+        }
+
+        /// <summary>
+        /// Affection changes seen by the setter prefix, keyed by (from, to), with the
+        /// time they were recorded. Consumed by the next relationship toast.
+        /// </summary>
+        private static readonly System.Collections.Generic.Dictionary<(PlayerID, PlayerID), (int delta, float time)>
+            _favorabilityDeltas = new System.Collections.Generic.Dictionary<(PlayerID, PlayerID), (int, float)>();
+
+        /// <summary>A change older than this belongs to some earlier event, not to the toast.</summary>
+        private const float FavorabilityDeltaMaxAge = 600f;
+
+        /// <summary>
+        /// Prefix for EmotionParameter.SetFriendEmotion(from, to, value): records
+        /// the sign of the change before the game overwrites the old value.
+        /// </summary>
+        private static void SetFriendEmotion_Prefix(EmotionParameter __instance,
+            PlayerID from, PlayerID to, short value)
+        {
+            try
+            {
+                int old = __instance.GetFriendEmotion(from, to);
+                int delta = value - old;
+                DebugLogger.LogGameValue("Favorability.set", $"{from}->{to} {old} -> {value} (delta {delta})");
+                if (delta == 0) return;
+                var key = (from, to);
+                int total = delta;
+                if (_favorabilityDeltas.TryGetValue(key, out var previous)
+                    && UnityEngine.Time.unscaledTime - previous.time < FavorabilityDeltaMaxAge)
+                    total += previous.delta;
+                _favorabilityDeltas[key] = (total, UnityEngine.Time.unscaledTime);
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"SetFriendEmotion_Prefix: {ex.Message}");
+            }
+        }
+
+        /// <summary>The recorded recent change from one character toward another, 0 when none.</summary>
+        private static int TakeFavorabilityDelta(PlayerID from, PlayerID to)
+        {
+            if (!_favorabilityDeltas.TryGetValue((from, to), out var entry)) return 0;
+            _favorabilityDeltas.Remove((from, to));
+            return UnityEngine.Time.unscaledTime - entry.time < FavorabilityDeltaMaxAge ? entry.delta : 0;
+        }
+
+        /// <summary>
+        /// Queues the relationship toast onto the announcement: per pair of queued
+        /// characters "A and B: affection up." when both directions moved the same
+        /// way, "A toward B: affection up." per direction otherwise, and the plain
+        /// "Affection changed: A, B." when no change was recorded. At most once per
+        /// <see cref="FavorabilityDedupeWindow"/> because the stack entry and the
+        /// face-icon presenter can both fire for one toast.
+        /// </summary>
+        private static void AnnounceFavorabilityChange(System.Collections.Generic.List<PlayerID> ids)
+        {
+            if (UnityEngine.Time.unscaledTime - _lastFavorabilityTime < FavorabilityDedupeWindow)
+            {
+                DebugLogger.LogState("Favorability: duplicate toast dropped.");
+                return;
+            }
+            _lastFavorabilityTime = UnityEngine.Time.unscaledTime;
+
+            var lines = new System.Collections.Generic.List<string>();
+            for (int i = 0; i < ids.Count; i++)
+            {
+                for (int j = i + 1; j < ids.Count; j++)
+                {
+                    int ab = TakeFavorabilityDelta(ids[i], ids[j]);
+                    int ba = TakeFavorabilityDelta(ids[j], ids[i]);
+                    string a = CharacterFirstName(ids[i]), b = CharacterFirstName(ids[j]);
+                    if (ab == 0 && ba == 0) continue;
+                    if (Math.Sign(ab) == Math.Sign(ba))
+                        lines.Add(Loc.Get(ab > 0 ? "favorability_pair_up" : "favorability_pair_down", a, b));
+                    else
+                    {
+                        if (ab != 0)
+                            lines.Add(Loc.Get(ab > 0 ? "favorability_dir_up" : "favorability_dir_down", a, b));
+                        if (ba != 0)
+                            lines.Add(Loc.Get(ba > 0 ? "favorability_dir_up" : "favorability_dir_down", b, a));
+                    }
+                }
+            }
+            _favorabilityDeltas.Clear();
+
+            string text;
+            if (lines.Count > 0)
+                text = string.Join(" ", lines);
+            else
+            {
+                var names = new System.Collections.Generic.List<string>();
+                foreach (var id in ids) names.Add(CharacterFirstName(id));
+                text = names.Count > 0
+                    ? Loc.Get("favorability_changed", string.Join(", ", names))
+                    : Loc.Get("favorability_changed_unknown");
+            }
+            QueueNotification(text);
+        }
+
+        /// <summary>A party member's first name from the game's tables, or the enum name.</summary>
+        private static string CharacterFirstName(PlayerID id)
+        {
+            try
+            {
+                string name = ParameterManager.Instance?.GetCharacterFirstName(id);
+                if (!string.IsNullOrWhiteSpace(name)) return name;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NotificationHandler.CharacterFirstName: {ex.Message}");
+            }
+            return id.ToString();
+        }
+
+        /// <summary>Sprite name for the log, "-" when absent.</summary>
+        private static string SafeSpriteName(UnityEngine.Sprite sprite)
+        {
+            try { return sprite != null ? sprite.name : "-"; }
+            catch { return "?"; }
+        }
+
         private static string SafeIconName(UIFieldItemInformationStackData itemData)
         {
             try { return itemData.icon != null ? itemData.icon.name : ""; }

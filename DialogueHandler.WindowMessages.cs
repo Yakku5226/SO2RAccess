@@ -13,10 +13,13 @@ namespace SO2RAccess
     ///   - SetConversationAutoMessage: timed ambient bubbles over NPCs/objects
     ///   - SetConversationMessageFollowObject: bubbles following a field object
     ///   - ShowCenterMessage / ShowEntireMessage: center-screen and full-screen text
-    ///   - ShowEventInformation: event info panel (title + description)
     ///
     /// These methods receive a messageID, resolved via TextManager (System → Skill →
     /// Item tables). Unresolvable IDs are suppressed rather than spoken as raw keys.
+    ///
+    /// The event information panel (title + description, e.g. library topics) is NOT
+    /// hooked here: its ShowEventInformation postfix never fired (2026-09-27), so
+    /// <see cref="EventInformationHandler"/> polls the panel instead.
     ///
     /// SAFETY: UIConversationWindow also has overloads of these methods taking
     /// <c>ref Vector3</c> — hooking those crashes native code (known rule). Only the
@@ -71,13 +74,6 @@ namespace SO2RAccess
                     nameof(WindowMessageID_Postfix))
             );
 
-            harmony.Patch(
-                AccessTools.Method(typeof(UIConversationWindow), "ShowEventInformation",
-                    new Type[] { typeof(string), typeof(string) }),
-                postfix: new HarmonyMethod(typeof(DialogueHandler),
-                    nameof(ShowEventInformation_Postfix))
-            );
-
             DebugLogger.LogState("DialogueHandler: window message patches applied.");
         }
 
@@ -104,28 +100,6 @@ namespace SO2RAccess
             catch (Exception ex)
             {
                 DebugLogger.LogState($"DialogueHandler.WindowMessageID_Postfix: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Event info panel: title and description arrive as either display text or
-        /// messageIDs — resolve what resolves, keep the rest verbatim.
-        /// </summary>
-        private static void ShowEventInformation_Postfix(string title, string description)
-        {
-            try
-            {
-                string titleText = ResolveWindowMessage(title) ?? TextUtil.StripTags(title);
-                string descText = ResolveWindowMessage(description) ?? TextUtil.StripTags(description);
-
-                string combined = TextUtil.JoinSentences(new[] { titleText, descText });
-                if (string.IsNullOrWhiteSpace(combined)) return;
-
-                SpeakWindowMessage(combined + ".");
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"DialogueHandler.ShowEventInformation_Postfix: {ex.Message}");
             }
         }
 

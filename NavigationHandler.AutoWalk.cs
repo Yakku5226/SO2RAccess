@@ -228,7 +228,8 @@ namespace SO2RAccess
             // Fresh carve-oscillation (livelock) state for this walk.
             ResetLivelockState();
 
-            ScreenReader.Say(Loc.Get("nav_autowalk_start", item.Label));
+            _walkStartMessage = Loc.Get("nav_autowalk_start", item.Label);
+            ScreenReader.Say(_walkStartMessage);
             if (item.IsFishing) WarnIfNoFishingSkill();
             DebugLogger.LogState(
                 $"NAV auto-walk started. target={item.Label} " +
@@ -550,15 +551,21 @@ namespace SO2RAccess
             return false;
         }
 
+        /// <summary>The "Walking to X." line of the current walk, never replayed after its arrival.</summary>
+        private string _walkStartMessage;
+
         /// <summary>
         /// Announces an arrival message. If another message was spoken within
         /// the last half second (e.g. a tutorial popup), the arrival is combined
         /// with that message so the user hears both: arrival first, then the
-        /// interrupted message replayed after it.
+        /// interrupted message replayed after it. The walk's own start line is
+        /// the one exception: a target one step away arrives within that window
+        /// and used to read "Arrived at X. Walking to X." (log 2026-09-27).
         /// </summary>
         private void AnnounceArrival(string arrivalText)
         {
             string recent = ScreenReader.GetRecentMessage(ArrivalRecentWindow);
+            if (recent != null && recent == _walkStartMessage) recent = null;
             if (recent != null)
             {
                 ScreenReader.Say(arrivalText + " " + recent);
@@ -818,6 +825,10 @@ namespace SO2RAccess
         /// audit). Each segment is probed from its start over its own length in
         /// pieces no longer than the probe's reach, with the audit's slack so a
         /// corner cut close to a wall does not count. Names the first crossing.
+        /// The last <see cref="TargetBodyClearance"/> of the final leg is never a
+        /// crossing: that is the target's own body (an NPC's collider on L15 sat
+        /// 0.3 m before Scholarwoman1b and Nedeman 2 on 2026-09-27 and threw away
+        /// good routes).
         /// </summary>
         private static bool NavMeshPathCrossesWall(Vector3[] corners, out string blocker)
         {
@@ -825,6 +836,7 @@ namespace SO2RAccess
             if (corners == null || corners.Length < 2) return false;
             for (int i = 0; i < corners.Length - 1; i++)
             {
+                bool finalLeg = i == corners.Length - 2;
                 Vector3 p = corners[i], q = corners[i + 1];
                 Vector3 dir = new Vector3(q.x - p.x, 0f, q.z - p.z);
                 float len = dir.magnitude;
@@ -837,12 +849,75 @@ namespace SO2RAccess
                     Vector3 from = Vector3.Lerp(p, q, offset / len);
                     var r = WallProbe.ProbeDirection(from, dir, piece, describe: true);
                     if (!r.HasObstacle || r.Distance >= piece - WallAuditSlack) continue;
+                    if (finalLeg && len - (offset + r.Distance) < TargetBodyClearance) continue;
                     blocker = $"'{r.Collider ?? "?"}'/L{r.Layer} {r.Distance:F1} m into leg {i} " +
                               $"({p.x:F1},{p.y:F1},{p.z:F1})->({q.x:F1},{q.y:F1},{q.z:F1})";
                     return true;
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// Metres before the target within which a wall hit on the final leg is
+        /// taken to be the target itself (NPC body, door frame), not a wall.
+        /// </summary>
+        private const float TargetBodyClearance = 1.0f;
+
+        /// <summary>
+        /// Longest allowed gap between the player and the first breadcrumb, and
+        /// between the last breadcrumb and the target, for a recorded route to
+        /// count as proven. Breadcrumbs lie about 1.5 m apart, so anything longer
+        /// is a stretch nobody walked.
+        /// </summary>
+        private const float MaxProvenGap = 2.0f;
+
+        /// <summary>
+        /// A recorded route that may replace a COMPLETE NavMesh path. The graph
+        /// snaps both ends to the nearest breadcrumb within 6 m and appends the
+        /// exact target, so with few crumbs the "route" is one crumb plus a
+        /// straight line (North City shops and library, 2026-09-27: walked into
+        /// a display case for 30 s). Proven means: at least two distinct crumbs,
+        /// both synthetic gaps short, and no wall across any leg.
+        /// </summary>
+        private bool TryProvenTraversalRoute(Vector3 playerPos, Vector3 targetPos,
+            out Vector3[] corners)
+        {
+            corners = null;
+            if (!_traversal.FindPath(playerPos, targetPos, out var route) || route == null)
+                return false;
+
+            string reason = null;
+            if (route.Length < 3)
+                reason = "start and goal snap to the same breadcrumb";
+            else if (HorizontalDistance(playerPos, route[0]) > MaxProvenGap)
+                reason = $"first breadcrumb {HorizontalDistance(playerPos, route[0]):F1} m from the player";
+            else if (HorizontalDistance(route[route.Length - 2], targetPos) > MaxProvenGap)
+                reason = $"last breadcrumb {HorizontalDistance(route[route.Length - 2], targetPos):F1} m from the target";
+            else
+            {
+                // Probe the walk as it will be driven: player → crumbs → target.
+                var walked = new Vector3[route.Length + 1];
+                walked[0] = playerPos;
+                Array.Copy(route, 0, walked, 1, route.Length);
+                if (NavMeshPathCrossesWall(walked, out string blocker))
+                    reason = $"it crosses {blocker}";
+            }
+
+            if (reason != null)
+            {
+                DebugLogger.LogState($"NAV: breadcrumb route not proven — {reason}; keeping the NavMesh path.");
+                return false;
+            }
+            corners = route;
+            return true;
+        }
+
+        /// <summary>Distance in the XZ plane, ignoring height.</summary>
+        private static float HorizontalDistance(Vector3 a, Vector3 b)
+        {
+            float dx = a.x - b.x, dz = a.z - b.z;
+            return Mathf.Sqrt(dx * dx + dz * dz);
         }
 
         /// <summary>Copies an IL2CPP NavMeshPath corner array into a managed array.</summary>
@@ -959,9 +1034,9 @@ namespace SO2RAccess
             _lastPathFromTraversal = false;
 
             // 0. After a stuck on a NavMesh path: the recorded route first, when
-            //    there is one (see _preferTraversalRoute).
+            //    there is a proven one (see _preferTraversalRoute).
             if (_preferTraversalRoute && !isCounter && UseTraversal() &&
-                _traversal.FindPath(playerPos, targetPos, out var tcPreferred) && tcPreferred != null)
+                TryProvenTraversalRoute(playerPos, targetPos, out var tcPreferred))
             {
                 corners = tcPreferred;
                 fromTraversal = true;
@@ -977,7 +1052,7 @@ namespace SO2RAccess
                 //     door). When a recorded route exists, take that instead: it
                 //     was really walked, so this can only swap to a proven route.
                 if (!isCounter && UseTraversal() && NavMeshPathCrossesWall(corners, out string blocker)
-                    && _traversal.FindPath(playerPos, targetPos, out var tcWall) && tcWall != null)
+                    && TryProvenTraversalRoute(playerPos, targetPos, out var tcWall))
                 {
                     DebugLogger.LogState(
                         $"NAV: NavMesh path crosses {blocker} - taking the recorded breadcrumb route instead.");

@@ -71,6 +71,8 @@ namespace SO2RAccess
         private BonusGaugeHandler _bonusGaugeHandler;
         private SkillBookHandler _skillBookHandler;
         private DialogueChoiceHandler _dialogueChoiceHandler;
+        private EventInformationHandler _eventInformationHandler;
+        private EmotionBubbleHandler _emotionBubbleHandler;
         private PickpocketHandler _pickpocketHandler;
         private QuickRecoveryHandler _quickRecoveryHandler;
         private FieldPromptHandler _fieldPromptHandler;
@@ -158,6 +160,8 @@ namespace SO2RAccess
             _bonusGaugeHandler = new BonusGaugeHandler();
             _skillBookHandler = new SkillBookHandler();
             _dialogueChoiceHandler = new DialogueChoiceHandler();
+            _eventInformationHandler = new EventInformationHandler();
+            _emotionBubbleHandler = new EmotionBubbleHandler();
             _pickpocketHandler = new PickpocketHandler();
             _quickRecoveryHandler = new QuickRecoveryHandler();
             _fieldPromptHandler = new FieldPromptHandler();
@@ -726,6 +730,8 @@ namespace SO2RAccess
             _privateActionHandler.Update();
             _bonusGaugeHandler.Update();
             _dialogueChoiceHandler.Update();
+            _eventInformationHandler.Update();
+            _emotionBubbleHandler.Update();
             _pickpocketHandler.Update();
             _quickRecoveryHandler.Update();
             _fieldPromptHandler.Update();

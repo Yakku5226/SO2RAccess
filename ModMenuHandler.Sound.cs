@@ -121,7 +121,10 @@ namespace SO2RAccess
                     v => ModSettings.BonusGaugePercentAnnounceEnabled = v),
                 Toggle("mod_menu_label_prompt_speech",
                     () => ModSettings.PromptSpeechEnabled,
-                    v => ModSettings.PromptSpeechEnabled = v)
+                    v => ModSettings.PromptSpeechEnabled = v),
+                Toggle("mod_menu_label_emotion_bubbles",
+                    () => ModSettings.EmotionBubblesEnabled,
+                    v => ModSettings.EmotionBubblesEnabled = v)
             };
         }
 

@@ -861,7 +861,16 @@ Use the Fishing icon bubble (above) as the truth instead.
 Sweat, Exclamation, Question, Notice, Angry, Note, Gloomy, Heart, LightBulb, ColdSweat, Laugh,
 TurnPale, Exclamation2, Silence, SweatReverse, NoticeReverse, Sleep.
 `HideEmotion(string)` [CallerCount(15)], `HideAllEmotion()` [CallerCount(1)]. These are the
-"!" / "?" bubbles over NPCs (alerted enemies, reaction cues) — candidate for an optional cue.
+"!" / "?" bubbles over NPCs (alerted enemies, reaction cues) — and the heart over a party
+member after a private action, the game's only relationship-change signal (2026-09-27).
+**NOT hookable in practice: every ShowEmotion overload takes `ref Vector3`** (native crash rule).
+`EmotionBubbleHandler` polls instead: `GameUIManager.Instance.UIFieldController.emotionSelector`
+(`UIFieldEmotionSelector`) → `emotionPresenterList` (List<UIFieldEmotionPresenter>, pooled;
+`showEmotionDictionary` keys them by field object name). A presenter is shown while its
+GameObject is active; `EmotionType` is on the presenter, the followed transform is
+`followTask.followObjectTransform` (→ `GetComponentInParent<FieldPlayer>()` for party members;
+`CharacterParameter.CharacterID` casts to `PlayerID`, the GameObject name "CELINE" is the same
+enum name). Party bubbles are spoken "Name: heart.", others logged as `[GAME] EmotionBubble`.
 
 ### Area / mode banners
 - `ShowSymbolName(string)` / `ShowSymbolName(string, float)` — area-name banner [CallerCount(0)].
@@ -880,7 +889,15 @@ All on `UIFieldController`. CallerCount in brackets ( >=1 = hookable directly ):
 - `ShowLearningBattleSkillInformation(PlayerID, List<BattleSkillID>)` [4] — skill learned
 - `ShowOpenTalent(PlayerID, TalentID)` [2] — talent unlocked
 - `ShowFamliarInformation(FamiliarBirdType)` [1], `ShowFavorabilityInformation()` [0],
-  `AddFavorabilityNotification(PlayerID)` [4]
+  `AddFavorabilityNotification(PlayerID)` [4]. **Relationship change after a private action**
+  (2026-09-27): the game queues the PlayerIDs with `AddFavorabilityNotification` (hooked, enum
+  by value), then shows an icon-only toast — a `UIFieldFavorabilityInfromationStackData`
+  (`favorabilityIcon` + `characterIconFirst/Second` sprites, `information` empty, so it passed
+  the stack hook unspoken) and/or `UIFieldFavorabilityInformationPresenter.Set(List<PlayerID>)`
+  [2] (face icons; hooked — the only path seen 2026-09-27 10:38). Direction: prefix on
+  `EmotionParameter.SetFriendEmotion(PlayerID from, PlayerID to, short value)` [18] compares
+  `GetFriendEmotion(from,to)` with the new value (the status screen's percent is the same
+  number). NotificationHandler speaks "A and B: affection up/down." per queued pair, once per 2 s.
 - `ShowPlayerInformation(PlayerID, string, string soundName)` [2] — generic player toast
 - `ShowBouncedCheckInformation(int money)` [1]
 - `ShowCookingMasterFoodInformation(int itemID, int count)` [4] / `ShowCookingMasterStorageInformation()` [0]
@@ -1033,9 +1050,20 @@ These carry messageIDs for the floating/auto conversation bubbles and center-scr
 - `SetConversationAutoMessage(string messageID, string fieldObjectName, float stopTime, bool isPrevChoiceMessage)` — timed auto bubbles
 - `SetConversationMessageFollowObject(string messageID, string fieldObjectName)` — bubble following an object
 - `ShowCenterMessage(string messageID)` / `ShowEntireMessage(string messageID)` — center/full-screen text
-- `ShowEventInformation(string title, string description)` — event info panel
+- `ShowEventInformation(string title, string description)` — event info panel. **Its postfix
+  never fires** (library topics 2026-09-27: nothing logged while the panel was open — same as
+  the inlined caption methods). Poll instead: `UIConversationWindow.informationSelector`
+  (`uiEventInformationSelector : UISelectorBase`) → `IsShowing`, `title`/`description`
+  (GameText). `EventInformationHandler` speaks it on show and on text change.
 Resolve messageID → text via `TextManager.GetMessage(id, MessageType)` trying types 0, 100, 200
 in order; if result == id (unresolved), suppress rather than speak the raw key.
+
+Dialogue choice headings: `UISelectChoiceSelector.ShowSelectChoiceMessage(message, list)` sometimes
+receives a raw message key as the title (`sc00280_006`, `NPC_266_NEDEMAN1b_10000_CON_02` in the
+library). The displayed heading is `UISelectChoicePresenter.title` (GameText), shown only while
+`titleParent.activeInHierarchy`; read that, and drop hook titles that look like keys (no spaces,
+underscores). A choice whose text is only dots ("......") is the "say nothing" option — spoken as
+"Dot dot dot" (`dialogue_choice_ellipsis`) because screen readers skip punctuation.
 
 ### Guild quest screen (working readout recipe)
 Selection arrives via the universal `OnSelected` hook, `TryCast<UIQuestListItemPresenter>`:

@@ -305,8 +305,7 @@ namespace SO2RAccess
             int total = _choiceTexts?.Length ?? 0;
             int initialIndex = _selector.selectChoiceIndex;
             string initialChoice = GetChoiceText(initialIndex);
-            string cleanTitle = !string.IsNullOrEmpty(title)
-                ? NotificationHandler.StripTagsPublic(title) : "";
+            string cleanTitle = ReadPresenterTitle() ?? DisplayableHookTitle(title);
 
             string announcement;
             if (!string.IsNullOrEmpty(cleanTitle) && !string.IsNullOrEmpty(initialChoice))
@@ -370,7 +369,8 @@ namespace SO2RAccess
                     if (choicePresenter?.message != null)
                     {
                         string text = choicePresenter.message.text ?? "";
-                        _choiceTexts[i] = NotificationHandler.StripTagsPublic(text);
+                        _choiceTexts[i] = SpeakableChoiceText(
+                            NotificationHandler.StripTagsPublic(text));
                     }
                     else
                     {
@@ -392,6 +392,68 @@ namespace SO2RAccess
             if (_choiceTexts == null || index < 0 || index >= _choiceTexts.Length)
                 return "";
             return _choiceTexts[index];
+        }
+
+        /// <summary>
+        /// A choice made only of dots ("......", the game's "say nothing / leave"
+        /// option in the North City library) is swallowed by screen readers, which
+        /// skip punctuation. Spoken as the localized "Dot dot dot" instead, faithful
+        /// to what a sighted player sees. Any other text passes through unchanged.
+        /// </summary>
+        private static string SpeakableChoiceText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return text;
+            foreach (char c in text)
+            {
+                if (c != '.' && c != '…' && c != '・' && !char.IsWhiteSpace(c))
+                    return text;
+            }
+            return Loc.Get("dialogue_choice_ellipsis");
+        }
+
+        /// <summary>
+        /// The heading the choice window really shows: the presenter's own title
+        /// text, and only while its title parent is active. Null when the window
+        /// shows no heading, so the caller can fall back to the hook's text.
+        /// </summary>
+        private static string ReadPresenterTitle()
+        {
+            try
+            {
+                var presenter = _selector?.selectChoicePresenter;
+                if (presenter == null) return null;
+                var parent = presenter.titleParent;
+                if (parent == null || !parent.activeInHierarchy) return null;
+                var title = presenter.title;
+                if (title == null) return null;
+                string text = NotificationHandler.StripTagsPublic(title.text ?? "");
+                return string.IsNullOrWhiteSpace(text) ? null : text;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"DialogueChoiceHandler.ReadPresenterTitle: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The hook's title is sometimes a raw message key instead of display text
+        /// (library topics 2026-09-27: 'sc00280_006', 'NPC_266_NEDEMAN1b_10000_CON_02').
+        /// A key has no spaces and carries underscores; such a title is dropped
+        /// rather than read out as gibberish.
+        /// </summary>
+        private static string DisplayableHookTitle(string title)
+        {
+            if (string.IsNullOrEmpty(title)) return "";
+            string clean = NotificationHandler.StripTagsPublic(title);
+            bool looksLikeKey = !clean.Contains(' ') && clean.Contains('_');
+            if (looksLikeKey)
+            {
+                DebugLogger.LogState(
+                    $"DialogueChoiceHandler: hook title '{clean}' is a message key — not spoken.");
+                return "";
+            }
+            return clean;
         }
 
         #endregion
