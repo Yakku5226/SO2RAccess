@@ -768,23 +768,13 @@ namespace SO2RAccess
                 && Mathf.Abs(_guideTarget.y - playerPos.y) <= ArrivalVerticalTolerance;
         }
 
-        /// <summary>Reads the controlled player's position; false when not on a field.</summary>
+        /// <summary>
+        /// Reads the controlled position (player, bunny, or the psynard while
+        /// flying — spoken directions run in straight-bearing mode on it);
+        /// false when not on a field.
+        /// </summary>
         private static bool TryGetPlayerPosition(out Vector3 position)
-        {
-            position = Vector3.zero;
-            try
-            {
-                var player = FieldManager.Instance?.GetControlPlayer();
-                if (player == null) return false;
-                position = player.transform.position;
-                return true;
-            }
-            catch (Exception ex)
-            {
-                DebugLogger.LogState($"NAV guidance: player fetch failed: {ex.Message}");
-                return false;
-            }
-        }
+            => FieldState.TryGetControlPosition(out position);
 
         /// <summary>Horizontal (XZ) distance between two world positions.</summary>
         private static float FlatDistance(Vector3 a, Vector3 b)

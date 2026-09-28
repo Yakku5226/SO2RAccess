@@ -255,6 +255,7 @@ namespace SO2RAccess
             _subtitleHandler?.OnSceneChanged();
             _fieldPromptHandler?.OnSceneChanged();
             ConfigMenuHandler.OnSceneChanged();
+            MiniGameTrace.OnSceneChanged();
 
             // Apply patches once — safe to call on every scene load, handlers guard against duplicates.
             _titleHandler.ApplyPatches(_harmony);
@@ -294,6 +295,8 @@ namespace SO2RAccess
 
             // Log-only diagnostics for docs/review-2026-09-19.md (temporary).
             ReviewProbes.ApplyPatches(_harmony);
+            // Log-only survey of the Fun City minigame screens (temporary).
+            MiniGameTrace.ApplyPatches(_harmony);
         }
 
         /// <summary>
@@ -740,6 +743,7 @@ namespace SO2RAccess
             _listSelectionHandler.Update();
             _subtitleHandler.Update();
             ReviewProbes.Update();
+            MiniGameTrace.Update();
         }
 
         #endregion

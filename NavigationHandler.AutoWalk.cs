@@ -79,6 +79,20 @@ namespace SO2RAccess
             // itself is an exit (the player explicitly wants to walk through it).
             _autoWalkAllowExit = IsExitCategory(_currentCategoryIndex);
 
+            // Flying is kept apart from walking: a mounted party gets the flight
+            // driver (NavigationHandler.Psynard.cs), never the route planner or
+            // the walking stick injection.
+            if (_isWorldmap && FieldState.IsRidingPsynard())
+            {
+                if (!FieldState.TryGetControlPosition(out Vector3 mountPos))
+                {
+                    ScreenReader.Say(Loc.Get("nav_not_in_field"));
+                    return;
+                }
+                StartAutoFly(item, mountPos);
+                return;
+            }
+
             // Calculate a NavMesh path before committing to the walk.
             Vector3 playerPos;
             try
@@ -248,6 +262,9 @@ namespace SO2RAccess
         /// </summary>
         public void CancelAutoWalk()
         {
+            // The movement-key / stick / scene-change cancel gestures reach a
+            // flight through here too (Main sees one IsAutoWalking).
+            CancelAutoFly();
             if (!_isAutoWalking) return;
             _isAutoWalking         = false;
             _autoWalkArrived       = false;

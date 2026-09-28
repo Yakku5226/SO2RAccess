@@ -264,6 +264,7 @@ namespace SO2RAccess
             if (list == null) return;
 
             var items = new List<NavItem>();
+            var discoveredItems = new List<NavItem>();
             for (int i = 0; i < list.Count; i++)
             {
                 var marker = list[i];
@@ -286,13 +287,30 @@ namespace SO2RAccess
                     $"id={marker.locationPointID} dist={dist:F1} " +
                     $"sparkle={hasSparkle} discovered={discovered}");
 
-                // Hide only points the player has ALREADY discovered (persistent
-                // released flag). Do NOT gate on the sparkle: it is distance-gated,
-                // so a far undiscovered point (e.g. the Old Lighthouse, ~65 m away
-                // and ~12 m up a tower) has no sparkle yet but must still be listed.
-                // Confirmed via NAV:MARKER:LIVE log: sparkle=False / discovered=False
-                // at the town entrance was wrongly filtered out before this change.
-                if (discovered) continue;
+                // Do NOT gate on the sparkle: it is distance-gated, so a far
+                // undiscovered point (e.g. the Old Lighthouse, ~65 m away and
+                // ~12 m up a tower) has no sparkle yet but must still be listed.
+                // Discovered points (persistent released flag) stay listed too,
+                // under the name the game now shows for them — a discovered
+                // landmark is still a place to go back to (2026-09-27: "For a Few
+                // Fol More" vanished from the list the moment the psynard flew
+                // over it). Unresolvable names fall back to a generic label.
+                if (discovered)
+                {
+                    string name = ResolveLocationPointName(marker.locationPointID, out string nameNote);
+                    DebugLogger.LogState(
+                        $"NAV:MARKER: discovered {marker.locationPointID} → " +
+                        (name != null ? $"'{name}'" : "no name") + $" ({nameNote}).");
+                    discoveredItems.Add(new NavItem
+                    {
+                        Label         = name ?? Loc.Get("nav_marker_discovered"),
+                        Distance      = dist,
+                        Position      = pos,
+                        LiveTransform = marker.transform,
+                        Identity      = "locpoint:" + marker.locationPointID,
+                    });
+                    continue;
+                }
 
                 items.Add(new NavItem
                 {
@@ -315,7 +333,84 @@ namespace SO2RAccess
                 }
             }
 
+            // Discovered landmarks follow the undiscovered ones; nameless ones
+            // are numbered among themselves.
+            SortAndFilterUnreachable(discoveredItems, playerPos);
+            int nameless = 0;
+            for (int i = 0; i < discoveredItems.Count; i++)
+            {
+                var item = discoveredItems[i];
+                if (item.Label != Loc.Get("nav_marker_discovered")) continue;
+                nameless++;
+                item.Label = Loc.Get("nav_marker_discovered_n", nameless);
+                discoveredItems[i] = item;
+            }
+            if (nameless == 1)
+            {
+                int idx = discoveredItems.FindIndex(it => it.Label == Loc.Get("nav_marker_discovered_n", 1));
+                var item = discoveredItems[idx];
+                item.Label = Loc.Get("nav_marker_discovered");
+                discoveredItems[idx] = item;
+            }
+
             _categories[CAT_MARKER].AddRange(items);
+            _categories[CAT_MARKER].AddRange(discoveredItems);
+        }
+
+        /// <summary>
+        /// The name the game shows for a discovered location point: its
+        /// <c>locationNameID</c> from the map's location point table, resolved
+        /// through the System message table like the world map symbol names.
+        /// Null when the table lacks the point or the key does not resolve;
+        /// <paramref name="note"/> says which, for the log.
+        /// </summary>
+        private static string ResolveLocationPointName(LocationPointID id, out string note)
+        {
+            note = null;
+            try
+            {
+                var fm = FieldManager.Instance;
+                var pm = ParameterManager.Instance;
+                var tm = TextManager.Instance;
+                if (fm == null || pm == null) { note = "no managers"; return null; }
+
+                var list = pm.GetLocationPointParameterList(fm.currentFieldmapID);
+                if (list == null) { note = "map has no location point table"; return null; }
+
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var p = list[i];
+                    if (p == null || p.locationPointID != id) continue;
+                    string key = p.locationNameID;
+                    if (string.IsNullOrEmpty(key)) { note = "empty locationNameID"; return null; }
+                    // System keys resolve for localities but not for landmarks
+                    // (confirmed 2026-09-27: 'LOCATION_POINT_011' echoed back);
+                    // the other two message tables are tried before giving up.
+                    if (tm != null)
+                    {
+                        foreach (var type in new[] { TextManager.MessageType.System,
+                                                     TextManager.MessageType.Skill,
+                                                     TextManager.MessageType.Item })
+                        {
+                            string text = tm.GetMessage(key, type);
+                            if (!string.IsNullOrEmpty(text) && text != key)
+                            {
+                                note = $"key '{key}' via {type}";
+                                return text;
+                            }
+                        }
+                    }
+                    note = $"key '{key}' did not resolve in any message table";
+                    return null;
+                }
+                note = "point not in the table";
+                return null;
+            }
+            catch (Exception ex)
+            {
+                note = $"exception: {ex.Message}";
+                return null;
+            }
         }
 
         /// <summary>

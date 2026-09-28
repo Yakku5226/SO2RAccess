@@ -39,6 +39,7 @@ namespace SO2RAccess
         private static void GetLeftStick_Postfix(ref Vector2 __result)
         {
             if (!_staticIsAutoWalking || _wmDirectMoveActive) return;
+            if (_staticIsAutoFlying) _flyLeftStickReads++; // which query the flight reads
             __result = _staticAutoWalkStickDir;
         }
 
@@ -52,6 +53,7 @@ namespace SO2RAccess
         private static void GetPlayerControlStick_Postfix(ref Vector2 __result)
         {
             if (!_staticIsAutoWalking || _wmDirectMoveActive) return;
+            if (_staticIsAutoFlying) _flyControlStickReads++;
             __result = _staticAutoWalkStickDir;
         }
 
@@ -135,6 +137,16 @@ namespace SO2RAccess
             if (ModMenuHandler.SuppressAllGameInput)
             {
                 __result = false;
+                return false;
+            }
+
+            // Auto-fly holds the boost for the player while the mount points near
+            // the bearing: the psynard hovers without it (L1 / Left Shift,
+            // hold-to-fly — user-confirmed 2026-09-27) and does ~85 m/s with it.
+            if (_staticIsAutoFlying
+                && inputAction == GameInputManager.InputAction.FieldPsynardHighSpeedAdvance)
+            {
+                __result = _staticFlyBoost;
                 return false;
             }
 

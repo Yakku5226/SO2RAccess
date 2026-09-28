@@ -37,7 +37,9 @@ namespace SO2RAccess
         /// <summary>FieldGimmick13 / FieldGimmick14Panel: a floor panel that reacts when stepped on.</summary>
         FloorPanel,
         /// <summary>Any other gimmick that waits for a button press. The generic, fair label.</summary>
-        Mechanism
+        Mechanism,
+        /// <summary>The parked psynard on the world map (NavigationHandler.Psynard.cs). Not a gimmick class.</summary>
+        Psynard
     }
 
     /// <summary>

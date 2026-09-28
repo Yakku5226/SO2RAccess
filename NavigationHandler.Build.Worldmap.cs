@@ -19,10 +19,39 @@ namespace SO2RAccess
         /// Shared by the nav list and the bake survey so both name a town the
         /// same way.
         /// </summary>
+        /// <summary>True when the game has spawned a map icon for this locality (what a sighted player sees).</summary>
+        private static bool HasRuntimeSymbol(WorldmapSymbol[] runtimeSymbols, LocalityID localityID)
+        {
+            if (runtimeSymbols == null) return false;
+            try
+            {
+                for (int i = 0; i < runtimeSymbols.Length; i++)
+                {
+                    var rs = runtimeSymbols[i];
+                    if (rs != null && rs.LocalityID == localityID) return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV: runtime symbol scan for {localityID}: {ex.Message}");
+            }
+            return false;
+        }
+
         internal static string ResolveWorldmapSymbolName(ParameterManager pm, TextManager tm,
             ConstWorldmapSymbolParameter sym, int index)
+            => ResolveWorldmapSymbolName(pm, tm, sym, index, out _);
+
+        /// <summary>
+        /// Display name of a world map symbol. <paramref name="fromLocality"/> is
+        /// true when the name came from the locality table (a real place); false
+        /// when it fell back to the raw symbol name or a numbered placeholder.
+        /// </summary>
+        internal static string ResolveWorldmapSymbolName(ParameterManager pm, TextManager tm,
+            ConstWorldmapSymbolParameter sym, int index, out bool fromLocality)
         {
             string name = null;
+            fromLocality = false;
             try
             {
                 var localityParam = pm.GetLocalityParameter(sym.localityID);
@@ -30,7 +59,10 @@ namespace SO2RAccess
                 {
                     string nameKey = localityParam.localityNameID;
                     if (!string.IsNullOrEmpty(nameKey) && tm != null)
+                    {
                         name = tm.GetMessage(nameKey, TextManager.MessageType.System);
+                        if (name == nameKey) name = null; // unresolved key echoed back
+                    }
                 }
             }
             catch { }
@@ -40,7 +72,47 @@ namespace SO2RAccess
                 name = sym.SymbolName;
                 if (string.IsNullOrEmpty(name)) name = $"Location {index}";
             }
+            else
+            {
+                fromLocality = true;
+            }
             return name;
+        }
+
+        /// <summary>A hidden symbol counts as revealed when a discovered landmark point lies within this distance.</summary>
+        private const float RevealLandmarkRadius = 80f;
+
+        /// <summary>
+        /// True when a location point of the current map within
+        /// <paramref name="radius"/> of <paramref name="pos"/> carries the
+        /// persistent discovered flag (the game's hover-over reveal of a hidden
+        /// place sets it, e.g. LOCATION_POINT_036 65 m from the Nede shop).
+        /// </summary>
+        private static bool HasDiscoveredLandmarkNear(ParameterManager pm, Vector3 pos, float radius, out float nearest)
+        {
+            nearest = float.MaxValue;
+            try
+            {
+                var fm = FieldManager.Instance;
+                if (fm == null) return false;
+                var list = pm.GetLocationPointParameterList(fm.currentFieldmapID);
+                var user = pm.UserParameter;
+                if (list == null || user == null) return false;
+                bool found = false;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var p = list[i];
+                    if (p == null || !user.GetReleasedLocationPointFlag(p.locationPointID)) continue;
+                    float d = FlatDistance(pos, p.position);
+                    if (d <= radius && d < nearest) { nearest = d; found = true; }
+                }
+                return found;
+            }
+            catch (Exception ex)
+            {
+                DebugLogger.LogState($"NAV: discovered landmark scan failed: {ex.Message}");
+                return false;
+            }
         }
 
         /// <summary>
@@ -118,14 +190,36 @@ namespace SO2RAccess
 
                     // Resolve display name: localityID → locality parameter → name.
                     var localityID = sym.localityID;
-                    string name = ResolveWorldmapSymbolName(pm, tm, sym, i);
+                    string name = ResolveWorldmapSymbolName(pm, tm, sym, i, out bool namedPlace);
 
-                    // Only cities and dungeons become navigable list items.
-                    // EVERY symbol goes to the debug log first — the survey
-                    // that tells us which icon types the data actually
-                    // contains, so list coverage is decided from evidence.
+                    // Cities and dungeons are always navigable list items. Any
+                    // other NAMED symbol (the hidden shop "For a Few Fol More" on
+                    // Nede has icon type INVALID, 2026-09-27; unnamed INVALID
+                    // symbols such as 'ob_2141_14a' are scenery) is listed only
+                    // once the game itself shows it: its runtime icon exists in
+                    // the scene, its map has been visited, or the landmark point
+                    // beside it has been discovered (the hover-over reveal) — the
+                    // fairness rule: a sighted player sees exactly that icon.
+                    // Always-on log line, like [WMReach].
                     bool listed = iconType == MapIconType.CITY
                         || iconType == MapIconType.DUNGEON;
+                    if (!listed && namedPlace)
+                    {
+                        bool runtimeIcon = HasRuntimeSymbol(runtimeSymbols, localityID);
+                        bool visited = false;
+                        try { visited = pm.UserParameter.GetVisitedFieldmapFlag(localityID); }
+                        catch (Exception ex) { DebugLogger.LogState($"NAV: visited flag for {localityID}: {ex.Message}"); }
+                        bool landmark = HasDiscoveredLandmarkNear(pm, sym.Position, RevealLandmarkRadius, out float landmarkDist);
+                        listed = runtimeIcon || visited || landmark;
+                        MelonLoader.MelonLogger.Msg(
+                            $"[WMSymbol] '{name}' icon={iconType} runtimeIcon={runtimeIcon} visited={visited} " +
+                            $"discoveredLandmarkNear={landmark}{(landmark ? $" ({landmarkDist:F0} m)" : "")} → " +
+                            (listed ? "LISTED (revealed)" : "hidden until the game reveals it"));
+                    }
+                    else if (!listed)
+                    {
+                        MelonLoader.MelonLogger.Msg($"[WMSymbol] '{name}' icon={iconType} has no locality name — scenery, skipped.");
+                    }
                     DebugLogger.LogGameValue("NAV:WM:SYMBOL",
                         $"[{name}] icon={iconType} progress=[{start},{end}] " +
                         (listed

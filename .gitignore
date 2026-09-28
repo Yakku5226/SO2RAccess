@@ -34,3 +34,6 @@ Sounds/*
 
 # Candidate sound samples for future features (not shipped; bundled cues live in soundcues\)
 sound-samples/
+
+# Saved game logs for analysis (large, session-specific)
+logs/

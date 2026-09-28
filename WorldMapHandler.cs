@@ -236,14 +236,68 @@ namespace SO2RAccess
                 string name = item.locationName ?? "";
                 if (!item.canSelected)
                     name = Loc.Get("worldmap_unavailable", name);
+                name = AppendRowExtras(name, item.localityID, item.iconList, out string extras);
 
                 ScreenReader.Say(name);
-                DebugLogger.LogGameValue("WorldMap:Location", $"idx={idx} name={name}");
+                DebugLogger.LogGameValue("WorldMap:Location",
+                    $"idx={idx} name={name} canBeFastTravel={item.canBeFastTravel} {extras}");
             }
             catch (Exception ex)
             {
                 DebugLogger.LogState($"WorldMap: location read error: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// Icon sprite name → spoken label. Measured 2026-09-27 (log 18:42):
+        /// icon_map_pa_event (Fun City), icon_map_pa_event_limited (Princebridge,
+        /// a limited-time private action) and icon_map_scenario_event (the
+        /// Centropolis, a main story event). Speaking the drawn sprites keeps
+        /// the row exactly as fair as the screen; unknown sprites are only logged.
+        /// </summary>
+        private static readonly System.Collections.Generic.Dictionary<string, string> RowIconLabels =
+            new System.Collections.Generic.Dictionary<string, string>
+            {
+                { "icon_map_pa_event",         "worldmap_pa_available" },
+                { "icon_map_pa_event_limited", "worldmap_pa_limited" },
+                { "icon_map_scenario_event",   "worldmap_scenario_event" },
+            };
+
+        /// <summary>
+        /// Adds what the row's icons tell a sighted player (private action,
+        /// limited-time private action, story event). The game's own
+        /// EventUtility.IsExistPrivateActionEvent verdict is logged next to the
+        /// sprite names as a cross-check (they agreed on every row in the 18:42
+        /// log), and any sprite without a label is logged for a future mapping.
+        /// </summary>
+        private static string AppendRowExtras(string name, LocalityID localityID,
+            Il2CppSystem.Collections.Generic.List<UnityEngine.Sprite> icons, out string logExtras)
+        {
+            bool privateAction = false;
+            try { privateAction = EventUtility.IsExistPrivateActionEvent(localityID, true, true); }
+            catch (Exception ex) { DebugLogger.LogState($"WorldMap: private action lookup failed: {ex.Message}"); }
+
+            var parts = new System.Collections.Generic.List<string> { name };
+            var iconNames = new System.Collections.Generic.List<string>();
+            try
+            {
+                if (icons != null)
+                {
+                    for (int i = 0; i < icons.Count; i++)
+                    {
+                        string spriteName = icons[i] != null ? icons[i].name : "null";
+                        iconNames.Add(spriteName);
+                        if (RowIconLabels.TryGetValue(spriteName, out string key))
+                            parts.Add(Loc.Get(key));
+                        else
+                            DebugLogger.LogState($"WorldMap: row icon '{spriteName}' has no spoken label yet.");
+                    }
+                }
+            }
+            catch (Exception ex) { iconNames.Add($"unreadable: {ex.Message}"); }
+
+            logExtras = $"locality={localityID} privateAction={privateAction} icons=[{string.Join(", ", iconNames)}]";
+            return string.Join(", ", parts);
         }
 
         /// <summary>
@@ -289,9 +343,10 @@ namespace SO2RAccess
                     string name = locItem.locationName ?? "";
                     if (!locItem.canSelected)
                         name = Loc.Get("worldmap_unavailable", name);
+                    name = AppendRowExtras(name, locItem.localityID, locItem.iconList, out string extras);
 
                     ScreenReader.Say(name);
-                    DebugLogger.LogGameValue("WorldMap:SubArea", $"idx={idx} name={name}");
+                    DebugLogger.LogGameValue("WorldMap:SubArea", $"idx={idx} name={name} {extras}");
                     return;
                 }
 

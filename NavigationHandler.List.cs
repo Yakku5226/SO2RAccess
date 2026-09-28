@@ -23,6 +23,9 @@ namespace SO2RAccess
         /// <summary>Time.time when the background list was last built.</summary>
         private float _listBuiltTime;
 
+        /// <summary>World map travel mode the list was built in (reuse is refused after a mount change).</summary>
+        private WorldmapTravelMode _listBuiltTravelMode = WorldmapTravelMode.Foot;
+
         /// <summary>
         /// Age at which a category-cycle key rebuilds the background list.
         /// Item keys never refresh, so item order stays stable while cycling.
@@ -81,6 +84,11 @@ namespace SO2RAccess
             if (_guideActive && !_isAutoWalking)
             {
                 CancelGuidanceSpoken();
+                return true;
+            }
+            if (_flyActive)
+            {
+                CancelAutoFlySpoken();
                 return true;
             }
             if (_isAutoWalking)
@@ -195,7 +203,13 @@ namespace SO2RAccess
         {
             DebugLogger.LogState("GamepadOpenNav called.");
 
-            if (_isAutoWalking)
+            if (_flyActive)
+            {
+                // Same side effect as for a walk: say that the flight ended.
+                DebugLogger.LogState("GamepadOpenNav: cancelling auto-fly first.");
+                CancelAutoFlySpoken();
+            }
+            else if (_isAutoWalking)
             {
                 // Opening the menu cancels the walk as a SIDE EFFECT — say so,
                 // or the player believes the walk is still running (proven by
@@ -335,14 +349,12 @@ namespace SO2RAccess
         {
             try
             {
-                var player = FieldManager.Instance?.GetControlPlayer();
-                if (player != null)
+                if (FieldState.TryGetControlPosition(out Vector3 playerPos))
                 {
                     Vector3 target = item.LiveTransform != null
                         ? item.LiveTransform.position
                         : item.Position;
-                    return DistanceUnits(
-                        Vector3.Distance(player.transform.position, target));
+                    return DistanceUnits(Vector3.Distance(playerPos, target));
                 }
             }
             catch (Exception ex)
@@ -404,10 +416,12 @@ namespace SO2RAccess
                 if (fm.currentFieldmapID != _listBuiltMapID) return false;
                 if (_categories[CAT_LOCATION].Count == 0) return false;
                 if (Time.time - _listBuiltTime > WorldmapListReuseSeconds) return false;
+                // Mounting or dismounting changes the reachability annotations
+                // and the psynard row — a full rebuild, never the stale list
+                // ("Flying to X, unreachable on foot", 2026-09-27 15:11).
+                if (WorldmapTravel.CurrentMode() != _listBuiltTravelMode) return false;
 
-                var player = fm.GetControlPlayer();
-                if (player == null) return false;
-                Vector3 playerPos = player.transform.position;
+                if (!FieldState.TryGetControlPosition(out Vector3 playerPos)) return false;
 
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 _isWorldmap = true;
@@ -445,14 +459,14 @@ namespace SO2RAccess
                     return false;
                 }
 
-                var player = fm.GetControlPlayer();
-                if (player == null)
+                // The psynard counts: while flying there is no control player,
+                // the mount itself is where the party is.
+                if (!FieldState.TryGetControlPosition(out Vector3 playerPos))
                 {
                     ScreenReader.Say(Loc.Get("nav_not_in_field"));
                     return false;
                 }
 
-                Vector3    playerPos = player.transform.position;
                 FieldmapID mapID     = fm.currentFieldmapID;
                 _isWorldmap = fm.IsWorldmap();
                 var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -489,6 +503,7 @@ namespace SO2RAccess
                     BuildEnemies(playerPos);
                     BuildMarkers(fm.FieldLocationPointList, playerPos);
                     BuildFishingSpots(playerPos);
+                    BuildParkedPsynard(playerPos); // NavigationHandler.Psynard.cs
                     LogWorldmapObjectSurvey(fm);
                 }
                 else
@@ -534,6 +549,7 @@ namespace SO2RAccess
 
                 _listBuiltMapID = mapID;
                 _listBuiltTime  = Time.time;
+                _listBuiltTravelMode = _isWorldmap ? WorldmapTravel.CurrentMode() : WorldmapTravelMode.Foot;
 
                 if (totalItems == 0)
                 {

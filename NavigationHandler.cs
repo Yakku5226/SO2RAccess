@@ -419,8 +419,11 @@ namespace SO2RAccess
         /// <summary>Whether the navigation list is currently open.</summary>
         public bool IsListOpen => _isOpen;
 
-        /// <summary>Whether the player is currently being auto-walked to a target.</summary>
-        public bool IsAutoWalking => _isAutoWalking;
+        /// <summary>
+        /// Whether the player is currently being auto-walked (or, mounted on the
+        /// psynard, auto-flown) to a target. Main uses it for the cancel gestures.
+        /// </summary>
+        public bool IsAutoWalking => _isAutoWalking || _flyActive;
 
         #endregion
 
@@ -606,6 +609,9 @@ namespace SO2RAccess
             // auto-walk, which supersedes it.
             if (_guideActive && !_isAutoWalking)
                 GuidanceTick();
+
+            // Psynard flight (NavigationHandler.Psynard.cs) — separate from walking.
+            UpdateAutoFly();
 
             if (!_isAutoWalking) return;
 
