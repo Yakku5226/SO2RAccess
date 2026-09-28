@@ -1572,8 +1572,126 @@ lines, "DISAGREES" when the grid and CalcHeight differ by > 5 m. **Grid slots:**
 slot per WorldmapID; a missing grid is latched (`[WMGrid] {map}: no grid available`), loading one planet releases
 the other (`[WMGrid] released …`).
 
+## 25. Fun City Minigames: Bunny Race, Cooking Master, Coliseum (2026-09-28)
+
+Source: survey log `logs\2026-09-27_minigame_survey.log` (MiniGameTrace, all 13 hooks fired) + decompiled
+class survey 2026-09-28. All three windows are `UIStackSelectorWindowBase` (poll `IsOpened`/`GetCurrentState()`;
+`OnShowSelector(selector, isPush)` and `PushSelector` are the state-change hooks). Il2Cpp exposes every field as a
+same-named property. Native cursor moves fire NO hooks on the choice pickers — poll the index.
+Fortune Teller's Mansion (mf_0043_29a) is pure dialogue choices — already accessible, nothing to do.
+
+### 25.1 Bunny race — `UIBunnyRaceWindow` (mf_0043_25a reception, 51a stadium)
+- State enum `UIDefine.BunnyRaceState`: None 0, MedalShop 1, Bet 2, NumberFlag 3. Fields `medalShopSelector`,
+  `betSelector`, `numberFlagSelector`; property `OpenBunnyRaceState`.
+- **Medal shop** `UIBunnyRaceMedalShopSelector : UISelectorBase` (digit entry, NOT a list, silent today): fields
+  `buyMedalCount`, `digit`, `medalShopPresenter`; `UpdateMedalCount(int newMedalCount, bool isUp)` postfix fires per
+  press (hook proven). The game clamps: `newMedalCount` may exceed `buyMedalCount` (3 vs limit 2) — read
+  `buyMedalCount` after the call. Presenter texts: `buyMedalLabelText` ("Me-ow many medals? (2 left)"),
+  `buyMedalCountText`, `totalMoneyCountText` (shows '000000' while clamped/animating — compute count × price
+  instead), `retainedMedalText`, `retainedMoneyText`. Price/limit live on `BunnyRaceManager` (singleton):
+  `GetBunnyRaceMedalPrice()` (1000), `GetMaxBunnyRaceExchangeMedal()`, `GetBunnyRaceMedal()`. `OnDecision` opens
+  the yes/no purchase dialog (spoken already).
+- **Bet screen** `UIBunnyRaceBetSelector : UIListSelectorBase`: rows `UIBunnyRaceListBetItemPresenter`
+  (`pairText`, `itemNameText`, `itemCountText`) from `UIBunnyRaceListBetItemData` { `message`, `itemName`,
+  `itemCount` (= prize QUANTITY, not odds), `firstBunnyID`, `secondBunnyID`, `isPredictPair` (tipster's pick) }.
+  `GetPairText(first, second)` → "1-2". Header columns "1st | 2nd | Rewards". `medalText` = medals held.
+  `raceName` text is a Japanese placeholder ("shop name") — never speak it; use `BunnyRaceManager.CurrentRaceNameID`
+  if a name is wanted. Paddock: `paddockPresenter` (`UIBunnyRacePaddockPresenter`) texts `bunnyIndexText`,
+  `bunnyNameText`, `bunnySpeedText`, `bunnyStaminaText`, `bunnyPersonalityText`; `conditionObj` (icon only, no text;
+  `GetConditionSprite(int condition)`; source `RaceBunnyParameter.Condition`). L1/R1 = `OnLeftTrigger/OnRightTrigger`
+  → `SelectCharaInfo(bool isRight)` (postfix proven; `bunnyIndex`, `lastSelectedBunnyIndex`) →
+  `ShowBunnyInfoAt(int index)` (postfix proven). Bet confirm → `BunnyRaceManager.Bet(first, second, medals)`;
+  `BunnyRaceBetInfo { FirstBetBunnyID, SecondBetBunnyID, BetMedalCount }`. `CalcWinRate(a, b)` exists but is not
+  shown to sighted players — do not speak it.
+- **Race** (state 3) `UIBunnyRaceNumberFlagSelector`: world-space number labels following the bunnies — no
+  standings. Live order from `BunnyRaceManager`: `BunnyList` (FieldRaceBunny: `BunnyParameter.Progress`,
+  `LoopCount`, `IsPassedHalfwayPoint`, `CurrentSpeed`), `GetFirstBunny()`, `IsFirstBunny(bunny)`,
+  `OnGoal(FieldRaceBunny)` hook, `GoalBunnyList`, `GetAcquiredMedal()`, `GetAcquiredRewardID()`. Commentary is
+  spoken by the dialogue handler ("Goal!! In first place, Number 1 …").
+- `RaceBunnyParameter`: `BunnyID`, `Number`, `Speed`, `Stamina` (floats), `Condition`, `Personality`
+  (`BunnyPersonality` INVALID/HOTBLOOD/LAIDBACK/MOODYPERSON/CALM), `Strength`, `StrengthMax`, `Progress`.
+
+### 25.2 Cooking master — `UICookingMasterWindow` (28a front desk, 53a hall)
+- State enum `UIDefine.CookingMasterState`: CookSelect 1, FoodSelect 2, Information 3, RhythmGame 4, Signal 5.
+  Fields `cookListSelector`, `foodSelector`, `informationSelector`, `rhythmGameSelector`, `signalSelector`;
+  `PushSelector(state)`, `OnShowSelector`, `IsShowingFoodSelector()`, `CookPlayerID`, `SelectEnemyCookID`.
+- **Cook select** `UICookingMasterCookListSelector : UISelectorBase` (SILENT today): `cookChoicePresenter`
+  (`UISelectChoicePresenter`), `selectChoiceIndex`, `choiceDataList` (`UIChoiceData.message` = name,
+  `canDecision`), `cacheValidPlayerIDList[selectChoiceIndex]` = PlayerID, `selectState` (Player 0 / Enemy 1),
+  `OnUp/OnDown` (no repeat arg), `UpdatePresenter()` fires once on open only — poll the index.
+- **Signals** `UICookingMasterSignalPresenter.Set(string, SignalState)` / `Set(left, right, SignalState)` (postfix
+  proven): SignalState Invalid 0, BattleTheme 1 ("Slime Battle"), Start 2 ("Begin!"), Timeup 3, PlayerPressureKO 4,
+  EnemyPressureKO 5.
+- **HUD** `UICookingMasterInformationSelector`: `timerPresenter` (`timerText`; `SetTimerText(ulong, Color)`),
+  `basketPresenter` (`basketText` "62/80"; `SetBasketText(int count, int max)`), `playerScorePresenter` /
+  `enemyScorePresenter` (`UICookingMasterScorePresenter`: `scoreText`, `currentScore`, `SetScore(int score, float
+  slideTime, bool slide)`, own `addScorePresenter` → the "+50" popup belongs to that side), `pressurePresenter`
+  (`SetPlayerPressure(float, float max)`, `SetEnemyPressure`), `namePresenter` (`playerName`, `playerCookName`,
+  `enemyName`, `enemyCookName`), `enemyRhythmGamePresenter` (`SetCookingMaterial(int[] ids, float)`,
+  `SetCookingResult(CookingResultData[] { cookingItemID, isSuccess, score }, float)`). Observed: the opponent's
+  score ticked to 1000 while the player only gathered — the ticking number + "+N" in the dump was the ENEMY side.
+- Raw state `CookingMasterManager` (singleton): `PlayerParameter` / `EnemyCook.Parameter`
+  (`CookingMasterBattleParameterBase`: `Pressure`, `Score`, `CookingLevel`), `Timer`, `MaxPressure`, `ThemeType`,
+  `RhythmGameManager`, `IsCooking`, `IsFoodSelecting`, `PrevFoodItemID/Count`, `StartRepeatCooking()` (Triangle),
+  `StartRandomCooking()` (Square), `StartCooking(List<CookingMasterFoodItem>)`. Player: `FoodItemList`,
+  `BasketFoodItemCount`, `MaxFoodItemCapacity`. Result `CookingMasterResult { resultType, playerScore, enemyScore }`,
+  `CookingMasterResultType` Timeup/PlayerPressureMax/EnemyPressureMax/Escape.
+- **Food select** `UICookingMasterFoodSelector : UIListSelectorBase`: rows `UICookingMasterFoodActionListItemPresenter`
+  (generic net speaks "Gelatinous Slime, 62"); data `UICookingMasterFoodActionListItemData { itemID, itemName, count,
+  consumeValue, isLuxury, informationData }`; `informationData.dataList` = `UICookingMasterFoodInformationListItemData
+  { itemName (dish), score, isAlreadyCreated }` — the recipe panel ("Amoeba Soup +50 …"). `actionPresenter`
+  (`UICookingMasterFoodActionPresenter`): `createCount` text "1 / 2", `SetCreateCount(int)` (postfix proven),
+  `isSelectItemCount` on the selector while choosing the count; `OnMoveCursor`, `ConfirmExecute` → dialog "Start
+  cooking?".
+- **Rhythm game** (frames, `CookingMasterRhythmGameManager` via `CookingMasterManager.RhythmGameManager`):
+  `CurrentFrame` (frame inside the round), `Fps`, `currentNotes` (List<CookingMasterNotes>), `State`
+  Invalid/SettingNotes/PlacementNotes/Playing/PostPlaying, `GetOneRoundFrame(pressure)` (round length grows with
+  pressure), `CalcJustFrame(notesNo)`, `CalcAllowFrame(cookingLevel, foodItemID)`. Events: `onPlacementNotes`,
+  `onStandByNotes` (Action<CookingMasterNotes>), `onPlayNotes` (notesNumber, cookedItemID, addScore, result).
+  `CookingMasterNotes { itemID, resultItemID (dish), notesNo, justFrame, allowFrames[] (early, per PointType
+  Perfect/Great/Good), lateAllowFrames[], failureFrame, notesResultType, IsInvalidResult }`;
+  `CheckNotesResultType(frame, oneRoundFrame, isInput)` = the judge. UI hooks:
+  `UICookingMasterRhythmGameSelector.SetupCookingMaterialNotes(notes)` (appears),
+  `SetupCookingMaterialStandByNotes(notes)` (ring starts), `SetupCookingResult(notesNumber, cookedItemID, addScore,
+  NotesResultType)` (postfix proven), `SetupPerfectBonusResult()`. Ring: `UICookingMasterRhythmGameTimingCirclePresenter
+  { baseJudgeFrame, startRemainingFrame, deltaUpdateSize, UpdateCircle(int currentFrame) }` — linear shrink.
+  `NotesResultType`: INVALID 0, FAST_FAILURE 1, VERY_FAST_SUCCESS 2, FAST_SUCCESS 3, JUST_SUCCESS 4,
+  LATE_JUST_SUCCESS 5, LATE_SUCCESS 6, VERY_LATE_SUCCESS 7, FAILURE 8; `CookingMasterManager.IsSuccess(type)`.
+  Cue timing for a mod: seconds to hit = (notes.JustFrame − manager.CurrentFrame) / manager.Fps.
+
+### 25.3 Coliseum — `UIColiseumWindow` (26a reception, 52a arena; battles = mb_0043_52a, normal battle handlers)
+- State enum `UIDefine.ColiseumState`: DuelBattleSoloSelect 1, DuelBattle 2, SurvivalBattleSoloSelect 3,
+  SurvivalBattle 4, ChallengeBattle 5, ChallengeBattleMemberSelect 6. Fields `soloCharacterSelector`,
+  `duelBattleSelector`, `survivalBattleSelector`, `challengeBattleSelector`, `challengeBattlePartyMemberSelector`,
+  `currentState`; `SelectedRule` (`ColiseumBattleRule` None/DuelBattle/SurvivalBattle/ChallengeBattle — there is NO
+  group-battle rule in the UI code; "Group Battle" in the receptionist's choice = the challenge path).
+- **Character select** `UIColiseumCharacterSelector : UISelectorBase` (SILENT today): `charaChoicePresenter`,
+  `selectChoiceIndex`, `choiceDataList` (`UIChoiceData.message`, `canDecision` = eligible), `titleLabel`
+  ("Who will be entering?"), `currentRule`, `OnUp(bool isRepeat)/OnDown`, `UpdatePresenter()` (once on open) —
+  poll the index. Ineligible members: `ColiseumManager.GetSoloColiseumIneligibleMembers()`.
+- **Survival** `UISurvivalBattleSelector : UISelectorBase`: `SetChallenger(string name, int level, PlayerID)`
+  (postfix proven), `challengerName`/`challengerLevel` texts, `rewardInformationPresenter` (`maxConsecutiveWinCount`
+  text; `presenters[]` = `UISurvivalBattleRewardItemPresenter { consecutiveWinText, rewardName, clearIconObj
+  (already earned) }`), `readyCheckSelector` (rows Yes / No / "Prepare for Battle" (= camp window;
+  `OnCloseCampWindow`) — `UIColiseumReadyCheckListItemPresenter`, spoken by the generic net).
+- **Duel** `UIDuelBattleSelector : UIListSelectorBase`: rank rows `UIDuelBattleListItemData { messageID, isCleared,
+  battleRank (DuelBattleRank E..A) }` presenter `UIDuelBattleListItemPresenter { rank, clearMark }`;
+  `rankInformationPresenter` texts `rank`, `recommendLevel`, `rankDescription`, `rewardItemName`
+  (`Set(rankText, level, description, rewardItemName, icon)`); `currentState` RankSelect/ReadyCheck;
+  `UpdatePresenter()` (hook proven applied, not exercised); `challengerName`, `challengerLevel`.
+- **Challenge** `UIChallengeBattleSelector : UIListSelectorBase`: rows `UIChallengeBattleListItemData
+  { challengeBattleID, isLocked, battleName, battleDescription, isCleared }`; `battleInformationPresenter` texts
+  `battleName`, `recommendLevel`, `partyRule`, `battleRule`, `description`, `firstRewardName`, `secondRewardName`
+  (`Set(...)`, `SetFirstReward`, `SetSecondReward`); `UpdatePresenter()`. Party screen (state 6)
+  `UIChallengeBattlePartyMemberSelector`: fixed party from `ColiseumManager.GetChallengeBattlePartyMembers()`,
+  `partyMembers[]` status cards (`UIChallengeBattlePartyMemberListItemPresenter.statusPresenter`), only input =
+  its `readyCheckSelector`. `ChallengeBattleRule` FREEDOM/MALE/FEMALE/ATTACKER/SPELLCASTER.
+- Shared `UIColiseumReadyCheckSelector : UIListSelectorBase`: `GetSelectedData<UIColiseumReadyCheckListItemData>().text`,
+  `Choice` Yes/No/Other01/Other02.
+
 ## Change History
 
+- **2026-09-28 (session 50):** §25 added — Fun City minigames: bunny race (medal shop digit entry, bet rows/paddock, race order API), cooking master (cook select, HUD presenters, food/recipe data, rhythm game frame timing + NotesResultType), coliseum (states, character picker, survival/duel/challenge presenters). Survey log analysed; hooks proven.
 - **2026-09-26 (session 45):** §24 added — Nede world map facts, world grid data rect, culling coverage, loop/silhouette copy creators, psynard settings/landing API, the bake survey and per-planet bounds rule.
 - **2026-09-26 (session 44):** §15 — `UISystemWindow` (four system selectors outside the camp stack) and the item discard screen: `UIItemDiscardSelector`, `UIItemDiscardListItemData.isDecisioned`, rows are `UICampItemListItemPresenter`.
 - **2026-09-13 (session 21):** §23 (9) — bubble-verified stand inside Arlia's town wall; bake body-fit test (`BodyWallClearance`), `WallClearance` file field, "stopped short" verdict.
