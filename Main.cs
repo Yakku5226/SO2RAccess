@@ -78,6 +78,9 @@ namespace SO2RAccess
         private FieldPromptHandler _fieldPromptHandler;
         private FishCollectorHandler _fishCollectorHandler;
         private FishingBaitHandler _fishingBaitHandler;
+        private BunnyRaceHandler _bunnyRaceHandler;
+        private ColiseumHandler _coliseumHandler;
+        private CookingMasterHandler _cookingMasterHandler;
         private ListSelectionHandler _listSelectionHandler;
         private LanguageHandler _languageHandler;
         private DebugHotkeys _debugHotkeys;
@@ -117,6 +120,7 @@ namespace SO2RAccess
             AudioCuePlayer.LoadPrivateActionSound("PrivateAction.wav");
             AudioCuePlayer.LoadGaugeFillSound("GaugeFill.wav");
             AudioCuePlayer.LoadGaugeBreakSound("GaugeBreak.wav");
+            AudioCuePlayer.LoadCookingSounds("CookTick.wav", "CookHit.wav", "CookListen.wav");
             AudioCuePlayer.LoadJumpSound("Jump.wav");
             AudioCuePlayer.LoadFishPromptSound("bubble_big.wav");
 
@@ -167,6 +171,9 @@ namespace SO2RAccess
             _fieldPromptHandler = new FieldPromptHandler();
             _fishCollectorHandler = new FishCollectorHandler();
             _fishingBaitHandler = new FishingBaitHandler();
+            _bunnyRaceHandler = new BunnyRaceHandler();
+            _coliseumHandler = new ColiseumHandler();
+            _cookingMasterHandler = new CookingMasterHandler();
             _listSelectionHandler = new ListSelectionHandler();
             _languageHandler = new LanguageHandler();
             _debugHotkeys = new DebugHotkeys(_navigationHandler);
@@ -203,6 +210,7 @@ namespace SO2RAccess
         {
             if (!_gameReady) return;
             DialogueHandler.ProcessPendingDialogue();
+            DialogueHandler.UpdateSkipAhead();
             _navigationHandler.LateUpdate();
         }
 
@@ -251,11 +259,13 @@ namespace SO2RAccess
             _quickRecoveryHandler?.OnSceneChanged();
             _fishCollectorHandler?.OnSceneChanged();
             _fishingBaitHandler?.OnSceneChanged();
+            _bunnyRaceHandler?.OnSceneChanged();
+            _coliseumHandler?.OnSceneChanged();
+            _cookingMasterHandler?.OnSceneChanged();
             _listSelectionHandler?.OnSceneChanged();
             _subtitleHandler?.OnSceneChanged();
             _fieldPromptHandler?.OnSceneChanged();
             ConfigMenuHandler.OnSceneChanged();
-            MiniGameTrace.OnSceneChanged();
 
             // Apply patches once — safe to call on every scene load, handlers guard against duplicates.
             _titleHandler.ApplyPatches(_harmony);
@@ -290,13 +300,13 @@ namespace SO2RAccess
             _fieldPromptHandler.ApplyPatches(_harmony);
             _quickRecoveryHandler.ApplyPatches(_harmony);
             _fishingBaitHandler.ApplyPatches(_harmony);
+            _bunnyRaceHandler.ApplyPatches(_harmony);
+            _cookingMasterHandler.ApplyPatches(_harmony);
             _listSelectionHandler.ApplyPatches(_harmony);
             _languageHandler.ApplyPatches(_harmony);
 
             // Log-only diagnostics for docs/review-2026-09-19.md (temporary).
             ReviewProbes.ApplyPatches(_harmony);
-            // Log-only survey of the Fun City minigame screens (temporary).
-            MiniGameTrace.ApplyPatches(_harmony);
         }
 
         /// <summary>
@@ -378,7 +388,8 @@ namespace SO2RAccess
                     ModKeys.DisplayName(ModAction.CampStoryHint),
                     ModKeys.DisplayName(ModAction.QuickRecoveryStatus),
                     ModKeys.DisplayName(ModAction.DebugToggle),
-                    ModKeys.DisplayName(ModAction.NavGuide)));
+                    ModKeys.DisplayName(ModAction.NavGuide),
+                    ModKeys.DisplayName(ModAction.MiniGameStatus)));
                 return true;
             }
 
@@ -740,10 +751,12 @@ namespace SO2RAccess
             _fieldPromptHandler.Update();
             _fishCollectorHandler.Update();
             _fishingBaitHandler.Update();
+            _bunnyRaceHandler.Update();
+            _coliseumHandler.Update();
+            _cookingMasterHandler.Update();
             _listSelectionHandler.Update();
             _subtitleHandler.Update();
             ReviewProbes.Update();
-            MiniGameTrace.Update();
         }
 
         #endregion

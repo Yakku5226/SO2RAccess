@@ -75,11 +75,17 @@ namespace SO2RAccess
         /// <summary>Whether emotion bubbles over party members (heart, question mark …) are spoken.</summary>
         public static bool EmotionBubblesEnabled { get; set; } = true;
 
+        /// <summary>Whether the mod scrolls a long dialogue message (already spoken in full) to its last box, so one press closes it.</summary>
+        public static bool DialogueSkipAheadEnabled { get; set; } = true;
+
         /// <summary>Volume of the private action notification sound (0.0 to 1.0). 0 = off.</summary>
         public static float PrivateActionSoundVolume { get; set; } = 0.7f;
 
         /// <summary>Volume of the bonus gauge fill sound (0.0 to 1.0). 0 = off.</summary>
         public static float BonusGaugeSoundVolume { get; set; } = 0.7f;
+
+        /// <summary>Volume of the cooking master rhythm ticks and hit tone (0.0 to 1.0). 0 = off.</summary>
+        public static float CookingCueVolume { get; set; } = 0.8f;
 
         /// <summary>Whether the bonus gauge BREAK (the gauge being lost) is spoken.</summary>
         public static bool BonusGaugeBreakAnnouncementEnabled { get; set; } = true;
@@ -267,8 +273,10 @@ namespace SO2RAccess
                     AllyStatusAilmentEnabled = data.AllyStatusAilmentEnabled;
                     PlayerDamageDealtEnabled = data.PlayerDamageDealtEnabled;
                     EmotionBubblesEnabled = data.EmotionBubblesEnabled;
+                    DialogueSkipAheadEnabled = data.DialogueSkipAheadEnabled;
                     PrivateActionSoundVolume = Math.Clamp(data.PrivateActionSoundVolume, 0f, 1f);
                     BonusGaugeSoundVolume = Math.Clamp(data.BonusGaugeSoundVolume, 0f, 1f);
+                    CookingCueVolume = Math.Clamp(data.CookingCueVolume, 0f, 1f);
                     BonusGaugeBreakAnnouncementEnabled = data.BonusGaugeBreakAnnouncementEnabled;
                     BonusGaugeBreakSoundEnabled = data.BonusGaugeBreakSoundEnabled;
                     BonusGaugeLevelAnnounceEnabled = data.BonusGaugeLevelAnnounceEnabled;
@@ -341,8 +349,10 @@ namespace SO2RAccess
                     AllyStatusAilmentEnabled = AllyStatusAilmentEnabled,
                     PlayerDamageDealtEnabled = PlayerDamageDealtEnabled,
                     EmotionBubblesEnabled = EmotionBubblesEnabled,
+                    DialogueSkipAheadEnabled = DialogueSkipAheadEnabled,
                     PrivateActionSoundVolume = PrivateActionSoundVolume,
                     BonusGaugeSoundVolume = BonusGaugeSoundVolume,
+                    CookingCueVolume = CookingCueVolume,
                     BonusGaugeBreakAnnouncementEnabled = BonusGaugeBreakAnnouncementEnabled,
                     BonusGaugeBreakSoundEnabled = BonusGaugeBreakSoundEnabled,
                     BonusGaugeLevelAnnounceEnabled = BonusGaugeLevelAnnounceEnabled,
@@ -455,8 +465,10 @@ namespace SO2RAccess
             public bool AllyStatusAilmentEnabled { get; set; } = true;
             public bool PlayerDamageDealtEnabled { get; set; } = true;
             public bool EmotionBubblesEnabled { get; set; } = true;
+            public bool DialogueSkipAheadEnabled { get; set; } = true;
             public float PrivateActionSoundVolume { get; set; } = 0.7f;
             public float BonusGaugeSoundVolume { get; set; } = 0.7f;
+            public float CookingCueVolume { get; set; } = 0.8f;
             public bool BonusGaugeBreakAnnouncementEnabled { get; set; } = true;
             public bool BonusGaugeBreakSoundEnabled { get; set; } = true;
             public bool BonusGaugeLevelAnnounceEnabled { get; set; } = true;

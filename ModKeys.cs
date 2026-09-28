@@ -35,6 +35,7 @@ namespace SO2RAccess
         // Context-local readouts
         CampStoryHint,
         QuickRecoveryStatus,
+        MiniGameStatus,        // cooking contest: time, scores, pressure, basket
 
         // Debug-only investigation hotkeys (active only in debug mode)
         DebugObstacleScan,     // F5
@@ -62,6 +63,7 @@ namespace SO2RAccess
         BattlePause,   // only while the battle pause menu is open
         CampMenu,      // only while the camp menu is open
         QuickRecovery, // only while the Quick Recovery overlay is open
+        MiniGame,      // only while a Fun City minigame screen is open
         DebugOnly,     // only while debug mode (F12) is on
     }
 
@@ -113,6 +115,7 @@ namespace SO2RAccess
             // apostrophe. P verified FREE by the same dump.
             { ModAction.CampStoryHint,       Key.Quote },
             { ModAction.QuickRecoveryStatus, Key.P },
+            { ModAction.MiniGameStatus,      Key.P },
 
             // Debug hotkeys
             { ModAction.DebugObstacleScan,    Key.F5 },
@@ -149,6 +152,7 @@ namespace SO2RAccess
 
             { ModAction.CampStoryHint,       ModKeyContext.CampMenu },
             { ModAction.QuickRecoveryStatus, ModKeyContext.QuickRecovery },
+            { ModAction.MiniGameStatus,      ModKeyContext.MiniGame },
 
             { ModAction.DebugObstacleScan,    ModKeyContext.DebugOnly },
             { ModAction.DebugCollisionTrace,  ModKeyContext.DebugOnly },
@@ -210,6 +214,7 @@ namespace SO2RAccess
         public static Key PauseCharRight      => _keys[ModAction.PauseCharRight];
         public static Key CampStoryHint       => _keys[ModAction.CampStoryHint];
         public static Key QuickRecoveryStatus => _keys[ModAction.QuickRecoveryStatus];
+        public static Key MiniGameStatus      => _keys[ModAction.MiniGameStatus];
 
         #endregion
 

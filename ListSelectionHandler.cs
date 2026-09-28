@@ -90,6 +90,17 @@ namespace SO2RAccess
             // ShopHandler
             "UIShopItemListItemPresenter",
 
+            // BunnyRaceHandler (bet rows)
+            "UIBunnyRaceListBetItemPresenter",
+
+            // ColiseumHandler (ready check, duel ranks, challenge battles)
+            "UIColiseumReadyCheckListItemPresenter",
+            "UIDuelBattleListItemPresenter",
+            "UIChallengeBattleListItemPresenter",
+
+            // CookingMasterHandler (ingredient rows)
+            "UICookingMasterFoodActionListItemPresenter",
+
             // FishCollectorHandler
             "UIFishCollectorMenuListItemPresenter",
             "UIFishCollectorSelectFishListItemPresenter",

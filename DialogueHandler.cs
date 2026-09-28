@@ -126,7 +126,7 @@ namespace SO2RAccess
         /// Reads the display text and optional talker name, then announces them.
         /// </summary>
         private static void ConversationPresenter_SetMessage_Postfix(
-            string message, string talkerName, string voiceID)
+            UIConversationPresenter __instance, string message, string talkerName, string voiceID)
         {
             try
             {
@@ -136,6 +136,8 @@ namespace SO2RAccess
                 string cleanName    = StripTags(talkerName ?? "");
 
                 if (string.IsNullOrEmpty(cleanMessage)) return;
+
+                NoteMessage(__instance, cleanMessage);
 
                 // Associate the speaker's display name with the nearest NPC so the
                 // navigation list can show "Elderly person" instead of "Grandfather 2".

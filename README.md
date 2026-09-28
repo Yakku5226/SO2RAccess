@@ -7,7 +7,7 @@ The mod is built on [MelonLoader](https://melonwiki.xyz/) and uses the [Tolk](ht
 ## Features
 
 - Full menu narration — the camp menu and all of its sub-screens (items, equipment, battle skills, status, formation, tactics, item creation, specialties, operations, missions), shops, guilds, save screens, the game-over menu, and the "storage full, choose items to dump" screen that appears when an item does not fit. Where a screen has tabs along the top, cycling them with L1/R1 announces the party member or item category you land on, together with the row under the cursor.
-- Dialogue readout — conversation text is read aloud, including unvoiced lines the game only shows on screen.
+- Dialogue readout — conversation text is read aloud, including unvoiced lines the game only shows on screen. A long message is read in full at once, and the mod scrolls the text box to its last page for you, so one press of Cross closes it as with a short message (voice lines are never cut, and a choice after the message still waits for you). This can be turned off in the mod settings menu (F4).
 - Cutscene subtitles — the subtitle line under movie cutscenes and the caption text events show above characters are read as they appear. Can be turned off in the mod settings menu (F4).
 - Field navigation — a navigation menu lists nearby NPCs, exits, treasure chests, save points, stairs, climb points (ladders, ivy walls) and ledges, warp panels and magic circles, puzzle doors and boulders, and interactable objects (fishing spots, gathering points, switches, statues, floor panels and any other mechanism that takes a button press); pick one and the mod walks you there automatically. When a target sits on a level the mod cannot walk to yet, it tells you how far away it is, and where the shape of the floor suggests the climb or descent begins.
 - Spoken directions — instead of being walked, be guided: pick an item and the mod calls out which way to push the stick and how far, leg by leg, as you walk it yourself. Where no walked route exists yet, it follows the shape of the floor and says so ("unverified route"); the route you then walk is remembered for next time. On the world map the directions follow the same route auto-walk would take and re-plan only when you get stuck or stray far off it.
@@ -19,6 +19,7 @@ The mod is built on [MelonLoader](https://melonwiki.xyz/) and uses the [Tolk](ht
 - Interaction prompts — whenever the game shows its button guide above the player (talk, open, examine, jump, save, use), the mod speaks it with the game's own words, for example "Press Cross to Examine.", once per approach. One switch in the mod settings menu turns all prompt speech off.
 - Emotion bubbles and affection — the little icons the game draws over party members (a heart, a question mark, cold sweat …) are spoken as "Celine: heart.", and the bottom-right relationship toast after a private action is read as "Affection changed: Claude, Celine." A switch in the mod settings menu turns bubble speech off.
 - Audio cues — distinct sounds for events like a nearby enemy, a dodge window, save points, private actions, and the bonus gauge (one beep per level when the level changes, a separate sound when the gauge breaks). Sound and speech output can be toggled independently.
+- Fun City minigames — the bunny race (medal shop, the paddock bunny with speed, stamina and trait, bet rows as "Bunnies 1 and 2: prize", and the running order called during the race), the arena reception (character picker, survival rewards, duel rank info, challenge info and party), and the cooking contest (cook picker, ingredient rows with the dishes they make, the clock, both scores and pressures, and a rhythm cue: a falling chirp starts the preview, where a tone plays on each note over a soft tick; the mod says "Your turn" just before your turn, which sounds the same, and you press together with the tones). P or L3 reads the match status during the contest.
 - Community translations — all spoken text lives in a plain JSON file; anyone can translate the mod without code changes, and the mod can follow the game's own language setting automatically. See [TRANSLATING.md](TRANSLATING.md).
 
 ## Requirements
@@ -88,6 +89,7 @@ read aloud.
 - Apostrophe — spoken directions to the selected item (the keyboard twin of L2 + left stick down); press again on the same item to stop, or on another item to switch
 - Apostrophe (while the camp menu is open) — read the current story hint
 - P (while the Quick Recovery prompt is open) — read party status
+- P (during the cooking contest) — read time, both scores, both pressures and the ingredient count
 
 Navigation needs no opening or closing: press any navigation key on a field or
 the world map and the mod scans your surroundings automatically. Moving on your
@@ -151,7 +153,7 @@ The mod lives on L2 — hold it like a shift key.
 - Release L2 — close the overlay
 - L2 + L3 (click the left stick) — open or close the mod settings menu
 - L2 + R3 (click the right stick) — read your current Fol
-- L3 alone — story hint in the camp menu; party status in Quick Recovery
+- L3 alone — story hint in the camp menu; party status in Quick Recovery; match status in the cooking contest
 - Battle pause menu: L1 / R1 — more / less detail about the selected character
 
 Moving the left stick (without L2) quietly stops an auto-walk. In the mod
@@ -200,6 +202,7 @@ The notification sounds are sourced from [Freesound](https://freesound.org/) und
 - Twin Bells (dungeon beacon) by Streetpoptunez — <https://freesound.org/s/653752/> — License: Creative Commons 0
 - waves-lapping (fishing spot beacon) by cyoung510 — <https://freesound.org/s/523399/> — License: Creative Commons 0
 - Gathering point beacon: synthesized placeholder made for this mod (no third-party material).
+- Cooking contest rhythm tick, note tone and listen chirp — generated for this mod
 - Wall proximity tones — generated for this mod
 
 ## License

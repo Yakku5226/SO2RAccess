@@ -48,6 +48,7 @@ namespace SO2RAccess
             var gaugeCue = Cue(() => AudioCuePlayer.IsGaugeFillSoundLoaded, AudioCuePlayer.PlayGaugeFillCue);
             var jumpCue = Cue(() => AudioCuePlayer.IsJumpSoundLoaded, AudioCuePlayer.PlayJumpCue);
             var fishCue = Cue(() => AudioCuePlayer.IsFishPromptSoundLoaded, AudioCuePlayer.PlayFishPromptCue);
+            var cookCue = Cue(() => AudioCuePlayer.IsCookingSoundLoaded, AudioCuePlayer.PlayCookingHit);
 
             return new List<ModMenuItem>
             {
@@ -93,6 +94,10 @@ namespace SO2RAccess
                     () => ModSettings.JumpPromptSoundVolume,
                     v => ModSettings.JumpPromptSoundVolume = v, jumpCue),
 
+                Volume("mod_menu_label_cooking_volume",
+                    () => ModSettings.CookingCueVolume,
+                    v => ModSettings.CookingCueVolume = v, cookCue),
+
                 Toggle("mod_menu_label_fish_sound",
                     () => ModSettings.FishPromptSoundEnabled,
                     v => ModSettings.FishPromptSoundEnabled = v, fishCue),
@@ -122,6 +127,9 @@ namespace SO2RAccess
                 Toggle("mod_menu_label_prompt_speech",
                     () => ModSettings.PromptSpeechEnabled,
                     v => ModSettings.PromptSpeechEnabled = v),
+                Toggle("mod_menu_label_dialogue_skip_ahead",
+                    () => ModSettings.DialogueSkipAheadEnabled,
+                    v => ModSettings.DialogueSkipAheadEnabled = v),
                 Toggle("mod_menu_label_emotion_bubbles",
                     () => ModSettings.EmotionBubblesEnabled,
                     v => ModSettings.EmotionBubblesEnabled = v)

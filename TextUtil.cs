@@ -142,11 +142,28 @@ namespace SO2RAccess
                 string nameID = param.itemNameID;
                 if (string.IsNullOrEmpty(nameID)) return null;
 
+                // The game's own item text lookup first (the battle item menu uses it and
+                // gets real names); the text manager's item table second. Either can hand
+                // back the key itself for a missing entry ("0769", log 2026-09-28 13:37),
+                // which is not a name.
+                string fromGame = SafeItemMessage(ParameterManager.Instance, nameID);
+                if (IsRealName(fromGame, nameID)) return StripTags(fromGame);
+
                 var tm = TextManager.Instance;
                 if (tm != null)
                 {
                     string resolved = tm.GetMessage(nameID, TextManager.MessageType.Item);
-                    if (!string.IsNullOrEmpty(resolved)) return StripTags(resolved);
+                    if (IsRealName(resolved, nameID)) return StripTags(resolved);
+                }
+
+                // A numeric key ("0813") is not readable text: report no name so the
+                // caller uses its own fallback instead of speaking an id (log 2026-09-28).
+                bool digitsOnly = true;
+                foreach (char c in nameID) if (c < '0' || c > '9') { digitsOnly = false; break; }
+                if (digitsOnly)
+                {
+                    DebugLogger.LogState($"TextUtil.ResolveItemName({itemID}): key '{nameID}' has no text.");
+                    return null;
                 }
 
                 // Fallback: parse key (e.g. "ITEM_BLUEBERRY" → "Blueberry").
@@ -163,6 +180,20 @@ namespace SO2RAccess
                 DebugLogger.LogState($"TextUtil.ResolveItemName({itemID}) error: {ex.Message}");
                 return null;
             }
+        }
+
+        private static string SafeItemMessage(ParameterManager pm, string nameID)
+        {
+            try { return pm?.GetItemMessage(nameID); }
+            catch { return null; }
+        }
+
+        /// <summary>True when a looked-up text is a readable name, not empty, the key itself or a bare number.</summary>
+        private static bool IsRealName(string text, string key)
+        {
+            if (string.IsNullOrWhiteSpace(text) || text == key) return false;
+            foreach (char c in text) if (c < '0' || c > '9') return true;
+            return false;
         }
 
         /// <summary>
